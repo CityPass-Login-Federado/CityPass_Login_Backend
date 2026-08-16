@@ -2,6 +2,7 @@ package ar.edu.uade.citypass.loginfederado.controller;
 
 import ar.edu.uade.citypass.loginfederado.dto.LoginRequest;
 import ar.edu.uade.citypass.loginfederado.dto.LoginResponse;
+import ar.edu.uade.citypass.loginfederado.dto.RefreshRequest;
 import ar.edu.uade.citypass.loginfederado.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -23,5 +24,10 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshRequest request) {
+        return ResponseEntity.ok(authService.refresh(request));
     }
 }
