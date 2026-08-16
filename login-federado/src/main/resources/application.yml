@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: login-federado
+
+  # --- LDAP ---
+  ldap:
+    urls: ldap://localhost:389
+    base: dc=citypass,dc=local
+    username: cn=admin,dc=citypass,dc=local
+    password: ${LDAP_ADMIN_PASSWORD:admin}
+
+  # --- PostgreSQL ---
+  datasource:
+    url: jdbc:postgresql://localhost:5432/login_federado
+    username: ${DB_USERNAME:citypass}
+    password: ${DB_PASSWORD:citypass}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    open-in-view: false
+
+  # --- Docker Compose support (dev) ---
+  docker:
+    compose:
+      enabled: true
+      file: docker-compose.yml
+
+server:
+  port: 8081
+
+# --- JWT / RS256 ---
+jwt:
+  issuer: citypass-auth
+  audience: citypass-platform
+  access-token-expiration-minutes: 15
+  refresh-token-expiration-days: 7
+  private-key-path: classpath:keys/private_key.pem
+  public-key-path: classpath:keys/public_key.pem
+
+springdoc:
+  swagger-ui:
+    path: /docs

@@ -1,0 +1,52 @@
+# Unidades organizativas
+dn: ou=usuarios,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: usuarios
+
+dn: ou=grupos,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: grupos
+
+# Grupos / roles
+dn: cn=ciudadano,ou=grupos,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: ciudadano
+member: uid=jperez,ou=usuarios,dc=citypass,dc=local
+
+dn: cn=empleado_municipal,ou=grupos,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: empleado_municipal
+member: uid=mgomez,ou=usuarios,dc=citypass,dc=local
+
+dn: cn=admin,ou=grupos,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: admin
+member: uid=admin1,ou=usuarios,dc=citypass,dc=local
+
+# Usuarios de prueba
+dn: uid=jperez,ou=usuarios,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: jperez
+cn: Juan Perez
+sn: Perez
+givenName: Juan
+mail: jperez@citypass.gob.ar
+userPassword: {SSHA}changeit123
+
+dn: uid=mgomez,ou=usuarios,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: mgomez
+cn: Maria Gomez
+sn: Gomez
+givenName: Maria
+mail: mgomez@citypass.gob.ar
+userPassword: {SSHA}changeit123
+
+dn: uid=admin1,ou=usuarios,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: admin1
+cn: Admin Uno
+sn: Uno
+givenName: Admin
+mail: admin1@citypass.gob.ar
+userPassword: {SSHA}changeit123

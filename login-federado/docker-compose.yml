@@ -1,0 +1,29 @@
+services:
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: citypass-ldap
+    environment:
+      LDAP_ORGANISATION: "CityPass"
+      LDAP_DOMAIN: "citypass.local"
+      LDAP_ADMIN_PASSWORD: "admin"
+    ports:
+      - "389:389"
+      - "636:636"
+    volumes:
+      - ./ldap/seed:/container/service/slapd/assets/config/bootstrap/ldif/custom
+    command: --copy-service
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: citypass-db
+    environment:
+      POSTGRES_DB: login_federado
+      POSTGRES_USER: citypass
+      POSTGRES_PASSWORD: citypass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

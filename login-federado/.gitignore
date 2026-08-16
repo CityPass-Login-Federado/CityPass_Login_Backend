@@ -1,0 +1,31 @@
+HELP.md
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### VS Code ###
+.vscode/
+
+### macOS / OS ###
+.DS_Store
+
+### Env / claves (NUNCA subir claves privadas ni credenciales reales) ###
+.env
+src/main/resources/keys/private_key.pem
+src/main/resources/keys/public_key.pem
