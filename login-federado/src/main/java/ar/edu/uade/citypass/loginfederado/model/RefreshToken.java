@@ -19,12 +19,16 @@ public class RefreshToken {
     @Column(nullable = false)
     private String username;
 
+    @Column(name = "full_name")
+    private String fullName;
+
+    @Column(name = "email")
+    private String email;
+
     // Hash SHA-256 del token, nunca el valor crudo.
     @Column(name = "token_hash", nullable = false, unique = true, length = 64)
     private String tokenHash;
 
-    // Roles al momento de la emisión, para reconstruir el access token sin
-    // volver a golpear LDAP en cada refresh (se recalculan en el próximo login).
     @Column(name = "roles", nullable = false)
     private String roles;
 
@@ -40,8 +44,11 @@ public class RefreshToken {
     protected RefreshToken() {
     }
 
-    public RefreshToken(String username, String tokenHash, List<String> roles, Instant issuedAt, Instant expiresAt) {
+    public RefreshToken(String username, String fullName, String email, String tokenHash,
+                         List<String> roles, Instant issuedAt, Instant expiresAt) {
         this.username = username;
+        this.fullName = fullName;
+        this.email = email;
         this.tokenHash = tokenHash;
         this.roles = String.join(",", roles);
         this.issuedAt = issuedAt;
@@ -50,6 +57,8 @@ public class RefreshToken {
 
     public UUID getId() { return id; }
     public String getUsername() { return username; }
+    public String getFullName() { return fullName; }
+    public String getEmail() { return email; }
     public String getTokenHash() { return tokenHash; }
     public Instant getIssuedAt() { return issuedAt; }
     public Instant getExpiresAt() { return expiresAt; }

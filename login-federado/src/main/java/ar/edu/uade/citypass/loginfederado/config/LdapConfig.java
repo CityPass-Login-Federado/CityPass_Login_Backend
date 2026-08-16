@@ -13,6 +13,8 @@ import org.springframework.security.ldap.search.LdapUserSearch;
 import org.springframework.security.ldap.userdetails.DefaultLdapAuthoritiesPopulator;
 import org.springframework.security.ldap.userdetails.LdapAuthoritiesPopulator;
 
+import ar.edu.uade.citypass.loginfederado.security.CustomLdapUserDetailsMapper;
+
 import java.util.List;
 
 /**
@@ -90,9 +92,17 @@ public class LdapConfig {
     }
 
     @Bean
+    public CustomLdapUserDetailsMapper customLdapUserDetailsMapper() {
+        return new CustomLdapUserDetailsMapper();
+    }
+    @Bean
     public LdapAuthenticationProvider ldapAuthenticationProvider(BindAuthenticator bindAuthenticator,
-                                                                LdapAuthoritiesPopulator authoritiesPopulator) {
-        return new LdapAuthenticationProvider(bindAuthenticator, authoritiesPopulator);
+                                                                LdapAuthoritiesPopulator authoritiesPopulator,
+                                                                CustomLdapUserDetailsMapper customLdapUserDetailsMapper) {
+        LdapAuthenticationProvider provider =
+                new LdapAuthenticationProvider(bindAuthenticator, authoritiesPopulator);
+        provider.setUserDetailsContextMapper(customLdapUserDetailsMapper);
+        return provider;
     }
 
     /**

@@ -4,6 +4,7 @@ import ar.edu.uade.citypass.loginfederado.config.JwtProperties;
 import ar.edu.uade.citypass.loginfederado.dto.LoginRequest;
 import ar.edu.uade.citypass.loginfederado.dto.LoginResponse;
 import ar.edu.uade.citypass.loginfederado.dto.RefreshRequest;
+import ar.edu.uade.citypass.loginfederado.security.LdapUserPrincipal;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -50,11 +51,13 @@ public class AuthService {
             throw new BadCredentialsException("Usuario o contraseña inválidos");
         }
 
-        String username = authentication.getName();
+        LdapUserPrincipal principal = (LdapUserPrincipal) authentication.getPrincipal();
         List<String> roles = extractRoles(authentication);
 
-        String accessToken = buildAccessToken(username, roles);
-        String refreshToken = refreshTokenService.issueFor(username, roles);
+        String accessToken = buildAccessToken(principal.getUsername(), principal.getFullName(),
+                principal.getEmail(), roles);
+        String refreshToken = refreshTokenService.issueFor(principal.getUsername(),
+                principal.getFullName(), principal.getEmail(), roles);
 
         return new LoginResponse(accessToken, refreshToken, "Bearer",
                 jwtProperties.accessTokenExpirationMinutes() * 60);
@@ -63,14 +66,16 @@ public class AuthService {
     public LoginResponse refresh(RefreshRequest request) {
         RefreshTokenPrincipal principal = refreshTokenService.validateAndRotate(request.refreshToken());
 
-        String accessToken = buildAccessToken(principal.username(), principal.roles());
-        String newRefreshToken = refreshTokenService.issueFor(principal.username(), principal.roles());
+        String accessToken = buildAccessToken(principal.username(), principal.fullName(),
+                principal.email(), principal.roles());
+        String newRefreshToken = refreshTokenService.issueFor(principal.username(), principal.fullName(),
+                principal.email(), principal.roles());
 
         return new LoginResponse(accessToken, newRefreshToken, "Bearer",
                 jwtProperties.accessTokenExpirationMinutes() * 60);
     }
 
-    private String buildAccessToken(String username, List<String> roles) {
+    private String buildAccessToken(String username, String fullName, String email, List<String> roles) {
         Instant now = Instant.now();
         Instant expiry = now.plusSeconds(jwtProperties.accessTokenExpirationMinutes() * 60);
 
@@ -82,6 +87,8 @@ public class AuthService {
                 .expiresAt(expiry)
                 .id(UUID.randomUUID().toString())
                 .claim("roles", roles)
+                .claim("name", fullName)
+                .claim("email", email)
                 .claim("token_type", "access")
                 .build();
 

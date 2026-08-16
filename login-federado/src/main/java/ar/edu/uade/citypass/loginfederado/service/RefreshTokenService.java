@@ -37,12 +37,14 @@ public class RefreshTokenService {
         this.jwtProperties = jwtProperties;
     }
 
-    public String issueFor(String username, List<String> roles) {
+    public String issueFor(String username, String fullName, String email, List<String> roles) {
         String rawToken = generateRawToken();
         Instant now = Instant.now();
         Instant expiresAt = now.plusSeconds(jwtProperties.refreshTokenExpirationDays() * 24 * 60 * 60);
 
-        refreshTokenRepository.save(new RefreshToken(username, hash(rawToken), roles, now, expiresAt));
+        refreshTokenRepository.save(
+                new RefreshToken(username, fullName, email, hash(rawToken), roles, now, expiresAt)
+        );
 
         return rawToken;
     }
@@ -58,7 +60,8 @@ public class RefreshTokenService {
         stored.revoke();
         refreshTokenRepository.save(stored);
 
-        return new RefreshTokenPrincipal(stored.getUsername(), stored.getRolesList());
+        return new RefreshTokenPrincipal(stored.getUsername(), stored.getFullName(),
+                stored.getEmail(), stored.getRolesList());
     }
 
     /** Usado en logout: invalida todas las sesiones activas del usuario. */
