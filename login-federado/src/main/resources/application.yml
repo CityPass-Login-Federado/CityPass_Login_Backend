@@ -33,6 +33,7 @@ server:
 jwt:
   issuer: citypass-auth
   audience: citypass-platform
+  key-id: citypass-auth-key-1
   access-token-expiration-minutes: 15
   refresh-token-expiration-days: 7
   private-key-path: classpath:keys/private_key.pem
