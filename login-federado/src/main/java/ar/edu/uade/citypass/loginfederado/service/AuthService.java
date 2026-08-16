@@ -106,4 +106,8 @@ public class AuthService {
                 .map(role -> role.replaceFirst("^ROLE_", ""))
                 .collect(Collectors.toList());
     }
+
+    public void logout(String username) {
+        refreshTokenService.revokeAllFor(username);
+    }
 }

@@ -6,6 +6,8 @@ import ar.edu.uade.citypass.loginfederado.dto.RefreshRequest;
 import ar.edu.uade.citypass.loginfederado.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,5 +31,17 @@ public class AuthController {
     @PostMapping("/refresh")
     public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshRequest request) {
         return ResponseEntity.ok(authService.refresh(request));
+    }
+
+    /**
+     * Requiere un access token válido (no está en PUBLIC_ENDPOINTS de
+     * SecurityConfig). El "sub" del JWT ya validado identifica al usuario
+     * a desloguear -- no se recibe por body, para que nadie pueda cerrar
+     * la sesión de otro usuario mandando su username a mano.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@AuthenticationPrincipal Jwt jwt) {
+        authService.logout(jwt.getSubject());
+        return ResponseEntity.noContent().build();
     }
 }
