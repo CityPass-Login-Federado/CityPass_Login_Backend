@@ -2,6 +2,10 @@ spring:
   application:
     name: login-federado
 
+  sql:
+    init:
+      mode: always
+
   # --- LDAP ---
   ldap:
     urls: ldap://localhost:389
