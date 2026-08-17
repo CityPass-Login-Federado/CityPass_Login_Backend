@@ -39,6 +39,10 @@ jwt:
   private-key-path: classpath:keys/private_key.pem
   public-key-path: classpath:keys/public_key.pem
 
+security:
+  lockout:
+    max-failed-attempts: 5
+    window-minutes: 15
 springdoc:
   swagger-ui:
     path: /docs

@@ -12,12 +12,13 @@ import java.util.Map;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(BadCredentialsException.class)
-    public ResponseEntity<Map<String, Object>> handleBadCredentials(BadCredentialsException ex) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+    @ExceptionHandler(ar.edu.uade.citypass.loginfederado.exception.AccountLockedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccountLocked(
+            ar.edu.uade.citypass.loginfederado.exception.AccountLockedException ex) {
+        return ResponseEntity.status(HttpStatus.LOCKED).body(Map.of(
                 "timestamp", Instant.now().toString(),
-                "status", 401,
-                "error", "Credenciales inválidas",
+                "status", 423,
+                "error", "Cuenta bloqueada",
                 "message", ex.getMessage()
         ));
     }

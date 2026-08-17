@@ -4,6 +4,7 @@ import ar.edu.uade.citypass.loginfederado.dto.LoginRequest;
 import ar.edu.uade.citypass.loginfederado.dto.LoginResponse;
 import ar.edu.uade.citypass.loginfederado.dto.RefreshRequest;
 import ar.edu.uade.citypass.loginfederado.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -12,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/auth")
@@ -23,9 +25,25 @@ public class AuthController {
         this.authService = authService;
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+@PostMapping("/login")
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request,
+                                                HttpServletRequest httpRequest) {
+        String ipAddress = resolveClientIp(httpRequest);
+        String userAgent = httpRequest.getHeader("User-Agent");
+        return ResponseEntity.ok(authService.login(request, ipAddress, userAgent));
+    }
+
+    /**
+     * Si el módulo corre detrás de un proxy/load balancer, la IP real del
+     * cliente viaja en X-Forwarded-For y no en getRemoteAddr(). Se toma el
+     * primer valor de esa cabecera si está presente.
+     */
+    private String resolveClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            return forwardedFor.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 
     @PostMapping("/refresh")

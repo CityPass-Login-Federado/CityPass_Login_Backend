@@ -32,7 +32,7 @@ import java.util.Base64;
  * JWKS público (futuro JwksController) usando solo la clave pública.
  */
 @Configuration
-@EnableConfigurationProperties(JwtProperties.class)
+@EnableConfigurationProperties({JwtProperties.class, LockoutProperties.class})
 public class JwtKeyConfig {
 
     private final ResourceLoader resourceLoader;

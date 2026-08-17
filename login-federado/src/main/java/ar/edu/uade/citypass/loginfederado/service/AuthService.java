@@ -4,6 +4,8 @@ import ar.edu.uade.citypass.loginfederado.config.JwtProperties;
 import ar.edu.uade.citypass.loginfederado.dto.LoginRequest;
 import ar.edu.uade.citypass.loginfederado.dto.LoginResponse;
 import ar.edu.uade.citypass.loginfederado.dto.RefreshRequest;
+import ar.edu.uade.citypass.loginfederado.event.EventPublisher;
+import ar.edu.uade.citypass.loginfederado.event.UsuarioAutenticadoEvent;
 import ar.edu.uade.citypass.loginfederado.security.LdapUserPrincipal;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -30,26 +32,37 @@ public class AuthService {
     private final JwtEncoder jwtEncoder;
     private final JwtProperties jwtProperties;
     private final RefreshTokenService refreshTokenService;
+    private final EventPublisher eventPublisher;
+    private final LoginAttemptService loginAttemptService;
 
     public AuthService(AuthenticationManager ldapAuthenticationManager,
                         JwtEncoder jwtEncoder,
                         JwtProperties jwtProperties,
-                        RefreshTokenService refreshTokenService) {
+                        RefreshTokenService refreshTokenService,
+                        EventPublisher eventPublisher,
+                        LoginAttemptService loginAttemptService) {
         this.ldapAuthenticationManager = ldapAuthenticationManager;
         this.jwtEncoder = jwtEncoder;
         this.jwtProperties = jwtProperties;
         this.refreshTokenService = refreshTokenService;
+        this.eventPublisher = eventPublisher;
+        this.loginAttemptService = loginAttemptService;
     }
 
-    public LoginResponse login(LoginRequest request) {
+    public LoginResponse login(LoginRequest request, String ipAddress, String userAgent) {
+        loginAttemptService.assertNotLocked(request.username());
+
         Authentication authentication;
         try {
             authentication = ldapAuthenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.username(), request.password())
             );
         } catch (BadCredentialsException ex) {
+            loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, false);
             throw new BadCredentialsException("Usuario o contraseña inválidos");
         }
+
+        loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, true);
 
         LdapUserPrincipal principal = (LdapUserPrincipal) authentication.getPrincipal();
         List<String> roles = extractRoles(authentication);
@@ -58,6 +71,13 @@ public class AuthService {
                 principal.getEmail(), roles);
         String refreshToken = refreshTokenService.issueFor(principal.getUsername(),
                 principal.getFullName(), principal.getEmail(), roles);
+
+        // Se publica solo en login real (no en refresh), porque representa
+        // el evento de negocio "un usuario se autenticó en la plataforma".
+        eventPublisher.publish(
+                "usuario.autenticado",
+                UsuarioAutenticadoEvent.of(principal.getUsername(), principal.getEmail(), roles)
+        );
 
         return new LoginResponse(accessToken, refreshToken, "Bearer",
                 jwtProperties.accessTokenExpirationMinutes() * 60);
@@ -73,6 +93,16 @@ public class AuthService {
 
         return new LoginResponse(accessToken, newRefreshToken, "Bearer",
                 jwtProperties.accessTokenExpirationMinutes() * 60);
+    }
+
+    /**
+     * Revoca todos los refresh tokens activos del usuario, invalidando
+     * todas sus sesiones. El access token ya emitido sigue siendo válido
+     * hasta que expire (es corto, ~15 min) porque no se persiste en
+     * ningún lado para poder revocarlo individualmente sin costo extra.
+     */
+    public void logout(String username) {
+        refreshTokenService.revokeAllFor(username);
     }
 
     private String buildAccessToken(String username, String fullName, String email, List<String> roles) {
@@ -105,9 +135,5 @@ public class AuthService {
                 .map(GrantedAuthority::getAuthority)
                 .map(role -> role.replaceFirst("^ROLE_", ""))
                 .collect(Collectors.toList());
-    }
-
-    public void logout(String username) {
-        refreshTokenService.revokeAllFor(username);
     }
 }
