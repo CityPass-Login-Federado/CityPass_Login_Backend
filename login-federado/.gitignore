@@ -27,5 +27,4 @@ target/
 
 ### Env / claves (NUNCA subir claves privadas ni credenciales reales) ###
 .env
-src/main/resources/keys/private_key.pem
-src/main/resources/keys/public_key.pem
+/keys/

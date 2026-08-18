@@ -40,8 +40,8 @@ jwt:
   key-id: citypass-auth-key-1
   access-token-expiration-minutes: 15
   refresh-token-expiration-days: 7
-  private-key-path: classpath:keys/private_key.pem
-  public-key-path: classpath:keys/public_key.pem
+  private-key-path: file:./keys/private_key.pem
+  public-key-path: file:./keys/public_key.pem
 
 security:
   lockout:
