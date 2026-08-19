@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.service;
+package citypass.loginfederado.service;
 
 import java.util.List;
 

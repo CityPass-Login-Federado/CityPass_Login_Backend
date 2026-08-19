@@ -1,9 +1,9 @@
-package ar.edu.uade.citypass.loginfederado.controller;
+package citypass.loginfederado.controller;
 
-import ar.edu.uade.citypass.loginfederado.dto.LoginRequest;
-import ar.edu.uade.citypass.loginfederado.dto.LoginResponse;
-import ar.edu.uade.citypass.loginfederado.dto.RefreshRequest;
-import ar.edu.uade.citypass.loginfederado.service.AuthService;
+import citypass.loginfederado.dto.LoginRequest;
+import citypass.loginfederado.dto.LoginResponse;
+import citypass.loginfederado.dto.RefreshRequest;
+import citypass.loginfederado.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;

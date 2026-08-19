@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.config;
+package citypass.loginfederado.config;
 
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;

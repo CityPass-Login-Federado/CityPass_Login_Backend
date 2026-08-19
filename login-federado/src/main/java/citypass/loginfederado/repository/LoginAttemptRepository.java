@@ -1,6 +1,6 @@
-package ar.edu.uade.citypass.loginfederado.repository;
+package citypass.loginfederado.repository;
 
-import ar.edu.uade.citypass.loginfederado.model.LoginAttempt;
+import citypass.loginfederado.model.LoginAttempt;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;

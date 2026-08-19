@@ -1,6 +1,6 @@
-package ar.edu.uade.citypass.loginfederado.controller;
+package citypass.loginfederado.controller;
 
-import ar.edu.uade.citypass.loginfederado.config.JwtProperties;
+import citypass.loginfederado.config.JwtProperties;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;

@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.event;
+package citypass.loginfederado.event;
 
 import java.time.Instant;
 import java.util.List;

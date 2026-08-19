@@ -31,7 +31,7 @@ spring:
       file: docker-compose.yml
 
 server:
-  port: 8081
+  port: 8082
 
 # --- JWT / RS256 ---
 jwt:
@@ -50,3 +50,7 @@ security:
 springdoc:
   swagger-ui:
     path: /docs
+
+anomaly:
+  service:
+    url: ${ANOMALY_SERVICE_URL:http://localhost:8000}

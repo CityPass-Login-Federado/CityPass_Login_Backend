@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.dto;
+package citypass.loginfederado.dto;
 
 public record LoginResponse(
         String accessToken,

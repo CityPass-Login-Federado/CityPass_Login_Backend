@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado;
+package citypass.loginfederado;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

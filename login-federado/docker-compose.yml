@@ -29,16 +29,27 @@ services:
     build: .
     container_name: citypass-login
     ports:
-      - "8081:8081"
+      - "8081:8082"
     environment:
       LDAP_ADMIN_PASSWORD: "admin"
       DB_USERNAME: "citypass"
       DB_PASSWORD: "citypass"
       SPRING_LDAP_URLS: "ldap://openldap:389"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/login_federado"
+      ANOMALY_SERVICE_URL: "http://anomaly-detection:8000"   
     depends_on:
       - openldap
       - postgres
+      - anomaly-detection  
 
+  anomaly-detection:
+    build: ../anomaly-detection
+    container_name: citypass-anomaly-detection
+    ports:
+      - "8000:8000"
+    environment:
+      ANOMALY_DB_URL: "postgresql://citypass:citypass@postgres:5432/login_federado"
+    depends_on:
+      - postgres
 volumes:
   pgdata:

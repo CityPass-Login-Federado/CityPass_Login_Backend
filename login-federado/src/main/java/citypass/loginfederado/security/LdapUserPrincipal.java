@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.security;
+package citypass.loginfederado.security;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;

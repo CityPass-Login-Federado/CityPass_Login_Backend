@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.config;
+package citypass.loginfederado.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -13,7 +13,7 @@ import org.springframework.security.ldap.search.LdapUserSearch;
 import org.springframework.security.ldap.userdetails.DefaultLdapAuthoritiesPopulator;
 import org.springframework.security.ldap.userdetails.LdapAuthoritiesPopulator;
 
-import ar.edu.uade.citypass.loginfederado.security.CustomLdapUserDetailsMapper;
+import citypass.loginfederado.security.CustomLdapUserDetailsMapper;
 
 import java.util.List;
 

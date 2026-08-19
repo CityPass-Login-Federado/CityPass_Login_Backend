@@ -1,9 +1,9 @@
-package ar.edu.uade.citypass.loginfederado.service;
+package citypass.loginfederado.service;
 
-import ar.edu.uade.citypass.loginfederado.config.LockoutProperties;
-import ar.edu.uade.citypass.loginfederado.exception.AccountLockedException;
-import ar.edu.uade.citypass.loginfederado.model.LoginAttempt;
-import ar.edu.uade.citypass.loginfederado.repository.LoginAttemptRepository;
+import citypass.loginfederado.config.LockoutProperties;
+import citypass.loginfederado.exception.AccountLockedException;
+import citypass.loginfederado.model.LoginAttempt;
+import citypass.loginfederado.repository.LoginAttemptRepository;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;

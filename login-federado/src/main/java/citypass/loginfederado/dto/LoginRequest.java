@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.dto;
+package citypass.loginfederado.dto;
 
 import jakarta.validation.constraints.NotBlank;
 

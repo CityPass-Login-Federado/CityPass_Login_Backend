@@ -1,12 +1,15 @@
-package ar.edu.uade.citypass.loginfederado.service;
+package citypass.loginfederado.service;
 
-import ar.edu.uade.citypass.loginfederado.config.JwtProperties;
-import ar.edu.uade.citypass.loginfederado.dto.LoginRequest;
-import ar.edu.uade.citypass.loginfederado.dto.LoginResponse;
-import ar.edu.uade.citypass.loginfederado.dto.RefreshRequest;
-import ar.edu.uade.citypass.loginfederado.event.EventPublisher;
-import ar.edu.uade.citypass.loginfederado.event.UsuarioAutenticadoEvent;
-import ar.edu.uade.citypass.loginfederado.security.LdapUserPrincipal;
+import citypass.loginfederado.config.JwtProperties;
+import citypass.loginfederado.dto.AnomalyScoreResponse;
+import citypass.loginfederado.dto.LoginRequest;
+import citypass.loginfederado.dto.LoginResponse;
+import citypass.loginfederado.dto.RefreshRequest;
+import citypass.loginfederado.event.EventPublisher;
+import citypass.loginfederado.event.UsuarioAutenticadoEvent;
+import citypass.loginfederado.exception.AnomalyBlockedException;
+import citypass.loginfederado.security.AnomalyRiskClient;
+import citypass.loginfederado.security.LdapUserPrincipal;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -34,19 +37,22 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final EventPublisher eventPublisher;
     private final LoginAttemptService loginAttemptService;
+    private final AnomalyRiskClient anomalyRiskClient;
 
     public AuthService(AuthenticationManager ldapAuthenticationManager,
                         JwtEncoder jwtEncoder,
                         JwtProperties jwtProperties,
                         RefreshTokenService refreshTokenService,
                         EventPublisher eventPublisher,
-                        LoginAttemptService loginAttemptService) {
+                        LoginAttemptService loginAttemptService,
+                        AnomalyRiskClient anomalyRiskClient) {
         this.ldapAuthenticationManager = ldapAuthenticationManager;
         this.jwtEncoder = jwtEncoder;
         this.jwtProperties = jwtProperties;
         this.refreshTokenService = refreshTokenService;
         this.eventPublisher = eventPublisher;
         this.loginAttemptService = loginAttemptService;
+        this.anomalyRiskClient = anomalyRiskClient;
     }
 
     public LoginResponse login(LoginRequest request, String ipAddress, String userAgent) {
@@ -64,6 +70,21 @@ public class AuthService {
 
         loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, true);
 
+        // Capa 2: consulta al microservicio de detección de anomalías.
+        // Corre DESPUÉS de la Capa 1 (bloqueo por umbral) y del login LDAP exitoso,
+        // porque necesita saber que la contraseña era correcta para decidir si,
+        // aun así, el patrón de acceso amerita rechazar o marcar para revisión.
+        AnomalyScoreResponse riskAssessment = anomalyRiskClient.score(
+                request.username(), ipAddress, userAgent
+        );
+        if ("BLOCK".equals(riskAssessment.decision())) {
+            throw new AnomalyBlockedException(
+                    "Login rechazado por actividad anómala: " + riskAssessment.reasons()
+            );
+        }
+        // TODO: si decision == "REVIEW", marcar el LoginAttempt para auditoría
+        // (requiere agregar una columna tipo `flagged_for_review` a login_attempts).
+
         LdapUserPrincipal principal = (LdapUserPrincipal) authentication.getPrincipal();
         List<String> roles = extractRoles(authentication);
 
@@ -72,8 +93,6 @@ public class AuthService {
         String refreshToken = refreshTokenService.issueFor(principal.getUsername(),
                 principal.getFullName(), principal.getEmail(), roles);
 
-        // Se publica solo en login real (no en refresh), porque representa
-        // el evento de negocio "un usuario se autenticó en la plataforma".
         eventPublisher.publish(
                 "usuario.autenticado",
                 UsuarioAutenticadoEvent.of(principal.getUsername(), principal.getEmail(), roles)
@@ -95,12 +114,6 @@ public class AuthService {
                 jwtProperties.accessTokenExpirationMinutes() * 60);
     }
 
-    /**
-     * Revoca todos los refresh tokens activos del usuario, invalidando
-     * todas sus sesiones. El access token ya emitido sigue siendo válido
-     * hasta que expire (es corto, ~15 min) porque no se persiste en
-     * ningún lado para poder revocarlo individualmente sin costo extra.
-     */
     public void logout(String username) {
         refreshTokenService.revokeAllFor(username);
     }

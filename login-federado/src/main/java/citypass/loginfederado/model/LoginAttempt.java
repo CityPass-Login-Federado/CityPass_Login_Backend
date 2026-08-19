@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.model;
+package citypass.loginfederado.model;
 
 import jakarta.persistence.*;
 

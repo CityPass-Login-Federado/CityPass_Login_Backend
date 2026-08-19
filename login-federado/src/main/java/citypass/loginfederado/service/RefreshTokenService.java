@@ -1,8 +1,8 @@
-package ar.edu.uade.citypass.loginfederado.service;
+package citypass.loginfederado.service;
 
-import ar.edu.uade.citypass.loginfederado.config.JwtProperties;
-import ar.edu.uade.citypass.loginfederado.model.RefreshToken;
-import ar.edu.uade.citypass.loginfederado.repository.RefreshTokenRepository;
+import citypass.loginfederado.config.JwtProperties;
+import citypass.loginfederado.model.RefreshToken;
+import citypass.loginfederado.repository.RefreshTokenRepository;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 

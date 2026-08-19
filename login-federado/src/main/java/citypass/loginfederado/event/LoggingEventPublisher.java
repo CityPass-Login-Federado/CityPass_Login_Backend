@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.event;
+package citypass.loginfederado.event;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

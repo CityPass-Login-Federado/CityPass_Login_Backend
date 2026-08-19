@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.security;
+package citypass.loginfederado.security;
 
 import org.springframework.ldap.core.DirContextAdapter;
 import org.springframework.ldap.core.DirContextOperations;

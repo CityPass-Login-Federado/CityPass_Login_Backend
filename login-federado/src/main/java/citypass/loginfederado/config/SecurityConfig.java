@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.config;
+package citypass.loginfederado.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

@@ -1,4 +1,4 @@
-package ar.edu.uade.citypass.loginfederado.event;
+package citypass.loginfederado.event;
 
 /**
  * Abstracción sobre el bus de eventos. La implementación real (Kafka,
