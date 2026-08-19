@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.git/
+.gitignore
+.env
+.env.*
+README.md
+docs/
+*.md
+train.py
