@@ -1,0 +1,39 @@
+﻿# Build output
+target/
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+
+# Git
+.git/
+.gitignore
+
+# Docker (no incluir otros Dockerfiles en la imagen)
+docker-compose.yml
+docker-compose.*.yml
+
+# Claves RSA (se generan en runtime, no secopian a la imagen)
+keys/
+
+# Environment files
+.env
+.env.*
+
+# Documentation
+docs/
+README.md
+*.md
+
+# LDAP seed data
+ldap/
+
+# OS files
+.DS_Store
+Thumbs.db

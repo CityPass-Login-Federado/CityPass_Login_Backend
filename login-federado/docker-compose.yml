@@ -25,5 +25,20 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  app:
+    build: .
+    container_name: citypass-login
+    ports:
+      - "8081:8081"
+    environment:
+      LDAP_ADMIN_PASSWORD: "admin"
+      DB_USERNAME: "citypass"
+      DB_PASSWORD: "citypass"
+      SPRING_LDAP_URLS: "ldap://openldap:389"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/login_federado"
+    depends_on:
+      - openldap
+      - postgres
+
 volumes:
   pgdata:
