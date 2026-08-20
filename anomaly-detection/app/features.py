@@ -5,6 +5,12 @@ import os
 engine = create_engine(os.environ["ANOMALY_DB_URL"])  # misma Postgres, usuario solo-lectura
 
 def build_features(username: str, ip: str, user_agent: str, ts: datetime) -> dict:
+    # Postgres guarda attempted_at sin timezone (naive). Si ts viene con
+    # timezone (por ejemplo desde Instant.now() de Java, que trae "Z"),
+    # lo normalizamos a naive para poder comparar ambos datetimes.
+    if ts.tzinfo is not None:
+        ts = ts.replace(tzinfo=None)
+
     with engine.connect() as conn:
         history = conn.execute(
             text("""

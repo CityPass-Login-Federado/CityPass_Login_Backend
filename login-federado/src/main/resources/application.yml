@@ -31,7 +31,7 @@ spring:
       file: docker-compose.yml
 
 server:
-  port: 8082
+  port: 8081
 
 # --- JWT / RS256 ---
 jwt:
