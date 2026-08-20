@@ -1,0 +1,25 @@
+# cn=config part 3: overlays. Ordering is load-bearing.
+#
+# memberof MUST be {0} and refint MUST be {1}. Reversing them leaves dangling
+# memberOf values behind on delete.
+#
+# CRITICAL: these overlays are configured at image build time, but they only
+# fire for entries added ONLINE. `slapadd` bypasses overlays entirely, so the
+# seed is applied with `ldapadd` against a running slapd (see ldap-seed
+# service). Seeding with slapadd yields entries with zero memberOf, silently.
+
+dn: olcOverlay={0}memberof,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcMemberOf
+olcOverlay: {0}memberof
+olcMemberOfRefInt: TRUE
+olcMemberOfGroupOC: groupOfNames
+olcMemberOfMemberAD: member
+olcMemberOfMemberOfAD: memberOf
+
+dn: olcOverlay={1}refint,olcDatabase={1}mdb,cn=config
+objectClass: olcOverlayConfig
+objectClass: olcRefintConfig
+olcOverlay: {1}refint
+olcRefintAttribute: memberof member manager owner
+olcRefintNothing: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local

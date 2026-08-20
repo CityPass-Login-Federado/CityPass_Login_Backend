@@ -1,0 +1,31 @@
+{
+  "name": "citypass-idp-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CityPass+ identity PoC: LDAP -> groups -> roles -> JWT",
+  "exports": {
+    "./verifier": "./src/verifier/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:all": "vitest run --coverage",
+    "hash-secret": "tsx scripts/hash-secret.ts"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "jose": "^6.1.0",
+    "ldapts": "^7.3.1",
+    "tsx": "^4.20.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^22.15.3",
+    "@vitest/coverage-v8": "^3.2.4",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

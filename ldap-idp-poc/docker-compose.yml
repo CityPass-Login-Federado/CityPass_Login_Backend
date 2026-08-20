@@ -1,0 +1,83 @@
+# The whole PoC comes up with `docker compose up --build`. No manual steps.
+#
+# Bootstrap ordering is guaranteed by compose primitives, never by sleeps:
+#   ldap        -- cn=config (schema + overlays) is baked into the IMAGE at
+#                  build time, so it exists before the container ever starts.
+#   ldap-seed   -- waits for `service_healthy`, then applies the seed ONLINE
+#                  via ldapadd so the memberof overlay actually fires.
+#   idp         -- waits for `service_completed_successfully` on ldap-seed.
+
+services:
+  ldap:
+    build:
+      context: ./ldap
+    image: citypass/ldap:poc
+    container_name: citypass-ldap
+    ports:
+      - "1389:389"   # unprivileged on the host; inside the network it is 389
+    volumes:
+      - ldap-data:/var/lib/ldap
+    healthcheck:
+      # rootDSE read: works before the suffix entry exists, so the seed
+      # container can rely on it.
+      test: ["CMD", "ldapsearch", "-x", "-H", "ldap://localhost:389", "-b", "", "-s", "base", "namingContexts"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+    restart: unless-stopped
+
+  ldap-seed:
+    build:
+      context: ./ldap
+    image: citypass/ldap:poc
+    container_name: citypass-ldap-seed
+    depends_on:
+      ldap:
+        condition: service_healthy
+    entrypoint: ["/usr/local/bin/seed-entrypoint.sh"]
+    environment:
+      LDAP_URI: ldap://ldap:389
+      LDAP_ADMIN_DN: cn=admin,dc=citypass,dc=local
+      LDAP_ADMIN_PW: ${LDAP_ADMIN_PW:-admin-secret}
+    restart: "no"
+
+  idp:
+    build:
+      context: ./idp
+    image: citypass/idp:poc
+    container_name: citypass-idp
+    depends_on:
+      ldap-seed:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    volumes:
+      # Signing keys MUST outlive the container: a key regenerated on boot
+      # invalidates every token ever issued (acceptance criterion 11).
+      - idp-keys:/keys
+    environment:
+      PORT: 8080
+      ISSUER: ${ISSUER:-https://idp.citypass.local}
+      JWKS_URL: ${JWKS_URL:-http://idp:8080/.well-known/jwks.json}
+      KEYS_DIR: /keys
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-900}
+      LDAP_URL: ldap://ldap:389
+      LDAP_BIND_DN: cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local
+      LDAP_BIND_PW: ${LDAP_READONLY_PW:-readonly-secret}
+      LDAP_PEOPLE_BASE: ou=People,dc=citypass,dc=local
+      LDAP_CONNECT_TIMEOUT_MS: 3000
+      LDAP_TIMEOUT_MS: 5000
+      # PoC-only endpoint. Off unless explicitly enabled -- see README.
+      DEBUG_TOKEN_ENABLED: ${DEBUG_TOKEN_ENABLED:-false}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 4s
+      retries: 20
+      start_period: 3s
+    restart: unless-stopped
+
+volumes:
+  ldap-data:
+  idp-keys:

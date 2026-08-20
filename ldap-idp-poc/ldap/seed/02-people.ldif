@@ -1,0 +1,39 @@
+# Humans. employeeNumber is the stable identifier and becomes the JWT `sub`.
+# Values are HARDCODED, never generated, so that rebuilding the directory
+# always yields the same subject for the same user.
+# Password for all three: Password123!
+
+# Roles in ONE module only (baseline case).
+dn: uid=jperez,ou=People,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: jperez
+cn: Juan Perez
+sn: Perez
+givenName: Juan
+mail: jperez@citypass.local
+employeeNumber: CP-8f7d2c10
+userPassword: {SSHA}rfYdye/pu9bdC0aGTVR6GJZ+/RNm2EQR
+
+# Roles in BOTH modules. Exercises audience filtering.
+dn: uid=mgomez,ou=People,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: mgomez
+cn: Maria Gomez
+sn: Gomez
+givenName: Maria
+mail: mgomez@citypass.local
+employeeNumber: CP-4a1e9b73
+userPassword: {SSHA}rfYdye/pu9bdC0aGTVR6GJZ+/RNm2EQR
+
+# Member of app-reclamos-auditor, which is deliberately ABSENT from the role
+# mapping. Proves unmapped groups are ignored and that roles are not derived
+# by parsing the CN.
+dn: uid=lrossi,ou=People,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: lrossi
+cn: Luca Rossi
+sn: Rossi
+givenName: Luca
+mail: lrossi@citypass.local
+employeeNumber: CP-2c6d0f45
+userPassword: {SSHA}rfYdye/pu9bdC0aGTVR6GJZ+/RNm2EQR

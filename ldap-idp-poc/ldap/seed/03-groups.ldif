@@ -1,0 +1,33 @@
+# Groups. objectClass groupOfNames -> memberships are full DNs in `member`.
+# Naming convention: cn=app-<module>-<role>, lowercase, no accents.
+# Must be applied AFTER 02-people.ldif: refint validates member DNs exist.
+
+dn: cn=app-reclamos-agente,ou=Reclamos,ou=Groups,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: app-reclamos-agente
+member: uid=jperez,ou=People,dc=citypass,dc=local
+
+dn: cn=app-reclamos-supervisor,ou=Reclamos,ou=Groups,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: app-reclamos-supervisor
+member: uid=mgomez,ou=People,dc=citypass,dc=local
+
+# NO MAPPING ENTRY EXISTS FOR THIS GROUP. Intentional. Its name follows the
+# convention exactly, which is the point: a similarly named group must not
+# grant privileges.
+dn: cn=app-reclamos-auditor,ou=Reclamos,ou=Groups,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: app-reclamos-auditor
+member: uid=lrossi,ou=People,dc=citypass,dc=local
+
+dn: cn=app-movilidad-consulta,ou=Movilidad,ou=Groups,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: app-movilidad-consulta
+member: uid=mgomez,ou=People,dc=citypass,dc=local
+
+# Mapped to a real role, but contains only the placeholder. No human is a
+# member, so this role can never appear in a token.
+dn: cn=app-movilidad-supervisor,ou=Movilidad,ou=Groups,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: app-movilidad-supervisor
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local

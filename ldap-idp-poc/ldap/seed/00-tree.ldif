@@ -1,0 +1,28 @@
+# Directory skeleton. Applied ONLINE via ldapadd so the memberof overlay fires.
+dn: dc=citypass,dc=local
+objectClass: top
+objectClass: dcObject
+objectClass: organization
+o: CityPass Plus
+dc: citypass
+
+dn: ou=People,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+description: All internal users. No subdivision by module (design decision).
+
+dn: ou=Groups,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
+dn: ou=Reclamos,ou=Groups,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Reclamos
+
+dn: ou=Movilidad,ou=Groups,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Movilidad
+
+dn: ou=ServiceAccounts,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: ServiceAccounts

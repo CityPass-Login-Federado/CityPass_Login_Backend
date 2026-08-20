@@ -1,0 +1,65 @@
+{
+  "_comment": [
+    "EXTENSION POINT (prod): these two objects become Postgres tables. Only",
+    "src/store.ts reads this file; swapping the source means writing a second",
+    "ConfigStore implementation, nothing else.",
+    "",
+    "roles: keyed by EXACT group DN. A group absent from this table is ignored.",
+    "Roles are never derived from the CN, so adding an LDAP group named",
+    "app-reclamos-admin grants nothing until someone edits this file.",
+    "",
+    "clients.audiences: which audiences the client may request for a HUMAN",
+    "token. Without this list the audience filter is bypassable.",
+    "clients.secretHash: scrypt$N$r$p$saltB64$hashB64. null means the client",
+    "cannot use client_credentials."
+  ],
+
+  "roles": {
+    "cn=app-reclamos-agente,ou=Reclamos,ou=Groups,dc=citypass,dc=local": {
+      "role": "reclamos:agente",
+      "audience": "citypass-reclamos-api"
+    },
+    "cn=app-reclamos-supervisor,ou=Reclamos,ou=Groups,dc=citypass,dc=local": {
+      "role": "reclamos:supervisor",
+      "audience": "citypass-reclamos-api"
+    },
+    "cn=app-movilidad-consulta,ou=Movilidad,ou=Groups,dc=citypass,dc=local": {
+      "role": "movilidad:consulta",
+      "audience": "citypass-movilidad-api"
+    },
+    "cn=app-movilidad-supervisor,ou=Movilidad,ou=Groups,dc=citypass,dc=local": {
+      "role": "movilidad:supervisor",
+      "audience": "citypass-movilidad-api"
+    }
+  },
+
+  "clients": {
+    "citypass-reclamos-web": {
+      "audiences": ["citypass-reclamos-api"],
+      "serviceAudience": [],
+      "secretHash": null
+    },
+    "citypass-movilidad-web": {
+      "audiences": ["citypass-movilidad-api"],
+      "serviceAudience": [],
+      "secretHash": null
+    },
+    "citypass-portal": {
+      "audiences": ["citypass-reclamos-api", "citypass-movilidad-api"],
+      "serviceAudience": [],
+      "secretHash": null
+    },
+    "grupo5": {
+      "audiences": [],
+      "serviceAudience": ["citypass"],
+      "namespace": "com.citypass.reclamos",
+      "secretHash": "scrypt$16384$8$1$6P1qqet3/h5hPzg38RrrAQ==$X0IVYpw0BIwxw/rR3Xr4K/Sw8coZYSx/6vJWDaQWdss="
+    },
+    "grupo1": {
+      "audiences": [],
+      "serviceAudience": ["citypass"],
+      "namespace": "com.citypass.eventbus",
+      "secretHash": "scrypt$16384$8$1$hm6QnGQ2dFk7nzViX/MWlA==$ZtIDl/EaSRwgITyrq/D+965EQTaqOS31SdBZNncVOYQ="
+    }
+  }
+}

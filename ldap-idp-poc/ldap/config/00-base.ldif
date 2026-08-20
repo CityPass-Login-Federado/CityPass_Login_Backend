@@ -1,0 +1,29 @@
+# cn=config part 1: global settings, module loading, schema container.
+# Applied offline with `slapadd -n0` at IMAGE BUILD time (see Dockerfile).
+# The OpenLDAP schema LDIFs are concatenated between this file and
+# 01-database.ldif by the Dockerfile, because the mdb database entry below
+# cannot be parsed until dcObject/inetOrgPerson are known to slapd.
+
+dn: cn=config
+objectClass: olcGlobal
+cn: config
+olcArgsFile: /var/run/slapd/slapd.args
+olcPidFile: /var/run/slapd/slapd.pid
+olcToolThreads: 1
+olcLogLevel: none
+
+# back_mdb is a loadable module in Debian (verified in Stage 0), not compiled
+# in. It MUST be loaded before olcDatabase={1}mdb is added or slapadd fails.
+# memberof must precede refint so that reverse memberships are maintained
+# before referential integrity fixes up dangling DNs.
+dn: cn=module{0},cn=config
+objectClass: olcModuleList
+cn: module{0}
+olcModulePath: /usr/lib/ldap
+olcModuleLoad: back_mdb
+olcModuleLoad: memberof
+olcModuleLoad: refint
+
+dn: cn=schema,cn=config
+objectClass: olcSchemaConfig
+cn: schema

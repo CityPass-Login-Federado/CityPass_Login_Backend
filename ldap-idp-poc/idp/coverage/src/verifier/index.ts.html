@@ -1,0 +1,1063 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for src/verifier/index.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../../prettify.css" />
+    <link rel="stylesheet" href="../../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../../index.html">All files</a> / <a href="index.html">src/verifier</a> index.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">92.9% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>144/155</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">77.61% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>52/67</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">90.9% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>10/11</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">92.9% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>144/155</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line high'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a>
+<a name='L147'></a><a href='#L147'>147</a>
+<a name='L148'></a><a href='#L148'>148</a>
+<a name='L149'></a><a href='#L149'>149</a>
+<a name='L150'></a><a href='#L150'>150</a>
+<a name='L151'></a><a href='#L151'>151</a>
+<a name='L152'></a><a href='#L152'>152</a>
+<a name='L153'></a><a href='#L153'>153</a>
+<a name='L154'></a><a href='#L154'>154</a>
+<a name='L155'></a><a href='#L155'>155</a>
+<a name='L156'></a><a href='#L156'>156</a>
+<a name='L157'></a><a href='#L157'>157</a>
+<a name='L158'></a><a href='#L158'>158</a>
+<a name='L159'></a><a href='#L159'>159</a>
+<a name='L160'></a><a href='#L160'>160</a>
+<a name='L161'></a><a href='#L161'>161</a>
+<a name='L162'></a><a href='#L162'>162</a>
+<a name='L163'></a><a href='#L163'>163</a>
+<a name='L164'></a><a href='#L164'>164</a>
+<a name='L165'></a><a href='#L165'>165</a>
+<a name='L166'></a><a href='#L166'>166</a>
+<a name='L167'></a><a href='#L167'>167</a>
+<a name='L168'></a><a href='#L168'>168</a>
+<a name='L169'></a><a href='#L169'>169</a>
+<a name='L170'></a><a href='#L170'>170</a>
+<a name='L171'></a><a href='#L171'>171</a>
+<a name='L172'></a><a href='#L172'>172</a>
+<a name='L173'></a><a href='#L173'>173</a>
+<a name='L174'></a><a href='#L174'>174</a>
+<a name='L175'></a><a href='#L175'>175</a>
+<a name='L176'></a><a href='#L176'>176</a>
+<a name='L177'></a><a href='#L177'>177</a>
+<a name='L178'></a><a href='#L178'>178</a>
+<a name='L179'></a><a href='#L179'>179</a>
+<a name='L180'></a><a href='#L180'>180</a>
+<a name='L181'></a><a href='#L181'>181</a>
+<a name='L182'></a><a href='#L182'>182</a>
+<a name='L183'></a><a href='#L183'>183</a>
+<a name='L184'></a><a href='#L184'>184</a>
+<a name='L185'></a><a href='#L185'>185</a>
+<a name='L186'></a><a href='#L186'>186</a>
+<a name='L187'></a><a href='#L187'>187</a>
+<a name='L188'></a><a href='#L188'>188</a>
+<a name='L189'></a><a href='#L189'>189</a>
+<a name='L190'></a><a href='#L190'>190</a>
+<a name='L191'></a><a href='#L191'>191</a>
+<a name='L192'></a><a href='#L192'>192</a>
+<a name='L193'></a><a href='#L193'>193</a>
+<a name='L194'></a><a href='#L194'>194</a>
+<a name='L195'></a><a href='#L195'>195</a>
+<a name='L196'></a><a href='#L196'>196</a>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a>
+<a name='L204'></a><a href='#L204'>204</a>
+<a name='L205'></a><a href='#L205'>205</a>
+<a name='L206'></a><a href='#L206'>206</a>
+<a name='L207'></a><a href='#L207'>207</a>
+<a name='L208'></a><a href='#L208'>208</a>
+<a name='L209'></a><a href='#L209'>209</a>
+<a name='L210'></a><a href='#L210'>210</a>
+<a name='L211'></a><a href='#L211'>211</a>
+<a name='L212'></a><a href='#L212'>212</a>
+<a name='L213'></a><a href='#L213'>213</a>
+<a name='L214'></a><a href='#L214'>214</a>
+<a name='L215'></a><a href='#L215'>215</a>
+<a name='L216'></a><a href='#L216'>216</a>
+<a name='L217'></a><a href='#L217'>217</a>
+<a name='L218'></a><a href='#L218'>218</a>
+<a name='L219'></a><a href='#L219'>219</a>
+<a name='L220'></a><a href='#L220'>220</a>
+<a name='L221'></a><a href='#L221'>221</a>
+<a name='L222'></a><a href='#L222'>222</a>
+<a name='L223'></a><a href='#L223'>223</a>
+<a name='L224'></a><a href='#L224'>224</a>
+<a name='L225'></a><a href='#L225'>225</a>
+<a name='L226'></a><a href='#L226'>226</a>
+<a name='L227'></a><a href='#L227'>227</a>
+<a name='L228'></a><a href='#L228'>228</a>
+<a name='L229'></a><a href='#L229'>229</a>
+<a name='L230'></a><a href='#L230'>230</a>
+<a name='L231'></a><a href='#L231'>231</a>
+<a name='L232'></a><a href='#L232'>232</a>
+<a name='L233'></a><a href='#L233'>233</a>
+<a name='L234'></a><a href='#L234'>234</a>
+<a name='L235'></a><a href='#L235'>235</a>
+<a name='L236'></a><a href='#L236'>236</a>
+<a name='L237'></a><a href='#L237'>237</a>
+<a name='L238'></a><a href='#L238'>238</a>
+<a name='L239'></a><a href='#L239'>239</a>
+<a name='L240'></a><a href='#L240'>240</a>
+<a name='L241'></a><a href='#L241'>241</a>
+<a name='L242'></a><a href='#L242'>242</a>
+<a name='L243'></a><a href='#L243'>243</a>
+<a name='L244'></a><a href='#L244'>244</a>
+<a name='L245'></a><a href='#L245'>245</a>
+<a name='L246'></a><a href='#L246'>246</a>
+<a name='L247'></a><a href='#L247'>247</a>
+<a name='L248'></a><a href='#L248'>248</a>
+<a name='L249'></a><a href='#L249'>249</a>
+<a name='L250'></a><a href='#L250'>250</a>
+<a name='L251'></a><a href='#L251'>251</a>
+<a name='L252'></a><a href='#L252'>252</a>
+<a name='L253'></a><a href='#L253'>253</a>
+<a name='L254'></a><a href='#L254'>254</a>
+<a name='L255'></a><a href='#L255'>255</a>
+<a name='L256'></a><a href='#L256'>256</a>
+<a name='L257'></a><a href='#L257'>257</a>
+<a name='L258'></a><a href='#L258'>258</a>
+<a name='L259'></a><a href='#L259'>259</a>
+<a name='L260'></a><a href='#L260'>260</a>
+<a name='L261'></a><a href='#L261'>261</a>
+<a name='L262'></a><a href='#L262'>262</a>
+<a name='L263'></a><a href='#L263'>263</a>
+<a name='L264'></a><a href='#L264'>264</a>
+<a name='L265'></a><a href='#L265'>265</a>
+<a name='L266'></a><a href='#L266'>266</a>
+<a name='L267'></a><a href='#L267'>267</a>
+<a name='L268'></a><a href='#L268'>268</a>
+<a name='L269'></a><a href='#L269'>269</a>
+<a name='L270'></a><a href='#L270'>270</a>
+<a name='L271'></a><a href='#L271'>271</a>
+<a name='L272'></a><a href='#L272'>272</a>
+<a name='L273'></a><a href='#L273'>273</a>
+<a name='L274'></a><a href='#L274'>274</a>
+<a name='L275'></a><a href='#L275'>275</a>
+<a name='L276'></a><a href='#L276'>276</a>
+<a name='L277'></a><a href='#L277'>277</a>
+<a name='L278'></a><a href='#L278'>278</a>
+<a name='L279'></a><a href='#L279'>279</a>
+<a name='L280'></a><a href='#L280'>280</a>
+<a name='L281'></a><a href='#L281'>281</a>
+<a name='L282'></a><a href='#L282'>282</a>
+<a name='L283'></a><a href='#L283'>283</a>
+<a name='L284'></a><a href='#L284'>284</a>
+<a name='L285'></a><a href='#L285'>285</a>
+<a name='L286'></a><a href='#L286'>286</a>
+<a name='L287'></a><a href='#L287'>287</a>
+<a name='L288'></a><a href='#L288'>288</a>
+<a name='L289'></a><a href='#L289'>289</a>
+<a name='L290'></a><a href='#L290'>290</a>
+<a name='L291'></a><a href='#L291'>291</a>
+<a name='L292'></a><a href='#L292'>292</a>
+<a name='L293'></a><a href='#L293'>293</a>
+<a name='L294'></a><a href='#L294'>294</a>
+<a name='L295'></a><a href='#L295'>295</a>
+<a name='L296'></a><a href='#L296'>296</a>
+<a name='L297'></a><a href='#L297'>297</a>
+<a name='L298'></a><a href='#L298'>298</a>
+<a name='L299'></a><a href='#L299'>299</a>
+<a name='L300'></a><a href='#L300'>300</a>
+<a name='L301'></a><a href='#L301'>301</a>
+<a name='L302'></a><a href='#L302'>302</a>
+<a name='L303'></a><a href='#L303'>303</a>
+<a name='L304'></a><a href='#L304'>304</a>
+<a name='L305'></a><a href='#L305'>305</a>
+<a name='L306'></a><a href='#L306'>306</a>
+<a name='L307'></a><a href='#L307'>307</a>
+<a name='L308'></a><a href='#L308'>308</a>
+<a name='L309'></a><a href='#L309'>309</a>
+<a name='L310'></a><a href='#L310'>310</a>
+<a name='L311'></a><a href='#L311'>311</a>
+<a name='L312'></a><a href='#L312'>312</a>
+<a name='L313'></a><a href='#L313'>313</a>
+<a name='L314'></a><a href='#L314'>314</a>
+<a name='L315'></a><a href='#L315'>315</a>
+<a name='L316'></a><a href='#L316'>316</a>
+<a name='L317'></a><a href='#L317'>317</a>
+<a name='L318'></a><a href='#L318'>318</a>
+<a name='L319'></a><a href='#L319'>319</a>
+<a name='L320'></a><a href='#L320'>320</a>
+<a name='L321'></a><a href='#L321'>321</a>
+<a name='L322'></a><a href='#L322'>322</a>
+<a name='L323'></a><a href='#L323'>323</a>
+<a name='L324'></a><a href='#L324'>324</a>
+<a name='L325'></a><a href='#L325'>325</a>
+<a name='L326'></a><a href='#L326'>326</a>
+<a name='L327'></a><a href='#L327'>327</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">25x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">45x</span>
+<span class="cline-any cline-yes">45x</span>
+<span class="cline-any cline-yes">45x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">17x</span>
+<span class="cline-any cline-yes">17x</span>
+<span class="cline-any cline-yes">17x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-yes">10x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">30x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-yes">12x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-yes">18x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/**
+ * CityPass+ token contract verifier -- REFERENCE IMPLEMENTATION.
+ *
+ * This module is what a Node/TypeScript consumer imports to validate a token
+ * minted by the CityPass+ IdP. It talks only to the JWKS endpoint, so it can be
+ * used with no IdP process reachable beyond that URL, and it never trusts an
+ * unverified byte of the token.
+ *
+ * THIS FILE IS NOT THE CONTRACT. `docs/CONTRACT.md` is. This is one
+ * implementation of it; teams on other stacks (Java, .NET, Python, Go) write
+ * their own and must enforce the same seven rules, in this order:
+ *
+ *   1. resolve the signing key by the header `kid` against the published JWKS;
+ *   2. accept ONLY algorithms on an explicit allowlist (`RS256`) -- an
+ *      allowlist, never a denylist, is what defeats `alg: none` and RS/HS
+ *      family confusion;
+ *   3. `iss` must equal the expected issuer exactly;
+ *   4. the consumer's own audience must appear in `aud`;
+ *   5. `exp` must be in the future, within a small clock-skew tolerance;
+ *   6. `token_use` must be the expected one -- a human token is not a service
+ *      token and vice versa;
+ *   7. every claim used for an authorization decision must be present and of
+ *      the right JSON type.
+ *
+ * A note on rule 2 and on `decodeJwt`/`decodeProtectedHeader`: this module
+ * calls `jwtVerify` and nothing else. The header `kid` and `alg` reach a
+ * decision only through jose's own verification path, which checks the
+ * allowlist before it resolves a key and checks the signature before it looks
+ * at a single claim. There is no legitimate use of unverified token data here.
+ */
+&nbsp;
+import { createRemoteJWKSet, jwtVerify, type JWTPayload, type RemoteJWKSet } from 'jose';
+&nbsp;
+/** The only signature algorithm the CityPass+ contract allows. */
+const ALLOWED_ALGORITHMS = ['RS256'] as const;
+&nbsp;
+/** The only payload version this verifier understands. Must match `TOKEN_VERSION`. */
+const SUPPORTED_VERSION = 1;
+&nbsp;
+/** Seconds of clock skew tolerated on `exp` when the caller does not say. */
+const DEFAULT_CLOCK_TOLERANCE_SECONDS = 45;
+&nbsp;
+export type TokenUse = 'human' | 'service';
+&nbsp;
+/**
+ * Why a token was rejected. Meant for logs and metrics, not for branching on
+ * security decisions -- every one of these means "do not honour this token".
+ */
+export type TokenVerificationCode =
+  /** The token is not a well-formed compact JWS at all. */
+  | 'malformed'
+  /** Header `alg` is not on the allowlist (`alg: none`, HS256 confusion, ...). */
+  | 'algorithm'
+  /** No JWKS key matched the header `kid`, or the JWKS could not be fetched. */
+  | 'key'
+  /** The signature did not verify against the resolved key. */
+  | 'signature'
+  /** `iss` is not the expected issuer. */
+  | 'issuer'
+  /** The caller's audience is not in `aud`. */
+  | 'audience'
+  /** `exp` is in the past (beyond tolerance), or absent, or not a number. */
+  | 'expired'
+  /** `token_use` is missing, unknown, or not the one the caller expected. */
+  | 'token_use'
+  /** A claim used for authorization is missing or has the wrong JSON type. */
+  | 'claims';
+&nbsp;
+/**
+ * The single error type this module throws. The message is deliberately
+ * generic: it never contains the token, a claim value, or any part of either,
+ * because rejected tokens end up in log aggregators.
+ */
+export class TokenVerificationError extends Error {
+  readonly code: TokenVerificationCode;
+&nbsp;
+  constructor(code: TokenVerificationCode, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'TokenVerificationError';
+    this.code = code;
+  }
+}
+&nbsp;
+export interface VerifyOptions {
+  /**
+   * Where to fetch the signing keys. Deliberately NOT derived from the token's
+   * `iss`: a token that could name its own key source would only be proving it
+   * agrees with itself.
+   */
+  jwksUrl: string;
+  /** The exact expected `iss`. Compared with `===`, no prefix matching. */
+  issuer: string;
+  /** This service's own audience. Must appear in the token's `aud` array. */
+  audience: string;
+  /** Which kind of token the caller is willing to accept here. */
+  tokenUse: TokenUse;
+  /** Clock skew allowance on `exp`, in seconds. Defaults to 45. */
+  clockToleranceSeconds?: number;
+}
+&nbsp;
+/** Claims present on both token kinds. */
+export interface BaseClaims {
+  iss: string;
+  /** `employeeNumber` for humans, `client_id` for services. Never a username. */
+  sub: string;
+  /** Always an array on the wire, even with a single element. */
+  aud: string[];
+  ver: number;
+  iat: number;
+  exp: number;
+  jti: string;
+}
+&nbsp;
+export interface HumanClaims extends BaseClaims {
+  token_use: 'human';
+  preferred_username: string;
+  /** Roles for THIS audience only. An empty array is legitimate. */
+  roles: string[];
+}
+&nbsp;
+export interface ServiceClaims extends BaseClaims {
+  token_use: 'service';
+  namespace: string;
+}
+&nbsp;
+/**
+ * Discriminated on `token_use`, so `if (claims.token_use === 'human')` narrows
+ * to {@link HumanClaims} without a cast.
+ */
+export type CityPassClaims = HumanClaims | ServiceClaims;
+&nbsp;
+/**
+ * One `RemoteJWKSet` per JWKS URL, for the lifetime of the process.
+ *
+ * `createRemoteJWKSet` keeps its own cache and rate-limits refetches, but that
+ * state lives on the instance: building a fresh one per verification would
+ * fetch the JWKS on every request and hand an attacker a trivial amplifier
+ * against the IdP.
+ */
+const jwksByUrl = new Map&lt;string, RemoteJWKSet&gt;();
+&nbsp;
+function jwksFor(url: string): RemoteJWKSet {
+  let jwks = jwksByUrl.get(url);
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL(url));
+    jwksByUrl.set(url, jwks);
+  }
+  return jwks;
+}
+&nbsp;
+/** Test/ops escape hatch: drops the cached JWKS resolvers. */
+export <span class="fstat-no" title="function not covered" >function resetJwksCache(): void {</span>
+<span class="cstat-no" title="statement not covered" >  jwksByUrl.clear();</span>
+<span class="cstat-no" title="statement not covered" >}</span>
+&nbsp;
+function errorCode(err: unknown): string | undefined {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' ? <span class="branch-0 cbranch-no" title="branch not covered" >code : undefined;</span>
+}
+&nbsp;
+/** Maps a jose failure onto a contract error, without echoing the token. */
+function asVerificationError(err: unknown): TokenVerificationError {
+  const cause = { cause: err };
+  switch (errorCode(err)) {
+    case 'ERR_JOSE_ALG_NOT_ALLOWED':
+      return new TokenVerificationError(
+        'algorithm',
+        'Token algorithm is not on the allowlist',
+        cause,
+      );
+    case 'ERR_JWKS_NO_MATCHING_KEY':
+      return new TokenVerificationError('key', 'No JWKS key matches the token kid', cause);
+<span class="branch-0 cbranch-no" title="branch not covered" >    case 'ERR_JWKS_MULTIPLE_MATCHING_KEYS':</span>
+<span class="cstat-no" title="statement not covered" >      return new TokenVerificationError('key', 'Token kid is ambiguous in the JWKS', cause);</span>
+<span class="branch-0 cbranch-no" title="branch not covered" >    case 'ERR_JWKS_TIMEOUT':</span>
+<span class="branch-0 cbranch-no" title="branch not covered" >    case 'ERR_JWKS_INVALID':</span>
+<span class="branch-0 cbranch-no" title="branch not covered" >    case 'ERR_JWK_INVALID':</span>
+<span class="cstat-no" title="statement not covered" >      return new TokenVerificationError('key', 'Signing keys could not be resolved', cause);</span>
+    case 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED':
+      return new TokenVerificationError('signature', 'Token signature is invalid', cause);
+    case 'ERR_JWS_INVALID':
+    case 'ERR_JWT_INVALID':
+      return new TokenVerificationError('malformed', 'Token is not a well-formed JWT', cause);
+    case 'ERR_JWT_EXPIRED':
+      return new TokenVerificationError('expired', 'Token is expired', cause);
+    case 'ERR_JWT_CLAIM_VALIDATION_FAILED': {
+      const claim = (err as { claim?: unknown }).claim;
+      if (claim === 'iss') {
+        return new TokenVerificationError('issuer', 'Token issuer is not the expected one', cause);
+      }
+      if (claim === 'aud') {
+        return new TokenVerificationError(
+          'audience',
+          'Token audience does not include this service',
+          cause,
+        );
+      }
+      if (claim === <span class="branch-0 cbranch-no" title="branch not covered" >'exp' || claim === <span class="branch-0 cbranch-no" title="branch not covered" >'nbf' || c</span>laim === 'iat') {</span>
+        return new TokenVerificationError('expired', 'Token validity window is invalid', cause);
+<span class="branch-0 cbranch-no" title="branch not covered" >      }</span>
+<span class="cstat-no" title="statement not covered" >      return new TokenVerificationError('claims', 'Token claim validation failed', cause);</span>
+<span class="cstat-no" title="statement not covered" >    }</span>
+<span class="branch-0 cbranch-no" title="branch not covered" >    default:</span>
+      // Unknown failures are treated as unverifiable signatures: the token has
+      // not earned trust, whatever went wrong.
+<span class="cstat-no" title="statement not covered" >      return new TokenVerificationError('signature', 'Token could not be verified', cause);</span>
+  }
+}
+&nbsp;
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' &amp;&amp; value.length &gt; 0;
+}
+&nbsp;
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) &amp;&amp; value.every((item) =&gt; typeof item === 'string');
+}
+&nbsp;
+function claimsFailure(detail: string): TokenVerificationError {
+  return new TokenVerificationError('claims', `Token claim validation failed: ${detail}`);
+}
+&nbsp;
+/** Rules 6 and 7, on a payload whose signature is already verified. */
+function validateClaims(payload: JWTPayload, expected: TokenUse): CityPassClaims {
+  const tokenUse = payload['token_use'];
+  if (tokenUse !== 'human' &amp;&amp; tokenUse !== 'service') {
+    throw new TokenVerificationError('token_use', 'Token has an unknown token_use');
+  }
+  if (tokenUse !== expected) {
+    throw new TokenVerificationError(
+      'token_use',
+      `Expected a ${expected} token, got a ${tokenUse} token`,
+    );
+  }
+&nbsp;
+  // Strict identity: `1` is the contract, `"1"` is a different type and a
+  // strong hint that something upstream is stringifying the payload.
+  if (payload['ver'] !== SUPPORTED_VERSION) {
+    throw claimsFailure('ver must be the number 1');
+  }
+&nbsp;
+  if (!isNonEmptyString(payload.iss)) <span class="branch-0 cbranch-no" title="branch not covered" >throw claimsFailure('iss must be a non-empty string');</span>
+  if (!isNonEmptyString(payload.sub)) throw claimsFailure('sub must be a non-empty string');
+  if (!isNonEmptyString(payload.jti)) <span class="branch-0 cbranch-no" title="branch not covered" >throw claimsFailure('jti must be a non-empty string');</span>
+&nbsp;
+  // jose accepts a bare-string `aud` and leaves it as it was on the wire. The
+  // contract says array, always, so a string here is an off-contract token even
+  // though its single value may well have matched.
+  if (!isStringArray(payload.aud) || payload.aud.length === 0) {
+    throw claimsFailure('aud must be a non-empty array of strings');
+  }
+  if (typeof payload.iat !== 'number') <span class="branch-0 cbranch-no" title="branch not covered" >throw claimsFailure('iat must be a number');</span>
+  if (typeof payload.exp !== 'number') <span class="branch-0 cbranch-no" title="branch not covered" >throw claimsFailure('exp must be a number');</span>
+&nbsp;
+  const base: BaseClaims = {
+    iss: payload.iss,
+    sub: payload.sub,
+    aud: payload.aud,
+    ver: SUPPORTED_VERSION,
+    iat: payload.iat,
+    exp: payload.exp,
+    jti: payload.jti,
+  };
+&nbsp;
+  if (tokenUse === 'human') {
+    const preferredUsername = payload['preferred_username'];
+    if (!isNonEmptyString(preferredUsername)) {
+      throw claimsFailure('preferred_username must be a non-empty string');
+    }
+    const roles = payload['roles'];
+    // An empty array is VALID: a user who holds no role for this audience is
+    // still authenticated, and the API decides what that means.
+    if (!isStringArray(roles)) {
+      throw claimsFailure('roles must be an array of strings');
+    }
+    return { ...base, token_use: 'human', preferred_username: preferredUsername, roles };
+  }
+&nbsp;
+  const namespace = payload['namespace'];
+  if (!isNonEmptyString(namespace)) {
+    throw claimsFailure('namespace must be a non-empty string');
+  }
+  return { ...base, token_use: 'service', namespace };
+}
+&nbsp;
+/**
+ * Verifies a CityPass+ token and returns its claims.
+ *
+ * Throws {@link TokenVerificationError} -- and only that -- for every reason a
+ * token can be rejected. A returned value means all seven contract rules held;
+ * there is no partial success and no `valid: false` result to forget to check.
+ *
+ * @param token the raw compact JWS, with the `Bearer ` prefix already stripped
+ * @param opts what this particular service is willing to accept
+ */
+export async function verifyCityPassToken(
+  token: string,
+  opts: VerifyOptions,
+): Promise&lt;CityPassClaims&gt; {
+  if (opts.tokenUse !== 'human' &amp;&amp; opts.tokenUse !== 'service') <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
+<span class="cstat-no" title="statement not covered" >    throw new TypeError(`VerifyOptions.tokenUse must be 'human' or 'service'`);</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+  if (typeof token !== 'string' || token.length === 0) <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
+<span class="cstat-no" title="statement not covered" >    throw new TokenVerificationError('malformed', 'Token is missing');</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
+&nbsp;
+  const jwks = jwksFor(opts.jwksUrl);
+&nbsp;
+  let payload: JWTPayload;
+  try {
+    // Rules 1-5 in one call: kid resolution against the JWKS, the algorithm
+    // allowlist, exact issuer, audience membership, and exp with tolerance.
+    ({ payload } = await jwtVerify(token, jwks, {
+      algorithms: [...ALLOWED_ALGORITHMS],
+      issuer: opts.issuer,
+      audience: opts.audience,
+      clockTolerance: opts.clockToleranceSeconds ?? DEFAULT_CLOCK_TOLERANCE_SECONDS,
+      // `exp` is optional in the JWT spec, and jose skips the check when it is
+      // absent. Requiring it here is what stops a never-expiring token.
+      requiredClaims: ['exp', 'iat', 'sub', 'jti'],
+    }));
+  } catch (err) {
+    throw asVerificationError(err);
+  }
+&nbsp;
+  return validateClaims(payload, opts.tokenUse);
+}
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-08-20T01:04:07.897Z
+            </div>
+        <script src="../../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../../sorter.js"></script>
+        <script src="../../block-navigation.js"></script>
+    </body>
+</html>
+    
