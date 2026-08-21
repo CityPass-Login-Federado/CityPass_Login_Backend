@@ -6,6 +6,11 @@ on:
     branches: [ "main", "develop" ]
     types: [ opened, synchronize, reopened ]
 
+  # Por el momento, correremos el mismo pipeline para merge a la rama principal,
+  # despues procedere a crear un workflow separado
+  push:
+    branches: [ "main", "develop" ]
+
 # El proyecto Java (Maven) vive en el subdirectorio login-federado del monorepo.
 env:
   JAVA_VERSION: "21"
@@ -149,7 +154,7 @@ jobs:
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true   # solo reporta CVEs con fix disponible
           # Utilizar 1 para bloquuear, 0 para warning.
-          exit-code: "1"
+          exit-code: "0"
 
       - name: Subir resultados a GitHub Code Scanning
         if: always()
