@@ -101,7 +101,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Trivy - escaneo de configuracion (Dockerfile / compose)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
@@ -146,7 +146,7 @@ jobs:
           tags: citypass/login-federado:pr-${{ github.event.pull_request.number }}
 
       - name: Trivy - escaneo de la imagen
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: citypass/login-federado:pr-${{ github.event.pull_request.number }}
