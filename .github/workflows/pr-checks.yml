@@ -15,12 +15,7 @@ permissions:
   contents: read
 
 # ---------------------------------------------------------------------------
-# MODO ACTUAL: WARNING-ONLY.
-# Ningun job bloquea el merge de la PR todavia (continue-on-error: true /
-# exit-code: "0"). Los resultados igual se ven en la PR y en Code Scanning.
-# Cuando el equipo este listo para que esto bloquee PRs, hay que:
-#   - sacar "continue-on-error: true" de los steps de build y secret-scanning
-#   - cambiar "exit-code" de "0" a "1" en los dos steps de Trivy
+# TODO: para que los checks bloqueen el merge de la PR, falta:
 #   - (opcional) configurar el/los jobs como "required checks" en
 #     Settings > Branches > Branch protection rules
 # ---------------------------------------------------------------------------
@@ -51,7 +46,7 @@ jobs:
         # WARNING-ONLY: si falla el build o algun test, el step se marca en
         # amarillo pero no bloquea la PR. Sacar esta linea cuando se quiera
         # que build/tests rotos s bloqueen el merge.
-        continue-on-error: true
+        # continue-on-error: true
         run: mvn -B clean verify
 
       - name: Publicar resultados de tests
@@ -79,7 +74,7 @@ jobs:
       - name: Ejecutar Gitleaks
         # WARNING-ONLY: gitleaks-action no expone un input de "exit-code",
         # asi que el modo no-bloqueante se logra con continue-on-error.
-        continue-on-error: true
+        # continue-on-error: true
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -109,7 +104,6 @@ jobs:
           output: trivy-iac-results.sarif
           severity: "CRITICAL,HIGH,MEDIUM"
           # WARNING-ONLY: Trivy si expone "exit-code" como input propio.
-          # En "0" el step nunca falla, pero el reporte se genera igual.
           exit-code: "0"
 
       - name: Subir resultados a GitHub Code Scanning
@@ -154,8 +148,8 @@ jobs:
           output: trivy-image-results.sarif
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true   # solo reporta CVEs con fix disponible
-          # WARNING-ONLY: idem al job anterior, en "0" no bloquea.
-          exit-code: "0"
+          # Utilizar 1 para bloquuear, 0 para warning.
+          exit-code: "1"
 
       - name: Subir resultados a GitHub Code Scanning
         if: always()
