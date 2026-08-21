@@ -1,0 +1,165 @@
+name: PR Checks
+
+# Se ejecuta en cada PR que apunte a main o develop.
+on:
+  pull_request:
+    branches: [ "main", "develop" ]
+    types: [ opened, synchronize, reopened ]
+
+# El proyecto Java (Maven) vive en el subdirectorio login-federado del monorepo.
+env:
+  JAVA_VERSION: "21"
+  WORKING_DIR: login-federado
+
+permissions:
+  contents: read
+
+# ---------------------------------------------------------------------------
+# MODO ACTUAL: WARNING-ONLY.
+# Ningun job bloquea el merge de la PR todavia (continue-on-error: true /
+# exit-code: "0"). Los resultados igual se ven en la PR y en Code Scanning.
+# Cuando el equipo este listo para que esto bloquee PRs, hay que:
+#   - sacar "continue-on-error: true" de los steps de build y secret-scanning
+#   - cambiar "exit-code" de "0" a "1" en los dos steps de Trivy
+#   - (opcional) configurar el/los jobs como "required checks" en
+#     Settings > Branches > Branch protection rules
+# ---------------------------------------------------------------------------
+
+jobs:
+
+  # ---------------------------------------------------------------------
+  # 1) Build + tests con Maven
+  # ---------------------------------------------------------------------
+  build:
+    name: Build & Test (Maven)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Build y tests
+        # WARNING-ONLY: si falla el build o algun test, el step se marca en
+        # amarillo pero no bloquea la PR. Sacar esta linea cuando se quiera
+        # que build/tests rotos s bloqueen el merge.
+        continue-on-error: true
+        run: mvn -B clean verify
+
+      - name: Publicar resultados de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: ${{ env.WORKING_DIR }}/target/surefire-reports/**
+          retention-days: 5
+
+  # ---------------------------------------------------------------------
+  # 2) Secret scanning sobre el diff de la PR (Gitleaks)
+  # ---------------------------------------------------------------------
+  secret-scanning:
+    name: Secret Scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ejecutar Gitleaks
+        # WARNING-ONLY: gitleaks-action no expone un input de "exit-code",
+        # asi que el modo no-bloqueante se logra con continue-on-error.
+        continue-on-error: true
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Si el repo es privado y se usa gitleaks-action >= v2 en modo
+          # organizacional, puede requerirse GITLEAKS_LICENSE. En repos
+          # publicos u open-source no es necesario.
+
+  # ---------------------------------------------------------------------
+  # 3) IaC scanning: Dockerfile(s) y docker-compose.yml (Trivy config)
+  # ---------------------------------------------------------------------
+  iac-scanning:
+    name: IaC Scanning (Trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # requerido para subir el SARIF a Code Scanning
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trivy - escaneo de configuracion (Dockerfile / compose)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-iac-results.sarif
+          severity: "CRITICAL,HIGH,MEDIUM"
+          # WARNING-ONLY: Trivy si expone "exit-code" como input propio.
+          # En "0" el step nunca falla, pero el reporte se genera igual.
+          exit-code: "0"
+
+      - name: Subir resultados a GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-iac-results.sarif
+          category: trivy-iac
+
+  # ---------------------------------------------------------------------
+  # 4) Docker image scanning: build de la imagen de login-federado + Trivy
+  # ---------------------------------------------------------------------
+  docker-image-scanning:
+    name: Docker Image Scanning (Trivy)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build de la imagen (sin push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.WORKING_DIR }}
+          file: ${{ env.WORKING_DIR }}/Dockerfile
+          push: false
+          load: true
+          tags: citypass/login-federado:pr-${{ github.event.pull_request.number }}
+
+      - name: Trivy - escaneo de la imagen
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          image-ref: citypass/login-federado:pr-${{ github.event.pull_request.number }}
+          format: sarif
+          output: trivy-image-results.sarif
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true   # solo reporta CVEs con fix disponible
+          # WARNING-ONLY: idem al job anterior, en "0" no bloquea.
+          exit-code: "0"
+
+      - name: Subir resultados a GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image-results.sarif
+          category: trivy-image
