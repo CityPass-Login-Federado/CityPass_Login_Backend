@@ -1,41 +1,32 @@
 package citypass.loginfederado.controller;
 
-import citypass.loginfederado.config.JwtProperties;
-import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.security.interfaces.RSAPublicKey;
 import java.util.Map;
 
 /**
- * Expone la clave pública del módulo en formato JWKS estándar, para que
- * los otros 7 módulos puedan validar los JWT emitidos acá SIN llamar a
- * este servicio en cada request. Solo se expone la clave PÚBLICA: nunca
- * la privada.
+ * Expone la clave pública del IdP en formato JWKS estándar, para que los
+ * otros 7 módulos validen los JWT SIN llamarnos en cada request. Solo se
+ * expone la clave PÚBLICA: nunca la privada.
  *
- * Endpoint convencional (bien conocido por librerías JWT de cualquier
- * lenguaje): /.well-known/jwks.json
+ * El kid que viaja acá es el mismo del encabezado de cada token: la huella
+ * RFC 7638 calculada sobre esta misma clave (ver JwtKeyConfig).
  */
 @RestController
 public class JwksController {
 
-    private final RSAPublicKey publicKey;
-    private final JwtProperties jwtProperties;
+    private final RSAKey rsaKey;
 
-    public JwksController(RSAPublicKey publicKey, JwtProperties jwtProperties) {
-        this.publicKey = publicKey;
-        this.jwtProperties = jwtProperties;
+    public JwksController(RSAKey rsaKey) {
+        this.rsaKey = rsaKey;
     }
 
     @GetMapping("/.well-known/jwks.json")
     public Map<String, Object> jwks() {
-        RSAKey rsaKey = new RSAKey.Builder(publicKey)
-                .keyID(jwtProperties.keyId())
-                .algorithm(JWSAlgorithm.RS256)
-                .build();
-        return new JWKSet(rsaKey).toJSONObject();
+        // toPublicJWK(): descarta la parte privada antes de exponer.
+        return new JWKSet(rsaKey.toPublicJWK()).toJSONObject(true);
     }
 }
