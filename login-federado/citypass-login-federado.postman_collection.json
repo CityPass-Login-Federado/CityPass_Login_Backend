@@ -1,0 +1,2034 @@
+{
+	"info": {
+		"_postman_id": "b7e3f2a1-4c8d-4e5a-9f6b-1a2c3d4e5f60",
+		"name": "CityPass Login Federado",
+		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout)\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una persona mata sus sesiones al instante\n- El panel aísla módulos y exige grupo 'delegados'",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "baseUrl", "value": "http://localhost:8081" },
+		{ "key": "anomalyUrl", "value": "http://localhost:8000" },
+		{ "key": "access_token", "value": "" },
+		{ "key": "refresh_token", "value": "" },
+		{ "key": "prev_refresh_token", "value": "" },
+		{ "key": "mov_access_token", "value": "" },
+		{ "key": "mov_refresh_token", "value": "" },
+		{ "key": "admin_access_token", "value": "" },
+		{ "key": "admin_refresh_token", "value": "" },
+		{ "key": "movdel_access_token", "value": "" },
+		{ "key": "service_token", "value": "" },
+		{ "key": "new_uid", "value": "" }
+	],
+	"item": [
+		{
+			"name": "00 Infra",
+			"item": [
+				{
+					"name": "01 Health",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/actuator/health",
+							"host": ["{{baseUrl}}"],
+							"path": ["actuator", "health"]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Status UP', () => pm.expect(r.status).to.eql('UP'));"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "02 JWKS (clave pública)",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/.well-known/jwks.json",
+							"host": ["{{baseUrl}}"],
+							"path": [".well-known", "jwks.json"]
+						}
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('JWKS con clave RSA de firma', () => {",
+									"  pm.expect(r.keys).to.be.an('array').with.lengthOf.at.least(1);",
+									"  pm.expect(r.keys[0].kty).to.eql('RSA');",
+									"  pm.expect(r.keys[0].use).to.eql('sig');",
+									"  pm.expect(r.keys[0].kid).to.be.a('string').and.not.empty;",
+									"});",
+									"pm.test('No expone parte privada', () => {",
+									"  pm.expect(r.keys[0]).to.not.have.property('d');",
+									"  pm.expect(r.keys[0]).to.not.have.property('p');",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "01 Login OK",
+			"item": [
+				{
+					"name": "01 Login jperez (reclamos)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Contrato snake_case y expires_in=900', () => {",
+									"  pm.expect(r.access_token).to.be.a('string').and.not.empty;",
+									"  pm.expect(r.refresh_token).to.be.a('string').and.not.empty;",
+									"  pm.expect(r.token_type).to.eql('Bearer');",
+									"  pm.expect(r.expires_in).to.eql(900);",
+									"});",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.test('Claims del JWT', () => {",
+									"  pm.expect(p.iss).to.eql('https://idp.citypass.local');",
+									"  pm.expect(p.sub).to.eql('U000001');",
+									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-reclamos-api');",
+									"  pm.expect(p.token_use).to.eql('human');",
+									"  pm.expect(p.ver).to.eql(1);",
+									"  pm.expect(p.preferred_username).to.eql('jperez');",
+									"  pm.expect(p.module).to.eql('reclamos');",
+									"  pm.expect(p.groups).to.include.members(['soporte-n2','guardia-finde']);",
+									"  pm.expect(p.exp - p.iat).to.eql(900);",
+									"  pm.expect(p.jti).to.be.a('string');",
+									"});",
+									"pm.collectionVariables.set('access_token', r.access_token);",
+									"pm.collectionVariables.set('refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "02 Login mgomez (movilidad, sin grupos)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Tokens presentes', () => {",
+									"  pm.expect(r.access_token).to.be.a('string').and.not.empty;",
+									"  pm.expect(r.expires_in).to.eql(900);",
+									"});",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.test('Claims: movilidad sin grupos (válido por contrato)', () => {",
+									"  pm.expect(p.sub).to.eql('U000002');",
+									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-movilidad-api');",
+									"  pm.expect(p.module).to.eql('movilidad');",
+									"  pm.expect(p.groups).to.be.an('array');",
+									"});",
+									"pm.collectionVariables.set('mov_access_token', r.access_token);",
+									"pm.collectionVariables.set('mov_refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"mgomez\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-movilidad-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "03 Login delegado-rec (panel admin)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.test('Token válido para operar el panel', () => {",
+									"  pm.expect(p.sub).to.eql('U000003');",
+									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-admin-api');",
+									"  pm.expect(p.token_use).to.eql('human');",
+									"  pm.expect(p.ver).to.eql(1);",
+									"  pm.expect(p.module).to.eql('reclamos');",
+									"  pm.expect(p.groups).to.include('delegados');",
+									"});",
+									"pm.collectionVariables.set('admin_access_token', r.access_token);",
+									"pm.collectionVariables.set('admin_refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"delegado-rec\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "04 Login delegado-mov (panel movilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.test('Delegado de movilidad con audience del panel', () => {",
+									"  pm.expect(p.sub).to.eql('U000006');",
+									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-admin-api');",
+									"  pm.expect(p.module).to.eql('movilidad');",
+									"  pm.expect(p.groups).to.include('delegados');",
+									"});",
+									"pm.collectionVariables.set('movdel_access_token', r.access_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"delegado-mov\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "02 Login Fallos",
+			"description": "TODOS deben devolver exactamente el mismo cuerpo 401 (invariante anti-enumeración del spec §2). Excepción: contraseña vacía → 400 por validación @NotBlank.",
+			"item": [
+				{
+					"name": "01 Contraseña incorrecta",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.test('Error genérico uniforme', () => {",
+									"  pm.expect(r.status).to.eql(401);",
+									"  pm.expect(r.error).to.eql('Credenciales inválidas');",
+									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"password\": \"malacontrasenia\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "02 Usuario inexistente",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.test('Idéntico al fallo por contraseña mala', () => {",
+									"  pm.expect(r.error).to.eql('Credenciales inválidas');",
+									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"usuario-fantasma\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "03 Usuario de otro módulo (jperez + cliente movilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.test('Módulo cruzado indistinguible de credencial mala', () => {",
+									"  pm.expect(r.error).to.eql('Credenciales inválidas');",
+									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-movilidad-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "04 clientId desconocido",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.test('Cliente desconocido también genérico', () => {",
+									"  pm.expect(r.error).to.eql('Credenciales inválidas');",
+									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"cliente-inexistente\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "05 Cliente de servicio usado como humano (grupo1)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.test('Servicio no puede loguearse como persona', () => {",
+									"  pm.expect(r.error).to.eql('Credenciales inválidas');",
+									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"grupo1\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "06 Contraseña vacía (→400 validación)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 400 por @NotBlank', () => pm.response.to.have.status(400));",
+									"const r = pm.response.json();",
+									"pm.test('Cuerpo de validación genérico', () => {",
+									"  pm.expect(r.error).to.eql('Petición inválida');",
+									"  pm.expect(r.message).to.eql('Revise los campos enviados');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"password\": \"\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "03 Validación",
+			"item": [
+				{
+					"name": "01 Body vacío",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+									"const r = pm.response.json();",
+									"pm.expect(r.error).to.eql('Petición inválida');"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "02 Refresh sin token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 400 (campo refreshToken vacío)', () => pm.response.to.have.status(400));",
+									"const r = pm.response.json();",
+									"pm.expect(r.error).to.eql('Petición inválida');"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "04 Refresh y Logout",
+			"description": "Flujo de rotación (D9/RFC 9700): canje rota el par; reusar un token viejo revoca TODA la cadena.",
+			"item": [
+				{
+					"name": "01 Re-login jperez (sesión fresca)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.collectionVariables.set('access_token', r.access_token);",
+									"pm.collectionVariables.set('refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "02 Canje de refresh (rota el par)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.collectionVariables.set('prev_refresh_token', pm.collectionVariables.get('refresh_token'));"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Par nuevo distinto del anterior (rotación)', () => {",
+									"  const previo = pm.collectionVariables.get('prev_refresh_token');",
+									"  pm.expect(r.refresh_token).to.not.eql(previo);",
+									"});",
+									"pm.collectionVariables.set('access_token', r.access_token);",
+									"pm.collectionVariables.set('refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				},
+				{
+					"name": "03 Reuso del refresh anterior (robo detectado)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.expect(r.error).to.eql('Credenciales inválidas');"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{prev_refresh_token}}\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				},
+				{
+					"name": "04 Refresh nuevo también murió (cadena completa revocada)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401: reuso revoca TODA la cadena (RFC 9700)', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				},
+				{
+					"name": "05 Re-login tras detección de robo",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200: puede iniciar sesión de nuevo', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.collectionVariables.set('access_token', r.access_token);",
+									"pm.collectionVariables.set('refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "06 Logout",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 204 sin cuerpo', () => {",
+									"  pm.response.to.have.status(204);",
+									"  pm.expect(pm.response.text()).to.eql('');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/logout",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "logout"]
+						}
+					}
+				},
+				{
+					"name": "07 Refresh después del logout (debe fallar)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401: sesión cerrada', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				},
+				{
+					"name": "08 Logout repetido (silencioso)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 204 aunque el token ya no existe (no revela existencia)', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/logout",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "logout"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "05 Token de Servicio",
+			"description": "client_credentials backend-a-backend (contrato §7). El token NO trae groups, trae namespace.",
+			"item": [
+				{
+					"name": "01 client_credentials grupo1 (OK)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Formato contrato §7', () => {",
+									"  pm.expect(r.token_type).to.eql('Bearer');",
+									"  pm.expect(r.expires_in).to.eql(3600);",
+									"});",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.test('Claims de servicio: namespace y SIN groups', () => {",
+									"  pm.expect(p.token_use).to.eql('service');",
+									"  pm.expect(p.sub).to.eql('grupo1');",
+									"  pm.expect(p.namespace).to.eql('com.citypass.grupo1');",
+									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-platform');",
+									"  pm.expect(p).to.not.have.property('groups');",
+									"  pm.expect(p.exp - p.iat).to.eql(3600);",
+									"});",
+									"pm.collectionVariables.set('service_token', r.access_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"auth": {
+							"type": "basic",
+							"basic": [
+								{ "key": "username", "value": "grupo1", "type": "string" },
+								{ "key": "password", "value": "grupo1-secret-dev", "type": "string" }
+							]
+						},
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "grant_type", "value": "client_credentials", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/oauth/token",
+							"host": ["{{baseUrl}}"],
+							"path": ["oauth", "token"]
+						}
+					}
+				},
+				{
+					"name": "02 client_secret incorrecto",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.expect(r.message).to.eql('Usuario o contraseña inválidos');"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"auth": {
+							"type": "basic",
+							"basic": [
+								{ "key": "username", "value": "grupo1", "type": "string" },
+								{ "key": "password", "value": "secreto-equivocado", "type": "string" }
+							]
+						},
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "grant_type", "value": "client_credentials", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/oauth/token",
+							"host": ["{{baseUrl}}"],
+							"path": ["oauth", "token"]
+						}
+					}
+				},
+				{
+					"name": "03 grant_type inválido (password)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401: solo se permite client_credentials', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"auth": {
+							"type": "basic",
+							"basic": [
+								{ "key": "username", "value": "grupo1", "type": "string" },
+								{ "key": "password", "value": "grupo1-secret-dev", "type": "string" }
+							]
+						},
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "grant_type", "value": "password", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/oauth/token",
+							"host": ["{{baseUrl}}"],
+							"path": ["oauth", "token"]
+						}
+					}
+				},
+				{
+					"name": "04 Sin credenciales Basic",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401 sin Authorization', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{ "key": "grant_type", "value": "client_credentials", "type": "text" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/oauth/token",
+							"host": ["{{baseUrl}}"],
+							"path": ["oauth", "token"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "06 Panel Personas",
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{ "key": "token", "value": "{{admin_access_token}}", "type": "string" }
+				]
+			},
+			"description": "Requiere token de delegado-rec (aud citypass-admin-api + grupo delegados + module reclamos).",
+			"item": [
+				{
+					"name": "01 Listar personas (solo su módulo)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Lista de personas del módulo', () => {",
+									"  pm.expect(r).to.be.an('array');",
+									"  const uids = r.map(x => x.uid);",
+									"  pm.expect(uids).to.include('jperez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas"]
+						}
+					}
+				},
+				{
+					"name": "02 Obtener jperez",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Ficha con employeeNumber estable', () => {",
+									"  pm.expect(r.employeeNumber).to.eql('U000001');",
+									"  pm.expect(r.uid).to.eql('jperez');",
+									"  pm.expect(r).to.have.property('disabled');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas/jperez",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas", "jperez"]
+						}
+					}
+				},
+				{
+					"name": "03 Obtener inexistente",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 404', () => pm.response.to.have.status(404));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas/nadie",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas", "nadie"]
+						}
+					}
+				},
+				{
+					"name": "04 Crear persona (alta)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 201 Created', () => pm.response.to.have.status(201));",
+									"const r = pm.response.json();",
+									"pm.test('El sistema asignó el employeeNumber (no lo eligió nadie)', () => {",
+									"  pm.expect(r.employeeNumber).to.match(/^U\\d{6}$/);",
+									"  pm.expect(r.uid).to.eql('test.user');",
+									"  pm.expect(r.disabled).to.eql(false);",
+									"});",
+									"pm.collectionVariables.set('new_uid', r.employeeNumber);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"givenName\": \"Test\",\n  \"sn\": \"Usuario\",\n  \"username\": \"test.user\",\n  \"email\": \"test.user@citypass.local\",\n  \"temporaryPassword\": \"temporal123\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas"]
+						}
+					}
+				},
+				{
+					"name": "05 Renombrar persona (con reparación de membresías)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Renombre aplicado, employeeNumber inmutable (D3)', () => {",
+									"  pm.expect(r.uid).to.eql('test-user');",
+									"  pm.expect(r.employeeNumber).to.eql(pm.collectionVariables.get('new_uid'));",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"newUsername\": \"test-user\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas", "{{new_uid}}"]
+						}
+					}
+				},
+				{
+					"name": "06 Login usuario creado (credencial inicial)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200 con credencial inicial', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.expect(p.groups).to.be.an('array').with.lengthOf(0);",
+									"pm.collectionVariables.set('created_access_token', r.access_token);",
+									"pm.collectionVariables.set('created_refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"test-user\",\n  \"password\": \"temporal123\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "07 Reset password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"temporaryPassword\": \"nueva-temp-456\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/reset-password",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas", "{{new_uid}}", "reset-password"]
+						}
+					}
+				},
+				{
+					"name": "08 Login con contraseña vieja (falla)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401 con credencial anterior', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"test-user\",\n  \"password\": \"temporal123\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "09 Login con contraseña nueva",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200 con la temporal nueva', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.collectionVariables.set('created_refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"test-user\",\n  \"password\": \"nueva-temp-456\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "10 Deshabilitar persona (baja D7)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/disable",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas", "{{new_uid}}", "disable"]
+						}
+					}
+				},
+				{
+					"name": "11 Refresh de deshabilitada (sesión muerta al instante)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401: disable revocó sus refresh tokens', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{created_refresh_token}}\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "refresh"]
+						}
+					}
+				},
+				{
+					"name": "12 Login de deshabilitada (error genérico idéntico)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.test('Indistinguible de credencial mala (anti-enumeración)', () => {",
+									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"test-user\",\n  \"password\": \"nueva-temp-456\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "13 Rehabilitar persona",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/enable",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas", "{{new_uid}}", "enable"]
+						}
+					}
+				},
+				{
+					"name": "14 Login rehabilitada (todo vuelve)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200: rehabilitación restaura acceso', () => pm.response.to.have.status(200));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"test-user\",\n  \"password\": \"nueva-temp-456\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "07 Panel Grupos",
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{ "key": "token", "value": "{{admin_access_token}}", "type": "string" }
+				]
+			},
+			"item": [
+				{
+					"name": "01 Listar grupos",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Grupos del módulo con reservados marcados', () => {",
+									"  const nombres = r.map(g => g.name);",
+									"  pm.expect(nombres).to.include.members(['delegados','soporte-n2','guardia-finde','consulta']);",
+									"  const delegados = r.find(g => g.name === 'delegados');",
+									"  pm.expect(delegados.reserved).to.eql(true);",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/grupos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "grupos"]
+						}
+					}
+				},
+				{
+					"name": "02 Crear grupo guardia-test",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+									"const r = pm.response.json();",
+									"pm.expect(r.name).to.eql('guardia-test');"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"guardia-test\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/grupos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "grupos"]
+						}
+					}
+				},
+				{
+					"name": "03 Nombre de grupo inválido (mayúsculas/espacios)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 422 regla de negocio', () => pm.response.to.have.status(422));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Guardia Test\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/grupos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "grupos"]
+						}
+					}
+				},
+				{
+					"name": "04 Grupo duplicado",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 409 conflicto', () => pm.response.to.have.status(409));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"guardia-test\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/grupos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "grupos"]
+						}
+					}
+				},
+				{
+					"name": "05 Agregar miembro (test-user)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Grupo resultante incluye al miembro', () => {",
+									"  pm.expect(r.group.name).to.eql('guardia-test');",
+									"  pm.expect(r.group.members).to.include(pm.collectionVariables.get('new_uid'));",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"memberUid\": \"test-user\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/grupos/guardia-test/miembros",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "grupos", "guardia-test", "miembros"]
+						}
+					}
+				},
+				{
+					"name": "06 Verificar grupo en token nuevo (propagación end-to-end)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.test('El claim groups refleja la membresía recién creada', () => {",
+									"  pm.expect(p.groups).to.include('guardia-test');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"test-user\",\n  \"password\": \"nueva-temp-456\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "07 Quitar miembro",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.expect(r.group.members).to.not.include(pm.collectionVariables.get('new_uid'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/panel/grupos/guardia-test/miembros/test-user",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "grupos", "guardia-test", "miembros", "test-user"]
+						}
+					}
+				},
+				{
+					"name": "08 Eliminar grupo guardia-test",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/panel/grupos/guardia-test",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "grupos", "guardia-test"]
+						}
+					}
+				},
+				{
+					"name": "09 Eliminar grupo reservado delegados (prohibido)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 409: delegados es reservado', () => pm.response.to.have.status(409));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/panel/grupos/delegados",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "grupos", "delegados"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "08 Seguridad y Aislamiento",
+			"item": [
+				{
+					"name": "01 Panel sin token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.expect(r.status).to.eql(401);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas"]
+						}
+					}
+				},
+				{
+					"name": "02 Token de no-delegado (jperez) al panel",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 403 sin grupo delegados', () => pm.response.to.have.status(403));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{ "key": "token", "value": "{{access_token}}", "type": "string" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas"]
+						}
+					}
+				},
+				{
+					"name": "03 Delegado de otro módulo (aislamiento cross-module)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 404: jperez no es visible desde movilidad', () => pm.response.to.have.status(404));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{ "key": "token", "value": "{{movdel_access_token}}", "type": "string" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas/jperez",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas", "jperez"]
+						}
+					}
+				},
+				{
+					"name": "04 Token de servicio al panel",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 403: audience ajena / token_use=service', () => pm.response.to.have.status(403));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{ "key": "token", "value": "{{service_token}}", "type": "string" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas"]
+						}
+					}
+				},
+				{
+					"name": "05 Token basura (firma inválida)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401: firma RS256 obligatoria', () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer abc.def.ghi" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/panel/personas",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "personas"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "09 Lockout",
+			"description": "Ventana deslizante ADR-004: 5 intentos fallidos en 15 min bloquean la cuenta. El login CORRECTO posterior también falla con el mismo error genérico.\n\nLIMPIEZA POST-TEST (desbloquear soporte1):\ndocker exec citypass-db psql -U citypass -d login_federado -c \"DELETE FROM login_attempts WHERE username='soporte1';\"",
+			"item": [
+				{
+					"name": "01 Intento fallido 1 (soporte1)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": ["pm.test('HTTP 401', () => pm.response.to.have.status(401));"]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"soporte1\",\n  \"password\": \"incorrecta-1\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "02 Intento fallido 2",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": ["pm.test('HTTP 401', () => pm.response.to.have.status(401));"]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"soporte1\",\n  \"password\": \"incorrecta-2\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "03 Intento fallido 3",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": ["pm.test('HTTP 401', () => pm.response.to.have.status(401));"]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"soporte1\",\n  \"password\": \"incorrecta-3\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "04 Intento fallido 4",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": ["pm.test('HTTP 401', () => pm.response.to.have.status(401));"]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"soporte1\",\n  \"password\": \"incorrecta-4\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "05 Intento fallido 5 (dispara lockout)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": ["pm.test('HTTP 401', () => pm.response.to.have.status(401));"]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"soporte1\",\n  \"password\": \"incorrecta-5\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "06 Login CORRECTO bloqueado por lockout",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 401 aunque la contraseña sea correcta', () => pm.response.to.have.status(401));",
+									"const r = pm.response.json();",
+									"pm.test('Bloqueo indistinguible del resto (ADR-004)', () => {",
+									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"soporte1\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "10 Anomalías",
+			"item": [
+				{
+					"name": "01 Score directo anomaly-detection",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Respuesta de riesgo válida', () => {",
+									"  pm.expect(r.risk_score).to.be.a('number');",
+									"  pm.expect(['ALLOW','REVIEW','BLOCK']).to.include(r.decision);",
+									"  pm.expect(r.reasons).to.be.an('array');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"jperez\",\n  \"ip\": \"127.0.0.1\",\n  \"user_agent\": \"postman-probe\",\n  \"timestamp\": \"{{$isoTimestamp}}\",\n  \"success\": true\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{anomalyUrl}}/score", "host": ["{{anomalyUrl}}"], "path": ["score"] }
+					}
+				},
+				{
+					"name": "02 Fail-closed con servicio caído (manual)",
+					"description": "PASO MANUAL:\n1. docker stop citypass-anomaly-detection\n2. Enviar esta request: un login PERFECTAMENTE VÁLIDO debe devolver 401 genérico (fail-closed, AnomalyRiskClient).\n3. docker start citypass-anomaly-detection\n4. Reenviar: vuelve a dar 200.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 401) {",
+									"  pm.test('Fail-closed: login válido rechazado con servicio caído', () => pm.response.to.have.status(401));",
+									"} else if (pm.response.code === 200) {",
+									"  pm.test('Anomaly service ARRIBA: login OK (¿olvidaste docker stop?)', () => pm.response.to.have.status(200));",
+									"  console.log('INFO: para probar fail-closed, ejecutar antes: docker stop citypass-anomaly-detection');",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"consulta1\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-reclamos-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				}
+			]
+		}
+	]
+}
