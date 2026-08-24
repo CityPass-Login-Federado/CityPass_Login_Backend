@@ -6,12 +6,34 @@ services:
       LDAP_ORGANISATION: "CityPass"
       LDAP_DOMAIN: "citypass.local"
       LDAP_ADMIN_PASSWORD: "admin"
+      LDAP_CONFIG_PASSWORD: "config"
     ports:
       - "389:389"
       - "636:636"
+    healthcheck:
+      test: ["CMD", "ldapwhoami", "-x", "-H", "ldap://localhost:389", "-D", "cn=admin,dc=citypass,dc=local", "-w", "admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Configuración one-shot del directorio: overlays (memberof/refint/unique/
+  # ppolicy/constraint), ACLs, índices y seed. Se ejecuta DESPUÉS de que
+  # OpenLDAP está sano y en ese orden — ver ldap/config/apply-config.sh.
+  ldap-config:
+    image: osixia/openldap:1.5.0
+    container_name: citypass-ldap-config
+    entrypoint: ["/bin/bash", "/config/apply-config.sh"]
+    environment:
+      LDAP_HOST: openldap
+      LDAP_ADMIN_PASSWORD: "admin"
+      LDAP_CONFIG_PASSWORD: "config"
     volumes:
-      - ./ldap/seed:/container/service/slapd/assets/config/bootstrap/ldif/custom
-    command: --copy-service
+      - ./ldap/config:/config:ro
+    depends_on:
+      openldap:
+        condition: service_healthy
+    restart: "no"
 
   postgres:
     image: postgres:16-alpine
@@ -31,16 +53,26 @@ services:
     ports:
       - "8081:8081"
     environment:
-      LDAP_ADMIN_PASSWORD: "admin"
       DB_USERNAME: "citypass"
       DB_PASSWORD: "citypass"
-      SPRING_LDAP_URLS: "ldap://openldap:389"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres:5432/login_federado"
-      ANOMALY_SERVICE_URL: "http://anomaly-detection:8000"   
+      SPRING_LDAP_URLS: "ldap://openldap:389"
+      SPRING_LDAP_USERNAME: "cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local"
+      SPRING_LDAP_PASSWORD: "readonly-secret"
+      PANEL_LDAP_USERNAME: "cn=panel-writer,ou=ServiceAccounts,dc=citypass,dc=local"
+      PANEL_LDAP_PASSWORD: "panel-writer-secret"
+      SVC_GRUPO1_SECRET: "grupo1-secret-dev"
+      SVC_GRUPO2_SECRET: "grupo2-secret-dev"
+      ANOMALY_SERVICE_URL: "http://anomaly-detection:8000"
     depends_on:
-      - openldap
-      - postgres
-      - anomaly-detection  
+      openldap:
+        condition: service_healthy
+      ldap-config:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_started
+      anomaly-detection:
+        condition: service_started
 
   anomaly-detection:
     build: ../anomaly-detection
@@ -51,5 +83,6 @@ services:
       ANOMALY_DB_URL: "postgresql://citypass:citypass@postgres:5432/login_federado"
     depends_on:
       - postgres
+
 volumes:
   pgdata:
