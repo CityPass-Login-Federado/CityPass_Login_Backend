@@ -1,14 +1,23 @@
 ﻿# ADR-005: API stateless sin sesiones de servidor
 
-## Estado: Aceptado
+## Quiénes
 
-## Contexto
+| Nombre | Rol |
+|--------|-----|
+| Antonio Wu | Seguridad / Backend |
+
+## Consideraciones
 
 CityPass+ es una plataforma de microservicios con múltiples módulos. Cada módulo puede escalar horizontalmente (múltiples instancias detrás de un load balancer). Se necesita decidir cómo manejar el estado de autenticación entre requests.
 
-## Opciones consideradas
+Restricciones y supuestos adicionales:
+- Los clientes incluyen web, apps móviles nativas y futuros integradores externos (API pública)
+- Ninguna instancia puede depender de estado en memoria local (cualquier request puede llegar a cualquier réplica)
+- Se busca minimizar dependencias de infraestructura para auth
 
-### Opción A: Sesiones de servidor (HTTP sessions)
+### Opciones consideradas
+
+#### Opción A: Sesiones de servidor (HTTP sessions)
 
 | Pros | Contras |
 |------|---------|
@@ -17,7 +26,7 @@ CityPass+ es una plataforma de microservicios con múltiples módulos. Cada mód
 | Cookies son automáticas en browsers | No funciona bien con apps móviles nativas |
 | | Acopla el cliente al servidor (cookie domain) |
 
-### Opción B: Stateless con JWT
+#### Opción B: Stateless con JWT
 
 | Pros | Contras |
 |------|---------|
@@ -26,20 +35,37 @@ CityPass+ es una plataforma de microservicios con múltiples módulos. Cada mód
 | Cada módulo valida localmente | Rotación de refresh tokens necesaria para seguridad |
 | Sin estado en servidor para auth | |
 
-## Decisión
+## Por todo esto, definimos
 
-**Opción B: Stateless con JWT**
+Adoptar una **API completamente stateless**: autenticación vía header `Authorization: Bearer <JWT>`, sin HTTP sessions ni cookies de sesión, con CSRF deshabilitado.
 
-Elegimos stateless porque:
+Razones principales:
 1. **Microservicios**: Cada módulo escala independientemente sin compartir estado de sesión
 2. **Multi-plataforma**: Funciona con web, móvil, CLI, IoT — sin depender de cookies
 3. **JWKS**: Los otros módulos validan tokens offline, sin llamadas al servicio de auth
 4. **Simplicidad operativa**: No necesitamos Redis/sesiones distribuidas solo para auth
 
+Este enfoque sigue el principio "stateless, share nothing" del manifiesto Twelve-Factor App (factor VI: Processes).
+
 ## Consecuencias
 
-- El access token NO se puede revocar antes de expirar (15 min máximo)
-- El refresh token opaco SÍ se puede revocar (en la BD)
-- Logout = revocar todos los refresh tokens (el access token expira solo)
-- CSRF se deshabilita (no hay cookies de sesión)
-- Cada request incluye `Authorization: Bearer <token>`
+### Positivas
+
+- Cualquier instancia atiende cualquier request: escalado horizontal trivial
+- Compatibilidad total con clientes no-browser (móvil, IoT, integradores)
+- Sin Redis ni sticky sessions dedicados a auth
+- CSRF eliminado por diseño (no hay cookies de autenticación que secuestrar)
+
+### Negativas
+
+- El access token NO se puede revocar antes de expirar (ventana máxima: 15 min)
+- Logout no invalida el access token activo: solo los refresh tokens (ADR-003)
+- Overhead de red: el JWT completo viaja en cada request
+- Obliga a mantener rotación de refresh tokens como compensación de seguridad
+
+## Referencias (benchmark)
+
+- RFC 7519 — JSON Web Token (JWT) — https://datatracker.ietf.org/doc/html/rfc7519
+- The Twelve-Factor App — Factor VI: Processes (stateless, share nothing) — https://12factor.net/es/processes
+- OWASP — Session Management Cheat Sheet — https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html
+- Sam Newman — Building Microservices, 2nd Edition (O'Reilly) — capítulo de seguridad en microservicios
