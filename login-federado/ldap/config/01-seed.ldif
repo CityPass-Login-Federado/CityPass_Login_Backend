@@ -1,0 +1,267 @@
+# =============================================================================
+# CityPass+ — Árbol de identidades (spec 01-DISENO-IDENTIDAD.md §2.2)
+#
+# ESTE ARCHIVO NO LO CARGA EL BOOTSTRAP DE LA IMAGEN: lo aplica
+# apply-config.sh DESPUÉS de activar los overlays (memberof/refint/unique/
+# ppolicy/constraint). Ese orden es obligatorio: si los grupos se cargan
+# antes del overlay memberof, las referencias inversas nunca se calculan
+# para las entradas existentes y todos los tokens saldrían sin grupos,
+# sin ningún error en ningún lado.
+#
+# Contraseñas de prueba: changeit123 (hashes SSHA pre-generados).
+# =============================================================================
+
+version: 1
+
+# -----------------------------------------------------------------------------
+# OUs de módulos (fijas, creadas por Grupo 2). Cada módulo tiene People/Groups.
+# -----------------------------------------------------------------------------
+
+dn: ou=Movilidad,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Movilidad
+
+dn: ou=People,ou=Movilidad,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,ou=Movilidad,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
+dn: ou=Residuos,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Residuos
+
+dn: ou=People,ou=Residuos,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,ou=Residuos,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
+dn: ou=Reclamos,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Reclamos
+
+dn: ou=People,ou=Reclamos,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,ou=Reclamos,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
+dn: ou=Emergencias,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Emergencias
+
+dn: ou=People,ou=Emergencias,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,ou=Emergencias,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
+dn: ou=Espacios,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Espacios
+
+dn: ou=People,ou=Espacios,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,ou=Espacios,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
+dn: ou=Analitica,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Analitica
+
+dn: ou=People,ou=Analitica,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,ou=Analitica,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
+# -----------------------------------------------------------------------------
+# ou=ServiceAccounts — fuera del alcance de búsqueda de personas y fuera de
+# lo que el panel administra (spec §2.8: una cuenta administrativa no puede
+# vivir dentro del alcance que administra).
+# -----------------------------------------------------------------------------
+
+dn: ou=ServiceAccounts,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: ServiceAccounts
+
+# Cuenta con la que el IdP BUSCA. Solo lectura (lo fuerza la ACL).
+dn: cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: readonly
+description: Cuenta de busqueda del IdP - solo lectura
+userPassword: {SSHA}jg5pmnIvvyYBAwthE8wGH/8xmNfY5JkxgzQhkA==
+
+# Credencial interna con la que el BACKEND DEL PANEL escribe. Los delegados
+# no la conocen ni la necesitan (spec §2.8).
+dn: cn=panel-writer,ou=ServiceAccounts,dc=citypass,dc=local
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: panel-writer
+description: Cuenta de escritura del backend del panel
+userPassword: {SSHA}xbwXmMs8GJjz8yN2BzdZL6sO/g9cPdrljExTuw==
+
+# Relleno técnico: el estándar no permite grupos vacíos. Se anota como miembro
+# inicial de cada grupo; el IdP la ignora al armar tokens y el panel nunca la
+# muestra (spec §2.6).
+dn: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+objectClass: organizationalRole
+objectClass: simpleSecurityObject
+cn: empty-group-placeholder
+description: Miembro tecnico para que ningun grupo quede vacio - ignorar
+userPassword: {SSHA}mfAwIET/pDulJ/sD/5aDquTVP4stOEKk8HxlAw==
+
+# -----------------------------------------------------------------------------
+# Política de contraseñas por defecto (overlay ppolicy).
+# Nota: Esta definición es para cn=config; en el DIT se gestiona diferente.
+# Por ahora se omite del seed.
+
+# dn: ou=Policies,dc=citypass,dc=local
+# objectClass: organizationalUnit
+# ou: Policies
+
+# dn: cn=default,ou=Policies,dc=citypass,dc=local
+# objectClass: organizationalRole
+# objectClass: pwdPolicy
+# cn: default
+# pwdAttribute: userPassword
+# pwdLockout: FALSE
+# pwdMinLength: 8
+
+# -----------------------------------------------------------------------------
+# Personas de prueba. employeeNumber = identificador estable (U + 6 dígitos),
+# único global, secuencial. Solo existen vía panel en producción; estos son
+# seeds de desarrollo.
+# -----------------------------------------------------------------------------
+
+dn: uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: jperez
+cn: Juan Perez
+sn: Perez
+givenName: Juan
+mail: jperez@citypass.local
+employeeNumber: U000001
+userPassword: {SSHA}GP4U1TaNS9J/NR5eEMaqKS7ghZQaRkrPsY/4JA==
+
+dn: uid=mgomez,ou=People,ou=Movilidad,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: mgomez
+cn: Maria Gomez
+sn: Gomez
+givenName: Maria
+mail: mgomez@citypass.local
+employeeNumber: U000002
+userPassword: {SSHA}HuUfTDyZqTq8FoyzCXK8hvGmcz6TveKI0+i5OA==
+
+dn: uid=delegado-rec,ou=People,ou=Reclamos,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: delegado-rec
+cn: Delegado Reclamos
+sn: Reclamos
+givenName: Delegado
+mail: delegado-rec@citypass.local
+employeeNumber: U000003
+userPassword: {SSHA}LiH1xCJrWzf7h09XEWHQntO6i+fc/bR04t21Yg==
+
+dn: uid=soporte1,ou=People,ou=Reclamos,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: soporte1
+cn: Soporte Uno
+sn: Uno
+givenName: Soporte
+mail: soporte1@citypass.local
+employeeNumber: U000004
+userPassword: {SSHA}E49CmEqpwpe3zNvMEy0b33gH9UMi37uBgnIoOw==
+
+dn: uid=consulta1,ou=People,ou=Reclamos,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: consulta1
+cn: Consulta Uno
+sn: Uno
+givenName: Consulta
+mail: consulta1@citypass.local
+employeeNumber: U000005
+userPassword: {SSHA}W6AFdinJ4JJoKeLshxI7z+9lPF7gEAZ2Qnx4Pw==
+
+dn: uid=delegado-mov,ou=People,ou=Movilidad,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: delegado-mov
+cn: Delegado Movilidad
+sn: Movilidad
+givenName: Delegado
+mail: delegado-mov@citypass.local
+employeeNumber: U000006
+userPassword: {SSHA}xoI/iMZorLQuqTB17j/8XEEnFfUhRlpbMEcJQg==
+
+# -----------------------------------------------------------------------------
+# Grupos. Listas con nombre; NO definen permisos. El grupo reservado
+# `delegados` existe en cada módulo desde el día cero (spec §5.1).
+# Ningún grupo queda vacío: llevan el placeholder como miembro técnico.
+# -----------------------------------------------------------------------------
+
+dn: cn=delegados,ou=Groups,ou=Reclamos,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: delegados
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=delegado-rec,ou=People,ou=Reclamos,dc=citypass,dc=local
+
+dn: cn=soporte-n2,ou=Groups,ou=Reclamos,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: soporte-n2
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local
+member: uid=soporte1,ou=People,ou=Reclamos,dc=citypass,dc=local
+
+dn: cn=guardia-finde,ou=Groups,ou=Reclamos,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: guardia-finde
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local
+
+dn: cn=consulta,ou=Groups,ou=Reclamos,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: consulta
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=consulta1,ou=People,ou=Reclamos,dc=citypass,dc=local
+
+dn: cn=delegados,ou=Groups,ou=Movilidad,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: delegados
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=delegado-mov,ou=People,ou=Movilidad,dc=citypass,dc=local
+
+dn: cn=delegados,ou=Groups,ou=Residuos,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: delegados
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+
+dn: cn=delegados,ou=Groups,ou=Emergencias,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: delegados
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+
+dn: cn=delegados,ou=Groups,ou=Espacios,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: delegados
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+
+dn: cn=delegados,ou=Groups,ou=Analitica,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: delegados
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
