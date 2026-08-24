@@ -5,21 +5,28 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Cadena de seguridad HTTP del módulo. Dos mundos conviven acá:
  *
- *  1) Endpoints públicos de autenticación (/auth/login, /auth/registro,
- *     /auth/refresh): NO pasan por validación de JWT, porque son el punto
- *     de entrada donde todavía no existe un token. La autenticación ahí
- *     se resuelve a mano en AuthService contra LDAP (ver LdapConfig).
+ *  1) Endpoints públicos de autenticación (/auth/login, /auth/refresh,
+ *     /auth/logout, /oauth/token) y /.well-known/jwks.json: NO pasan por
+ *     validación de JWT, porque son el punto de entrada donde todavía no
+ *     existe un token (o exponen la clave pública). La autenticación se
+ *     resuelve dentro de cada endpoint (LDAP / Basic).
  *
- *  2) Cualquier otro endpoint: requiere un JWT válido, firmado con la
- *     clave privada de este módulo (RS256) y validado acá con la clave
- *     pública vía JwtDecoder (ver JwtKeyConfig).
+ *  2) Cualquier otro endpoint (incluido /panel/**): requiere un JWT válido,
+ *     firmado con RS256 y validado acá con la clave pública vía JwtDecoder.
+ *     Qué más exige cada endpoint (audience, grupo delegados, module) lo
+ *     aplica PanelAuthorization — el filtro solo garantiza firma y vigencia.
  *
  * La API es completamente STATELESS: no hay sesión de servidor ni cookies,
  * todo el estado de autenticación viaja en el token en cada request.
@@ -30,9 +37,9 @@ public class SecurityConfig {
 
     private static final String[] PUBLIC_ENDPOINTS = {
             "/auth/login",
-            "/auth/registro",
             "/auth/refresh",
-            "/auth/recuperar-password",
+            "/auth/logout",
+            "/oauth/token",
             "/.well-known/jwks.json",
             "/docs/**",
             "/v3/api-docs/**",
@@ -64,18 +71,24 @@ public class SecurityConfig {
     }
 
     /**
-     * Traduce el claim custom "roles" del JWT (ej. ["ciudadano", "admin"])
-     * a GrantedAuthority de Spring Security con prefijo ROLE_, para poder
-     * usar @PreAuthorize("hasRole('ADMIN')") o hasRole(...) en los endpoints.
+     * Los GRUPOS crudos del token (claim "groups") pasan como authorities SIN
+     * prefijo ni mayúsculas: son nombres pelados comparables letra por letra
+     * por los consumidores (D1/D2/D6). Nada de ROLE_ ni uppercase: eso
+     * invitaría a tratar membresías como roles ya decididos.
      */
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtGrantedAuthoritiesConverter authoritiesConverter = new JwtGrantedAuthoritiesConverter();
-        authoritiesConverter.setAuthoritiesClaimName("roles");
-        authoritiesConverter.setAuthorityPrefix("ROLE_");
-
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
+        converter.setJwtGrantedAuthoritiesConverter(jwt -> {
+            List<String> groups = jwt.getClaimAsStringList("groups");
+            List<GrantedAuthority> authorities = new ArrayList<>();
+            if (groups != null) {
+                for (String group : groups) {
+                    authorities.add(new SimpleGrantedAuthority(group));
+                }
+            }
+            return authorities;
+        });
         return converter;
     }
 }

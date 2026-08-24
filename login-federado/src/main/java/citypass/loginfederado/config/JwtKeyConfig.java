@@ -5,7 +5,6 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
@@ -42,9 +41,13 @@ import java.util.Base64;
  * (staging/producción) las claves tienen que administrarse como secrets
  * del proveedor cloud (variables de entorno, Vault, etc.), no autogenerarse
  * en el filesystem del servidor.
+ *
+ * El kid del JWK NO es un string fijo: se deriva del contenido de la clave
+ * pública (huella RFC 7638). Misma clave → mismo kid, siempre. Como el JWKS
+ * puede exponer varias claves a la vez, esto permite rotar sin cortar el
+ * servicio (spec 01-DISENO-IDENTIDAD.md §3.5).
  */
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, LockoutProperties.class})
 public class JwtKeyConfig {
 
     private static final Logger log = LoggerFactory.getLogger(JwtKeyConfig.class);
@@ -73,18 +76,38 @@ public class JwtKeyConfig {
         return (RSAPublicKey) KeyFactory.getInstance("RSA").generatePublic(spec);
     }
 
+    /**
+     * El JWK único de este IdP: clave pública + privada + kid por huella
+     * RFC 7638. Lo consumen el encoder, el decoder y el endpoint JWKS,
+     * garantizando que los tres SIEMPRE anuncien el mismo kid.
+     */
     @Bean
-    public JwtEncoder jwtEncoder(RSAPublicKey publicKey, RSAPrivateKey privateKey) {
-        RSAKey rsaKey = new RSAKey.Builder(publicKey)
+    public RSAKey rsaKey(RSAPublicKey publicKey, RSAPrivateKey privateKey) {
+        // computeThumbprint() implementa exactamente RFC 7638: hash SHA-256
+        // del JSON canónico {"e","kty","n"} en base64url.
+        return new RSAKey.Builder(publicKey)
                 .privateKey(privateKey)
-                .keyID(jwtProperties.keyId())
+                .keyID(computeThumbprint(publicKey))
                 .build();
+    }
+
+    @Bean
+    public JwtEncoder jwtEncoder(RSAKey rsaKey) {
         return new NimbusJwtEncoder(new ImmutableJWKSet<>(new JWKSet(rsaKey)));
     }
 
     @Bean
     public JwtDecoder jwtDecoder(RSAPublicKey publicKey) {
         return NimbusJwtDecoder.withPublicKey(publicKey).build();
+    }
+
+    static String computeThumbprint(RSAPublicKey publicKey) {
+        try {
+            RSAKey bare = new RSAKey.Builder(publicKey).build();
+            return bare.computeThumbprint().toString();
+        } catch (Exception e) {
+            throw new IllegalStateException("No se pudo calcular la huella RFC 7638 de la clave", e);
+        }
     }
 
     /**
