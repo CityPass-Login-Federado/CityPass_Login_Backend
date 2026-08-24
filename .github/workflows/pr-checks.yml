@@ -2,7 +2,7 @@ name: PR Checks
 
 # Se ejecuta en cada PR que apunte a main o develop.
 on:
-  pull_request:
+  pull_request_target:
     branches: [ "main", "develop" ]
     types: [ opened, synchronize, reopened ]
 

@@ -7,14 +7,16 @@ import citypass.loginfederado.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import jakarta.servlet.http.HttpServletRequest;
 
+/**
+ * Endpoints públicos de autenticación definidos en el contrato
+ * (specs/03-CONTRATO-TOKEN.md §2). El logout va por refresh_token en el body:
+ * es público y no requiere access token, porque la sesión vive del refresh.
+ */
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
@@ -25,9 +27,9 @@ public class AuthController {
         this.authService = authService;
     }
 
-@PostMapping("/login")
+    @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request,
-                                                HttpServletRequest httpRequest) {
+                                               HttpServletRequest httpRequest) {
         String ipAddress = resolveClientIp(httpRequest);
         String userAgent = httpRequest.getHeader("User-Agent");
         return ResponseEntity.ok(authService.login(request, ipAddress, userAgent));
@@ -52,14 +54,13 @@ public class AuthController {
     }
 
     /**
-     * Requiere un access token válido (no está en PUBLIC_ENDPOINTS de
-     * SecurityConfig). El "sub" del JWT ya validado identifica al usuario
-     * a desloguear -- no se recibe por body, para que nadie pueda cerrar
-     * la sesión de otro usuario mandando su username a mano.
+     * Invalida la sesión (revoca el refresh canjeable). Persiste. El access
+     * token vigente sigue vivo hasta 15 minutos: aceptado y esperado.
+     * Token desconocido → 204 igual: no se revela si alguna vez existió.
      */
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@AuthenticationPrincipal Jwt jwt) {
-        authService.logout(jwt.getSubject());
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request) {
+        authService.logout(request.refreshToken());
         return ResponseEntity.noContent().build();
     }
 }

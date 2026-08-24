@@ -1,0 +1,6 @@
+# Fines de línea forzados: el bash y ldapadd corren dentro de contenedores
+# Linux — un CRLF de Windows rompe el script ($'\r': command not found) y
+# contamina los valores del LDIF.
+*.sh text eol=lf
+*.ldif text eol=lf
+mvnw text eol=lf
