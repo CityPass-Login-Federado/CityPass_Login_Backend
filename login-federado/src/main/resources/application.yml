@@ -6,12 +6,13 @@ spring:
     init:
       mode: always
 
-  # --- LDAP ---
+  # --- LDAP: cuenta READONLY del directorio (solo busca y hace bind).
+  # Nunca la cuenta admin: la ACL del directorio le niega todo lo demás.
   ldap:
     urls: ldap://localhost:389
     base: dc=citypass,dc=local
-    username: cn=admin,dc=citypass,dc=local
-    password: ${LDAP_ADMIN_PASSWORD:admin}
+    username: cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local
+    password: ${LDAP_READONLY_PASSWORD:readonly-secret}
 
   # --- PostgreSQL ---
   datasource:
@@ -34,19 +35,74 @@ server:
   port: 8081
 
 # --- JWT / RS256 ---
+# El kid NO se configura acá: se deriva del contenido de la clave
+# (huella RFC 7638) en JwtKeyConfig — misma clave, mismo kid, siempre.
 jwt:
-  issuer: citypass-auth
-  audience: citypass-platform
-  key-id: citypass-auth-key-1
+  issuer: https://idp.citypass.local
   access-token-expiration-minutes: 15
-  refresh-token-expiration-days: 7
+  refresh-token-expiration-hours: 8
+  service-token-expiration-minutes: 60
   private-key-path: file:./keys/private_key.pem
   public-key-path: file:./keys/public_key.pem
+
+# --- Cuenta de escritura del backend del panel (los delegados no la conocen) ---
+panel:
+  ldap:
+    username: cn=panel-writer,ou=ServiceAccounts,dc=citypass,dc=local
+    password: ${PANEL_LDAP_PASSWORD:panel-writer-secret}
 
 security:
   lockout:
     max-failed-attempts: 5
     window-minutes: 15
+
+# --- Registro de clientes del IdP ---
+# human: una aplicación que actúa en nombre de una persona (module fija el
+#        módulo esperado; transversal: acepta personas de cualquier módulo,
+#        caso único del panel — spec 01-DISENO-IDENTIDAD.md §5.1).
+# service: backend a backend (client_credentials); su identidad es el
+#          namespace que usa como frontera en el bus (contrato §7).
+citypass:
+  clients:
+    - client-id: citypass-movilidad-web
+      audience: citypass-movilidad-api
+      module: movilidad
+      type: human
+    - client-id: citypass-residuos-web
+      audience: citypass-residuos-api
+      module: residuos
+      type: human
+    - client-id: citypass-reclamos-web
+      audience: citypass-reclamos-api
+      module: reclamos
+      type: human
+    - client-id: citypass-emergencias-web
+      audience: citypass-emergencias-api
+      module: emergencias
+      type: human
+    - client-id: citypass-espacios-web
+      audience: citypass-espacios-api
+      module: espacios
+      type: human
+    - client-id: citypass-analitica-web
+      audience: citypass-analitica-api
+      module: analitica
+      type: human
+    - client-id: citypass-admin-web
+      audience: citypass-admin-api
+      type: human
+      transversal: true
+    - client-id: grupo1
+      type: service
+      client-secret: ${SVC_GRUPO1_SECRET:grupo1-secret-dev}
+      audience: citypass-platform
+      namespace: com.citypass.grupo1
+    - client-id: grupo5
+      type: service
+      client-secret: ${SVC_GRUPO5_SECRET:grupo5-secret-dev}
+      audience: citypass-platform
+      namespace: com.citypass.analitica
+
 springdoc:
   swagger-ui:
     path: /docs
