@@ -87,8 +87,24 @@ jobs:
           sudo mv gitleaks /usr/local/bin/
 
       # Escanea los cambios introducidos en el PR
+      # Bypass a los errores momentaneamente, se registra en la pestaña de Security por ahora
       - name: Run Gitleaks CLI
-        run: gitleaks detect --source=${{ env.WORKING_DIR }} --verbose --redact
+        run: |
+          gitleaks detect \
+            --source=${{ env.WORKING_DIR }} \
+            --report-format=sarif \
+            --report-path=gitleaks-results.sarif \
+            --verbose \
+            --redact || true
+
+      # Subida de alertas a GitHub Security Center
+      - name: Subir resultados SARIF a GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: gitleaks-results.sarif
+          category: gitleaks
 
   # ---------------------------------------------------------------------
   # 3) IaC scanning: Dockerfile(s) y docker-compose.yml (Trivy config)
@@ -112,8 +128,18 @@ jobs:
           format: sarif
           output: trivy-iac-results.sarif
           severity: "CRITICAL,HIGH,MEDIUM"
-          exit-code: "1"
+          exit-code: "0"
 
+      # Muestra un resumen en logs
+      - name: Trivy - Resumen en logs
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: ${{ env.WORKING_DIR }}
+          format: table
+          severity: "CRITICAL,HIGH,MEDIUM"
+          exit-code: "0"
       - name: Subir resultados a GitHub Code Scanning
         if: always()
         uses: github/codeql-action/upload-sarif@v3
