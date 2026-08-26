@@ -7,12 +7,6 @@ on:
     branches: [ "main", "develop" ]
     types: [ opened, synchronize, reopened ]
 
-  # Workflow privilegiado.
-  # Se usa EXCLUSIVAMENTE para Gitleaks.
-  pull_request_target:
-    branches: [ "main", "develop" ]
-    types: [ opened, synchronize, reopened ]
-
   # Por el momento, correremos el mismo pipeline para merge a la rama principal,
   # despues procedere a crear un workflow separado
   push:
@@ -38,18 +32,14 @@ jobs:
   # ---------------------------------------------------------------------
   build:
     name: Build & Test (Maven)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     defaults:
       run:
         working-directory: ${{ env.WORKING_DIR }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v5
@@ -77,13 +67,11 @@ jobs:
 
   secret-scanning:
     name: Secret Scanning (Gitleaks)
-    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
-      pull-requests: read
-
+    
     steps:
 
       - name: Checkout del repositorio base
@@ -91,85 +79,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Obtener SHA base y SHA de la PR
-        id: commits
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # Instalando GitLeaks CLI directamente
+      - name: Install Gitleaks
         run: |
-          set -euo pipefail
+          wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz
+          tar -zxvf gitleaks_8.18.2_linux_x64.tar.gz
+          sudo mv gitleaks /usr/local/bin/
 
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-
-          echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
-
-          echo "Base SHA: ${BASE_SHA}"
-          echo "Head SHA: ${HEAD_SHA}"
-
-      - name: Obtener commits de la PR
-        env:
-          BASE_SHA: ${{ steps.commits.outputs.base_sha }}
-          HEAD_SHA: ${{ steps.commits.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-
-          git fetch --no-tags --depth=1 origin "${BASE_SHA}"
-          git fetch --no-tags --depth=1 origin "${HEAD_SHA}"
-
-      - name: Instalar Gitleaks
-        run: |
-          set -euo pipefail
-
-          GITLEAKS_VERSION="8.28.0"
-
-          curl -sSfL \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
-            -o /tmp/gitleaks.tar.gz
-
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-
-          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
-
-          gitleaks version
-
-      - name: Ejecutar Gitleaks sobre los cambios de la PR
-        env:
-          BASE_SHA: ${{ steps.commits.outputs.base_sha }}
-          HEAD_SHA: ${{ steps.commits.outputs.head_sha }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${GITLEAKS_LICENSE:-}" ]; then
-            echo "::error::GITLEAKS_LICENSE no está configurado."
-            exit 1
-          fi
-
-          gitleaks git \
-            --redact \
-            --exit-code 1 \
-            --report-format sarif \
-            --report-path gitleaks-results.sarif \
-            --log-opts="--no-merges ${BASE_SHA}..${HEAD_SHA}" \
-            .
-
-      - name: Publicar resultados de Gitleaks
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gitleaks-results-${{ github.run_id }}
-          path: gitleaks-results.sarif
-          retention-days: 5
-          if-no-files-found: ignore
-
+      # Escanea los cambios introducidos en el PR
+      - name: Run Gitleaks CLI
+        run: gitleaks detect --source=${{ env.WORKING_DIR }} --verbose --redact
 
   # ---------------------------------------------------------------------
   # 3) IaC scanning: Dockerfile(s) y docker-compose.yml (Trivy config)
   # ---------------------------------------------------------------------
   iac-scanning:
     name: IaC Scanning (Trivy)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
 
     permissions:
@@ -178,8 +103,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Trivy - escaneo de configuracion (Dockerfile / compose)
         uses: aquasecurity/trivy-action@v0.36.0
@@ -189,7 +112,7 @@ jobs:
           format: sarif
           output: trivy-iac-results.sarif
           severity: "CRITICAL,HIGH,MEDIUM"
-          exit-code: "0"
+          exit-code: "1"
 
       - name: Subir resultados a GitHub Code Scanning
         if: always()
@@ -204,7 +127,6 @@ jobs:
   # ---------------------------------------------------------------------
   docker-image-scanning:
     name: Docker Image Scanning (Trivy)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
 
