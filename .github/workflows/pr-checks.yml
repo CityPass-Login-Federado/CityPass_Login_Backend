@@ -1,7 +1,14 @@
 name: PR Checks
 
 # Se ejecuta en cada PR que apunte a main o develop.
+
 on:
+  pull_request:
+    branches: [ "main", "develop" ]
+    types: [ opened, synchronize, reopened ]
+
+  # Workflow privilegiado.
+  # Se usa EXCLUSIVAMENTE para Gitleaks.
   pull_request_target:
     branches: [ "main", "develop" ]
     types: [ opened, synchronize, reopened ]
@@ -11,7 +18,6 @@ on:
   push:
     branches: [ "main", "develop" ]
 
-# El proyecto Java (Maven) vive en el subdirectorio login-federado del monorepo.
 env:
   JAVA_VERSION: "21"
   WORKING_DIR: login-federado
@@ -32,74 +38,148 @@ jobs:
   # ---------------------------------------------------------------------
   build:
     name: Build & Test (Maven)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: ${{ env.WORKING_DIR }}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
       - name: Build y tests
-        # WARNING-ONLY: si falla el build o algun test, el step se marca en
-        # amarillo pero no bloquea la PR. Sacar esta linea cuando se quiera
-        # que build/tests rotos s bloqueen el merge.
-        # continue-on-error: true
         run: mvn -B clean verify
 
       - name: Publicar resultados de tests
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: surefire-reports
+          name: surefire-reports-${{ github.run_id }}
           path: ${{ env.WORKING_DIR }}/target/surefire-reports/**
           retention-days: 5
+          if-no-files-found: ignore
+
 
   # ---------------------------------------------------------------------
   # 2) Secret scanning sobre el diff de la PR (Gitleaks)
   # ---------------------------------------------------------------------
+
   secret-scanning:
     name: Secret Scanning (Gitleaks)
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
+      pull-requests: read
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+
+      - name: Checkout del repositorio base
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Ejecutar Gitleaks
-        # WARNING-ONLY: gitleaks-action no expone un input de "exit-code",
-        # asi que el modo no-bloqueante se logra con continue-on-error.
-        # continue-on-error: true
-        uses: gitleaks/gitleaks-action@v2
+      - name: Obtener SHA base y SHA de la PR
+        id: commits
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${HEAD_SHA}" >> "$GITHUB_OUTPUT"
+
+          echo "Base SHA: ${BASE_SHA}"
+          echo "Head SHA: ${HEAD_SHA}"
+
+      - name: Obtener commits de la PR
+        env:
+          BASE_SHA: ${{ steps.commits.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.commits.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags --depth=1 origin "${BASE_SHA}"
+          git fetch --no-tags --depth=1 origin "${HEAD_SHA}"
+
+      - name: Instalar Gitleaks
+        run: |
+          set -euo pipefail
+
+          GITLEAKS_VERSION="8.28.0"
+
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+
+          gitleaks version
+
+      - name: Ejecutar Gitleaks sobre los cambios de la PR
+        env:
+          BASE_SHA: ${{ steps.commits.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.commits.outputs.head_sha }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-          # Si el repo es privado y se usa gitleaks-action >= v2 en modo
-          # organizacional, puede requerirse GITLEAKS_LICENSE. En repos
-          # publicos u open-source no es necesario.
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GITLEAKS_LICENSE:-}" ]; then
+            echo "::error::GITLEAKS_LICENSE no está configurado."
+            exit 1
+          fi
+
+          gitleaks git \
+            --redact \
+            --exit-code 1 \
+            --report-format sarif \
+            --report-path gitleaks-results.sarif \
+            --log-opts="--no-merges ${BASE_SHA}..${HEAD_SHA}" \
+            .
+
+      - name: Publicar resultados de Gitleaks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results-${{ github.run_id }}
+          path: gitleaks-results.sarif
+          retention-days: 5
+          if-no-files-found: ignore
+
 
   # ---------------------------------------------------------------------
   # 3) IaC scanning: Dockerfile(s) y docker-compose.yml (Trivy config)
   # ---------------------------------------------------------------------
   iac-scanning:
     name: IaC Scanning (Trivy)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       security-events: write   # requerido para subir el SARIF a Code Scanning
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Trivy - escaneo de configuracion (Dockerfile / compose)
         uses: aquasecurity/trivy-action@v0.36.0
@@ -109,7 +189,6 @@ jobs:
           format: sarif
           output: trivy-iac-results.sarif
           severity: "CRITICAL,HIGH,MEDIUM"
-          # WARNING-ONLY: Trivy si expone "exit-code" como input propio.
           exit-code: "0"
 
       - name: Subir resultados a GitHub Code Scanning
@@ -119,19 +198,25 @@ jobs:
           sarif_file: trivy-iac-results.sarif
           category: trivy-iac
 
+
   # ---------------------------------------------------------------------
   # 4) Docker image scanning: build de la imagen de login-federado + Trivy
   # ---------------------------------------------------------------------
   docker-image-scanning:
     name: Docker Image Scanning (Trivy)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       security-events: write
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -143,18 +228,18 @@ jobs:
           file: ${{ env.WORKING_DIR }}/Dockerfile
           push: false
           load: true
-          tags: citypass/login-federado:pr-${{ github.event.pull_request.number }}
+          tags: citypass/login-federado:pr-${{ github.event.pull_request.number || github.run_id }}
 
       - name: Trivy - escaneo de la imagen
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: citypass/login-federado:pr-${{ github.event.pull_request.number }}
+          image-ref: citypass/login-federado:pr-${{ github.event.pull_request.number || github.run_id }}
           format: sarif
           output: trivy-image-results.sarif
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true   # solo reporta CVEs con fix disponible
-          # Utilizar 1 para bloquuear, 0 para warning.
+          # Utilizar 1 para bloquear, 0 para warning.
           exit-code: "0"
 
       - name: Subir resultados a GitHub Code Scanning
