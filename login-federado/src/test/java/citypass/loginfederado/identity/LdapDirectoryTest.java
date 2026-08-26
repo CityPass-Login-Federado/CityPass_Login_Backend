@@ -10,11 +10,11 @@ import javax.naming.directory.SearchControls;
 import java.util.List;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-/** Pure mapping plus LDAP query contract tests. */
+/** Reglas puras del mapeo LDAP→token: memberOf operacional y módulo por OU. */
 class LdapDirectoryTest {
     private LdapTemplate ldap;
     private LdapDirectory directory;
@@ -30,11 +30,14 @@ class LdapDirectoryTest {
         List<String> groups = LdapDirectory.reduceToBareNames(
                 "cn=soporte-n2,ou=Groups,ou=Reclamos,dc=citypass,dc=local",
                 "cn=delegados,ou=Groups,ou=Reclamos,dc=citypass,dc=local");
+        
+        // D2: el contrato lleva nombres pelados, jamás DNs
         assertThat(groups).containsExactly("soporte-n2", "delegados");
     }
 
     @Test
     void missingMemberOfMeansEmptyGroupsNotFailure() {
+        // Sin grupos LDAP no devuelve el atributo (null): un grupo vacío es válido
         assertThat(LdapDirectory.reduceToBareNames(null)).isEmpty();
         assertThat(LdapDirectory.reduceToBareNames()).isEmpty();
     }
@@ -42,15 +45,18 @@ class LdapDirectoryTest {
     @Test
     void moduleComesFromTheOuAfterPeople() {
         assertThat(LdapDirectory.extractModule(
-                "uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local")).isEqualTo("reclamos");
+                "uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local"))
+                .isEqualTo("reclamos");
         assertThat(LdapDirectory.extractModule(
-                "uid=x,ou=People,ou=Movilidad,dc=citypass,dc=local")).isEqualTo("movilidad");
+                "uid=x,ou=People,ou=Movilidad,dc=citypass,dc=local"))
+                .isEqualTo("movilidad");
     }
 
     @Test
     void serviceAccountsOutsidePeopleHaveNoModule() {
         assertThat(LdapDirectory.extractModule(
-                "cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local")).isEmpty();
+                "cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local"))
+                .isEmpty();
     }
 
     @Test
@@ -89,8 +95,23 @@ class LdapDirectoryTest {
 
     @Test
     void reloadBySubUsesEmployeeNumberFilter() {
-        when(ldap.search(any(javax.naming.Name.class), contains("employeeNumber=U000042"), any(SearchControls.class), any(ContextMapper.class)))
-                .thenReturn(List.of(new LdapDirectoryPerson("dn", "U000042", "jperez", "Juan", null, "reclamos", List.of())));
+        when(ldap.search(
+            any(javax.naming.Name.class),
+            contains("employeeNumber=U000042"),
+            any(SearchControls.class),
+            any(ContextMapper.class)
+                ))
+                .thenReturn(List.of(
+                    new LdapDirectoryPerson(
+                        "dn",
+                        "U000042",
+                        "jperez",
+                        "Juan",
+                        null,
+                        "reclamos",
+                        List.of()
+                    )
+                ));
         assertThat(directory.reloadBySub("U000042")).isPresent();
     }
 

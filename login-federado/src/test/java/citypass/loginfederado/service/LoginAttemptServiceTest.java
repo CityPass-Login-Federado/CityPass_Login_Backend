@@ -26,15 +26,23 @@ class LoginAttemptServiceTest {
 
     @Test
     void allowsLoginBelowThreshold() {
-        when(repository.countByUsernameAndSuccessfulFalseAndAttemptedAtAfter(eq("jperez"), any(Instant.class)))
-                .thenReturn(4L);
+        when(
+            repository.countByUsernameAndSuccessfulFalseAndAttemptedAtAfter(
+                eq("jperez"), any(Instant.class)
+            )
+        ).thenReturn(4L);
+        
         assertThatCode(() -> service.assertNotLocked("jperez")).doesNotThrowAnyException();
     }
 
     @Test
     void blocksAtThreshold() {
-        when(repository.countByUsernameAndSuccessfulFalseAndAttemptedAtAfter(eq("jperez"), any(Instant.class)))
-                .thenReturn(5L);
+        when(
+            repository.countByUsernameAndSuccessfulFalseAndAttemptedAtAfter(
+                eq("jperez"), any(Instant.class)
+            )
+        ).thenReturn(5L);
+
         assertThatThrownBy(() -> service.assertNotLocked("jperez"))
                 .isInstanceOf(AccountLockedException.class);
     }

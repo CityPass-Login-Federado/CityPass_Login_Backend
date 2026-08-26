@@ -74,12 +74,33 @@ class AuthServiceTest {
 
     @Test
     void rejectsWrongModuleWithSameGenericError() throws Exception {
-        LdapDirectoryPerson mobility = new LdapDirectoryPerson(person.dn(), person.sub(), person.uid(), person.fullName(),
-                person.email(), "movilidad", person.groups());
+        LdapDirectoryPerson mobility = 
+            new LdapDirectoryPerson(
+                person.dn(),
+                person.sub(),
+                person.uid(),
+                person.fullName(),
+                person.email(),
+                "movilidad",
+                person.groups()
+            );
+        
         when(ldap.findByUid("jperez")).thenReturn(java.util.Optional.of(mobility));
         when(clients.acceptsModule(client, "movilidad")).thenReturn(false);
-        assertThatThrownBy(() -> service.login(new LoginRequest("jperez", "secret", client.clientId()), "ip", "ua"))
-                .isInstanceOf(BadCredentialsException.class).hasMessage(GENERIC);
+
+        assertThatThrownBy(() -> 
+            service.login(
+                new LoginRequest(
+                    "jperez",
+                    "secret",
+                    client.clientId()
+                ),
+                "ip",
+                "ua"
+            )
+        )
+            .isInstanceOf(BadCredentialsException.class).hasMessage(GENERIC);
+        
         verify(ldap, never()).bind(anyString(), anyString());
         verify(attempts).recordAttempt("jperez", "ip", "ua", false);
     }
@@ -88,7 +109,15 @@ class AuthServiceTest {
     void successfulLoginIssuesAccessRefreshAndEvent() throws Exception {
         when(ldap.findByUid("jperez")).thenReturn(java.util.Optional.of(person));
         when(clients.acceptsModule(client, "reclamos")).thenReturn(true);
-        when(anomaly.score("jperez", "ip", "ua")).thenReturn(new citypass.loginfederado.dto.AnomalyScoreResponse(0.01, "ALLOW", List.of()));
+        when(anomaly.score("jperez", "ip", "ua"))
+            .thenReturn(
+                new citypass.loginfederado.dto.AnomalyScoreResponse(
+                    0.01,
+                    "ALLOW",
+                    List.of()
+                )
+            );
+        
         when(issuer.issueHuman(person, client)).thenReturn("access");
         when(refresh.issueInitial(person, client)).thenReturn("refresh");
 
@@ -106,10 +135,27 @@ class AuthServiceTest {
     void anomalyBlockProducesGenericErrorAndFailedAttempt() throws Exception {
         when(ldap.findByUid("jperez")).thenReturn(java.util.Optional.of(person));
         when(clients.acceptsModule(client, "reclamos")).thenReturn(true);
-        when(anomaly.score(anyString(), anyString(), any())).thenReturn(new citypass.loginfederado.dto.AnomalyScoreResponse(0.99, "BLOCK", List.of("risk")));
+        when(anomaly.score(anyString(), anyString(), any()))
+            .thenReturn(
+                new citypass.loginfederado.dto.AnomalyScoreResponse(
+                    0.99,
+                    "BLOCK",
+                    List.of("risk")
+                )
+            );
 
-        assertThatThrownBy(() -> service.login(new LoginRequest("jperez", "secret", client.clientId()), "ip", "ua"))
-                .isInstanceOf(BadCredentialsException.class).hasMessage(GENERIC);
+        assertThatThrownBy(() -> 
+            service.login(
+                new LoginRequest(
+                    "jperez",
+                    "secret",
+                    client.clientId()
+                ),
+                "ip",
+                "ua"
+            )
+        ).isInstanceOf(BadCredentialsException.class).hasMessage(GENERIC);
+        
         verify(attempts).recordAttempt("jperez", "ip", "ua", false);
         verify(issuer, never()).issueHuman(any(), any());
     }
@@ -117,7 +163,8 @@ class AuthServiceTest {
     @Test
     void refreshRotatesAccessAndRefresh() {
         UUID chain = UUID.randomUUID();
-        when(refresh.continueChain("old")).thenReturn(new RefreshTokenService.ChainContinuation(person, chain, client));
+        when(refresh.continueChain("old"))
+            .thenReturn(new RefreshTokenService.ChainContinuation(person, chain, client));
         when(issuer.issueHuman(person, client)).thenReturn("new-access");
         when(refresh.issueNext(person, chain, client)).thenReturn("new-refresh");
 
