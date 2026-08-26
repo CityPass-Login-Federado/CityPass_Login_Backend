@@ -81,3 +81,20 @@ Para levantar el entorno de desarrollo en tu máquina local, asegúrate de tener
 En la raíz del proyecto, ejecuta el siguiente comando para iniciar los contenedores en segundo plano:
 ```bash
 docker-compose up -d
+```
+
+---
+
+## 🚀 Tests
+
+
+### 1. Correr los test
+En la raíz del proyecto, ejecuta los siguientes comandos:
+```bash
+cd login-federado
+mvn clean verify
+```
+### 2. Obtener el test coverage
+Una vez ejecutado el comando mencionado anteriormente, podras ver la covertura de los test en el siguiente archivo:
+```
+login-federado/target/site/jacoco/index.html
