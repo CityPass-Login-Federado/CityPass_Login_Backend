@@ -13,6 +13,8 @@ Este directorio contiene las decisiones de arquitectura documentadas del módulo
 | [ADR-005](ADR-005-stateless-sin-sesiones.md) | API stateless sin sesiones de servidor |
 | [ADR-006](ADR-006-event-bus-placeholder.md) | Event bus — placeholder con abstracción |
 | [ADR-007](ADR-007-dockerfile-multi-stage.md) | Dockerfile multi-stage para la aplicación |
+| [ADR-008](ADR-008-python-servicio-deteccion.md) | Python para el servicio de detección de anomalías |
+| [ADR-009](ADR-009-ia-ml-deteccion-anomalias.md) | Detección híbrida con Isolation Forest y reglas deterministas |
 
 ## Formato
 
