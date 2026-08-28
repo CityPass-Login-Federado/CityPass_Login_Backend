@@ -52,7 +52,7 @@ jobs:
       - name: 📊 Resumen de cobertura
         if: always()
         shell: bash
-        run: bash .github/scripts/coverage-summary.sh
+        run: bash "${{ github.workspace }}/.github/scripts/coverage-summary.sh"
 
       - name: 🔎 Análisis SonarCloud
         env:
