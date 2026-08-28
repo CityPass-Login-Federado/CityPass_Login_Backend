@@ -69,7 +69,7 @@ public class PanelDirectoryService {
     // Personas
     // ------------------------------------------------------------------
 
-    public List<PersonView> listPersons(String module) {
+    public List<PersonView> listPeople(String module) {
         assertModule(module);
         return ldap.search(
                 peopleBase(module),
@@ -146,7 +146,7 @@ public class PanelDirectoryService {
 
     /** Corrección de datos y/o renombre (con reparación de membresías). */
     public PersonView updatePerson(PanelAuthorization.Delegate actor, String module,
-                                   String uid, UpdatePersonRequest req) {
+                                String uid, UpdatePersonRequest req) {
         assertModule(module);
         requireContext(personDn(module, uid));
 
@@ -193,7 +193,7 @@ public class PanelDirectoryService {
      * apuntan al DN viejo; después del modrdn se reescriben explícitamente.
      */
     private void renamePerson(PanelAuthorization.Delegate actor, String module,
-                              String oldUid, String newUid) {
+                            String oldUid, String newUid) {
         validateUsername(newUid);
         LdapName oldDn = personDn(module, oldUid);
         LdapName newDn = personDn(module, newUid);
@@ -241,7 +241,7 @@ public class PanelDirectoryService {
      * antes de guardar (olcPPolicyHashCleartext). Nadie ve nunca un hash.
      */
     public void resetPassword(PanelAuthorization.Delegate actor, String module,
-                              String uid, String temporaryPassword) {
+                            String uid, String temporaryPassword) {
         assertModule(module);
         if (temporaryPassword == null || temporaryPassword.length() < 8) {
             throw new IllegalArgumentException("La contraseña temporal debe tener al menos 8 caracteres");
@@ -303,7 +303,7 @@ public class PanelDirectoryService {
      * grupos con aviso desde 30 (token bloat).
      */
     public MembershipChangeResponse addMember(PanelAuthorization.Delegate actor, String module,
-                                              String groupName, String memberUid) {
+                                            String groupName, String memberUid) {
         assertModule(module);
         LdapName groupDn = groupDn(module, groupName);
         requireContext(groupDn);
@@ -329,7 +329,7 @@ public class PanelDirectoryService {
     }
 
     public MembershipChangeResponse removeMember(PanelAuthorization.Delegate actor, String module,
-                                                 String groupName, String memberUid) {
+                                                String groupName, String memberUid) {
         assertModule(module);
         LdapName groupDn = groupDn(module, groupName);
         requireContext(groupDn);
