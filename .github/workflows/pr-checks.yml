@@ -1,249 +1,25 @@
 name: PR Checks
 
 # Se ejecuta en cada PR que apunte a main o develop.
+# Los jobs reales viven en ci.yml (compartido con push-checks.yml).
 
 on:
   pull_request:
     branches: [ "main", "develop" ]
     types: [ opened, synchronize, reopened ]
 
-  # Por el momento, correremos el mismo pipeline para merge a la rama principal,
-  # despues procedere a crear un workflow separado
-  push:
-    branches: [ "main", "develop" ]
-
-env:
-  JAVA_VERSION: "21"
-  WORKING_DIR: login-federado
-
-permissions:
-  contents: read
-
 # ---------------------------------------------------------------------------
 # TODO: para que los checks bloqueen el merge de la PR, falta:
 #   - (opcional) configurar el/los jobs como "required checks" en
 #     Settings > Branches > Branch protection rules
-#   - cargar los secrets SONAR_TOKEN y (si aplica) SONAR_ORGANIZATION
 # ---------------------------------------------------------------------------
 
 jobs:
-
-  # ---------------------------------------------------------------------
-  # 1) Build + Test + Coverage + SonarCloud (Maven)
-  # ---------------------------------------------------------------------
-  build:
-    name: Build, Test & SonarCloud (Maven)
-    runs-on: ubuntu-latest
-
+  ci:
+    name: CI
+    uses: ./.github/workflows/CI.yml
+    secrets: inherit
     permissions:
       contents: read
-      pull-requests: read   # requerido por Sonar para decorar la PR
-
-    defaults:
-      run:
-        working-directory: ${{ env.WORKING_DIR }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0   # historial completo: lo necesita el análisis de Sonar
-
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: maven
-
-      - name: 🔨 Build
-        run: mvn -B clean compile
-
-      - name: 🧪 Tests + Coverage (JaCoCo)
-        run: mvn -B test jacoco:report
-
-      - name: 📊 Resumen de cobertura
-        if: always()
-        run: |
-          CSV="target/site/jacoco/jacoco.csv"
-          if [ -f "$CSV" ]; then
-            {
-              echo "### 📊 Cobertura de código (JaCoCo)"
-              echo ""
-              echo "| Métrica | Cobertura |"
-              echo "|---|---|"
-              awk -F"," '
-                NR > 1 {
-                  missed_i += $4; covered_i += $5
-                  missed_b += $6; covered_b += $7
-                  missed_l += $8; covered_l += $9
-                }
-                END {
-                  if (covered_i + missed_i > 0)
-                    printf "| Instrucciones | %.1f%% |\n", 100 * covered_i / (covered_i + missed_i)
-                  if (covered_b + missed_b > 0)
-                    printf "| Ramas | %.1f%% |\n", 100 * covered_b / (covered_b + missed_b)
-                  if (covered_l + missed_l > 0)
-                    printf "| Líneas | %.1f%% |\n", 100 * covered_l / (covered_l + missed_l)
-                }' "$CSV"
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "⚠️ No se encontró el reporte de JaCoCo (${CSV})" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: 🔎 Análisis SonarCloud
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-            -Dsonar.projectKey=CityPass-Login-Federado_CityPass_Login_Backend \
-            -Dsonar.organization=citypass-login-federado \
-            -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
-
-      - name: Publicar resultados de tests
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: surefire-reports-${{ github.run_id }}
-          path: ${{ env.WORKING_DIR }}/target/surefire-reports/**
-          retention-days: 5
-          if-no-files-found: ignore
-
-
-  # ---------------------------------------------------------------------
-  # 2) Secret scanning sobre el diff de la PR (Gitleaks)
-  # ---------------------------------------------------------------------
-
-  secret-scanning:
-    name: Secret Scanning (Gitleaks)
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-    
-    steps:
-
-      - name: Checkout del repositorio base
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      # Instalando GitLeaks CLI directamente
-      - name: Install Gitleaks
-        run: |
-          wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz
-          tar -zxvf gitleaks_8.18.2_linux_x64.tar.gz
-          sudo mv gitleaks /usr/local/bin/
-
-      # Escanea los cambios introducidos en el PR
-      # Bypass a los errores momentaneamente, se registra en la pestaña de Security por ahora
-      - name: Run Gitleaks CLI
-        run: |
-          gitleaks detect \
-            --source=${{ env.WORKING_DIR }} \
-            --report-format=sarif \
-            --report-path=gitleaks-results.sarif \
-            --verbose \
-            --redact || true
-
-      # Subida de alertas a GitHub Security Center
-      - name: Subir resultados SARIF a GitHub Code Scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        continue-on-error: true
-        with:
-          sarif_file: gitleaks-results.sarif
-          category: gitleaks
-
-  # ---------------------------------------------------------------------
-  # 3) IaC scanning: Dockerfile(s) y docker-compose.yml (Trivy config)
-  # ---------------------------------------------------------------------
-  iac-scanning:
-    name: IaC Scanning (Trivy)
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      security-events: write   # requerido para subir el SARIF a Code Scanning
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Trivy - escaneo de configuracion (Dockerfile / compose)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: config
-          scan-ref: .
-          format: sarif
-          output: trivy-iac-results.sarif
-          severity: "CRITICAL,HIGH,MEDIUM"
-          exit-code: "0"
-
-      # Muestra un resumen en logs
-      - name: Trivy - Resumen en logs
-        if: always()
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: config
-          scan-ref: ${{ env.WORKING_DIR }}
-          format: table
-          severity: "CRITICAL,HIGH,MEDIUM"
-          exit-code: "0"
-      - name: Subir resultados a GitHub Code Scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-iac-results.sarif
-          category: trivy-iac
-
-
-  # ---------------------------------------------------------------------
-  # 4) Docker image scanning: build de la imagen de login-federado + Trivy
-  # ---------------------------------------------------------------------
-  docker-image-scanning:
-    name: Docker Image Scanning (Trivy)
-    needs: build
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
+      pull-requests: read
       security-events: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build de la imagen (sin push)
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ env.WORKING_DIR }}
-          file: ${{ env.WORKING_DIR }}/Dockerfile
-          push: false
-          load: true
-          tags: citypass/login-federado:pr-${{ github.event.pull_request.number || github.run_id }}
-
-      - name: Trivy - escaneo de la imagen
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: citypass/login-federado:pr-${{ github.event.pull_request.number || github.run_id }}
-          format: sarif
-          output: trivy-image-results.sarif
-          severity: "CRITICAL,HIGH"
-          ignore-unfixed: true   # solo reporta CVEs con fix disponible
-          # Utilizar 1 para bloquear, 0 para warning.
-          exit-code: "0"
-
-      - name: Subir resultados a GitHub Code Scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-image-results.sarif
-          category: trivy-image
