@@ -31,8 +31,8 @@ sequenceDiagram
         PA-->>D: 403 Forbidden
     else Request autorizado
         alt Consultas de personas
-            D->>PC: GET /panel/personas[/{uid}]
-            PC->>PDS: listPersons(module) / findPerson(module, uid)
+            D->>PC: GET /panel/people[/{uid}]
+            PC->>PDS: listPeople(module) / findPerson(module, uid)
             PDS->>LDAP: Search personas dentro de ou=People,module
             LDAP-->>PDS: Datos de personas
             PDS-->>PC: PersonView o lista de personas
@@ -63,14 +63,14 @@ sequenceDiagram
             PDS-->>PC: void
             PC-->>D: 204 No Content
         else Consultas y administración de grupos
-            D->>PC: GET /panel/grupos
+            D->>PC: GET /panel/groups
             PC->>PDS: listGroups(module)
             PDS->>LDAP: Search groupOfNames dentro del módulo
             LDAP-->>PDS: Datos de grupos
             PDS-->>PC: Lista de grupos
             PC-->>D: 200 OK
 
-            D->>PC: POST /grupos | DELETE /grupos/{name}
+            D->>PC: POST /groups | DELETE /groups/{name}
             PC->>PDS: createGroup/deleteGroup(delegate, module, name)
             PDS->>PDS: Valida nombre y grupo reservado delegados
             PDS->>LDAP: Crea o elimina grupo
@@ -80,7 +80,7 @@ sequenceDiagram
             PDS-->>PC: GroupView o void
             PC-->>D: 201 Created o 204 No Content
 
-            D->>PC: POST/DELETE /grupos/{name}/miembros[/{uid}]
+            D->>PC: POST/DELETE /groups/{name}/members[/{uid}]
             PC->>PDS: addMember/removeMember(delegate, module, group, uid)
             PDS->>PDS: Valida persona, pertenencia y máximo de 50 grupos
             PDS->>LDAP: Agrega o quita member del grupo
@@ -107,8 +107,8 @@ sequenceDiagram
 
 | Área | Operaciones |
 |------|-------------|
-| Personas | `GET /panel/personas`, `GET /panel/personas/{uid}`, `POST /panel/personas`, `PUT /panel/personas/{uid}` |
-| Estado y credenciales | `POST /panel/personas/{uid}/disable`, `POST /panel/personas/{uid}/enable`, `POST /panel/personas/{uid}/reset-password` |
-| Grupos | `GET /panel/grupos`, `POST /panel/grupos`, `DELETE /panel/grupos/{name}` |
-| Membresías | `POST /panel/grupos/{name}/miembros`, `DELETE /panel/grupos/{name}/miembros/{uid}` |
+| Personas | `GET /panel/people`, `GET /panel/people/{uid}`, `POST /panel/people`, `PUT /panel/people/{uid}` |
+| Estado y credenciales | `POST /panel/people/{uid}/disable`, `POST /panel/people/{uid}/enable`, `POST /panel/people/{uid}/reset-password` |
+| Grupos | `GET /panel/groups`, `POST /panel/groups`, `DELETE /panel/groups/{name}` |
+| Membresías | `POST /panel/groups/{name}/members`, `DELETE /panel/groups/{name}/members/{uid}` |
 ``

@@ -92,7 +92,7 @@ citypass:
       audience: citypass-admin-api
       type: human
       transversal: true
-    - client-id: grupo1
+    - client-id: group1
       type: service
       client-secret: ${SVC_GROUP1_SECRET:group1-secret-dev}
       audience: citypass-platform
