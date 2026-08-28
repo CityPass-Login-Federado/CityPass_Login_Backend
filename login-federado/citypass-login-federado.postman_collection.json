@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "b7e3f2a1-4c8d-4e5a-9f6b-1a2c3d4e5f60",
 		"name": "CityPass Login Federado",
-		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout)\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una persona mata sus sesiones al instante\n- El panel aísla módulos y exige grupo 'delegados'",
+		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout)\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una  mata sus sesiones al instante\n- El panel aísla módulos y exige grupo 'delegados'",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -423,7 +423,7 @@
 								"exec": [
 									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
 									"const r = pm.response.json();",
-									"pm.test('Servicio no puede loguearse como persona', () => {",
+									"pm.test('Servicio no puede loguearse como ', () => {",
 									"  pm.expect(r.error).to.eql('Credenciales inválidas');",
 									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
 									"});"

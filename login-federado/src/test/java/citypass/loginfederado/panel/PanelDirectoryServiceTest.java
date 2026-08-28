@@ -39,18 +39,18 @@ class PanelDirectoryServiceTest {
 
     @Test
     void rejectsUnknownModule() {
-        assertThatThrownBy(() -> service.listPersons("desconocido"))
+        assertThatThrownBy(() -> service.listPeople("desconocido"))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
-        void listPersonsSortsByUid() throws Exception {
+        void listPeopleSortsByUid() throws Exception {
         when(ldap.search(any(LdapName.class), eq("(objectClass=inetOrgPerson)"), ArgumentMatchers.<AttributesMapper<PersonView>>any()))
                                 .thenAnswer(invocation -> {
                                         AttributesMapper<PersonView> mapper = invocation.getArgument(2);
                                             return List.of(mapper.mapFromAttributes(person("zeta")), mapper.mapFromAttributes(person("alpha")));
                                 });
-        assertThat(service.listPersons("reclamos")).extracting(PersonView::uid)
+        assertThat(service.listPeople("reclamos")).extracting(PersonView::uid)
                 .containsExactly("alpha", "zeta");
     }
 

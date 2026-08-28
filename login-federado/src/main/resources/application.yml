@@ -94,12 +94,12 @@ citypass:
       transversal: true
     - client-id: grupo1
       type: service
-      client-secret: ${SVC_GRUPO1_SECRET:grupo1-secret-dev}
+      client-secret: ${SVC_GROUP1_SECRET:group1-secret-dev}
       audience: citypass-platform
-      namespace: com.citypass.grupo1
-    - client-id: grupo5
+      namespace: com.citypass.group1
+    - client-id: group5
       type: service
-      client-secret: ${SVC_GRUPO5_SECRET:grupo5-secret-dev}
+      client-secret: ${SVC_GROUP5_SECRET:group5-secret-dev}
       audience: citypass-platform
       namespace: com.citypass.analitica
 

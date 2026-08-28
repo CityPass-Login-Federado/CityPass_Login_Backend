@@ -57,7 +57,7 @@ public class PanelController {
     // ------------------------------------------------------------------
 
     @GetMapping("/people")
-    public List<PersonView> listPersons(@AuthenticationPrincipal Jwt jwt) {
+    public List<PersonView> listPeople(@AuthenticationPrincipal Jwt jwt) {
         return directory.listPeople(module(jwt));
     }
 
