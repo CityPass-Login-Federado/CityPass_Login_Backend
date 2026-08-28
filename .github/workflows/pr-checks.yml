@@ -23,23 +23,31 @@ permissions:
 # TODO: para que los checks bloqueen el merge de la PR, falta:
 #   - (opcional) configurar el/los jobs como "required checks" en
 #     Settings > Branches > Branch protection rules
+#   - cargar los secrets SONAR_TOKEN y (si aplica) SONAR_ORGANIZATION
 # ---------------------------------------------------------------------------
 
 jobs:
 
   # ---------------------------------------------------------------------
-  # 1) Build + tests con Maven
+  # 1) Build + Test + Coverage + SonarCloud (Maven)
   # ---------------------------------------------------------------------
   build:
-    name: Build & Test (Maven)
+    name: Build, Test & SonarCloud (Maven)
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: read   # requerido por Sonar para decorar la PR
 
     defaults:
       run:
         working-directory: ${{ env.WORKING_DIR }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0   # historial completo: lo necesita el análisis de Sonar
 
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v5
@@ -48,8 +56,51 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
-      - name: Build y tests
-        run: mvn -B clean verify
+      - name: 🔨 Build
+        run: mvn -B clean compile
+
+      - name: 🧪 Tests + Coverage (JaCoCo)
+        run: mvn -B test jacoco:report
+
+      - name: 📊 Resumen de cobertura
+        if: always()
+        run: |
+          CSV="target/site/jacoco/jacoco.csv"
+          if [ -f "$CSV" ]; then
+            {
+              echo "### 📊 Cobertura de código (JaCoCo)"
+              echo ""
+              echo "| Métrica | Cobertura |"
+              echo "|---|---|"
+              awk -F"," '
+                NR > 1 {
+                  missed_i += $4; covered_i += $5
+                  missed_b += $6; covered_b += $7
+                  missed_l += $8; covered_l += $9
+                }
+                END {
+                  if (covered_i + missed_i > 0)
+                    printf "| Instrucciones | %.1f%% |\n", 100 * covered_i / (covered_i + missed_i)
+                  if (covered_b + missed_b > 0)
+                    printf "| Ramas | %.1f%% |\n", 100 * covered_b / (covered_b + missed_b)
+                  if (covered_l + missed_l > 0)
+                    printf "| Líneas | %.1f%% |\n", 100 * covered_l / (covered_l + missed_l)
+                }' "$CSV"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ No se encontró el reporte de JaCoCo (${CSV})" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 🔎 Análisis SonarCloud
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.projectKey=CityPass-Login-Federado_CityPass_Login_Backend \
+            -Dsonar.organization=citypass-login-federado \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
 
       - name: Publicar resultados de tests
         if: always()
