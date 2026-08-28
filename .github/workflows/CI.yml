@@ -60,8 +60,8 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-            -Dsonar.projectKey=REEMPLAZAR_projectKey \
-            -Dsonar.organization=REEMPLAZAR_organization \
+            -Dsonar.projectKey=CityPass-Login-Federado_CityPass_Login_Backend \
+            -Dsonar.organization=citypass-login-federado \
             -Dsonar.host.url=https://sonarcloud.io \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
 
