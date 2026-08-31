@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "b7e3f2a1-4c8d-4e5a-9f6b-1a2c3d4e5f60",
 		"name": "CityPass Login Federado",
-		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout)\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una persona mata sus sesiones al instante\n- El panel aísla módulos y exige grupo 'delegados'",
+		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout)\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una  mata sus sesiones al instante\n- El panel aísla módulos y exige grupo 'delegados'",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -423,7 +423,7 @@
 								"exec": [
 									"pm.test('HTTP 401', () => pm.response.to.have.status(401));",
 									"const r = pm.response.json();",
-									"pm.test('Servicio no puede loguearse como persona', () => {",
+									"pm.test('Servicio no puede loguearse como ', () => {",
 									"  pm.expect(r.error).to.eql('Credenciales inválidas');",
 									"  pm.expect(r.message).to.eql('Usuario o contraseña inválidos');",
 									"});"
@@ -850,7 +850,7 @@
 									"pm.test('Claims de servicio: namespace y SIN groups', () => {",
 									"  pm.expect(p.token_use).to.eql('service');",
 									"  pm.expect(p.sub).to.eql('grupo1');",
-									"  pm.expect(p.namespace).to.eql('com.citypass.grupo1');",
+									"  pm.expect(p.namespace).to.eql('com.citypass.group1');",
 									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-platform');",
 									"  pm.expect(p).to.not.have.property('groups');",
 									"  pm.expect(p.exp - p.iat).to.eql(3600);",
@@ -865,8 +865,8 @@
 						"auth": {
 							"type": "basic",
 							"basic": [
-								{ "key": "username", "value": "grupo1", "type": "string" },
-								{ "key": "password", "value": "grupo1-secret-dev", "type": "string" }
+								{ "key": "username", "value": "group1", "type": "string" },
+								{ "key": "password", "value": "group1-secret-dev", "type": "string" }
 							]
 						},
 						"body": {
@@ -902,7 +902,7 @@
 						"auth": {
 							"type": "basic",
 							"basic": [
-								{ "key": "username", "value": "grupo1", "type": "string" },
+								{ "key": "username", "value": "group1", "type": "string" },
 								{ "key": "password", "value": "secreto-equivocado", "type": "string" }
 							]
 						},
@@ -937,8 +937,8 @@
 						"auth": {
 							"type": "basic",
 							"basic": [
-								{ "key": "username", "value": "grupo1", "type": "string" },
-								{ "key": "password", "value": "grupo1-secret-dev", "type": "string" }
+								{ "key": "username", "value": "group1", "type": "string" },
+								{ "key": "password", "value": "group1-secret-dev", "type": "string" }
 							]
 						},
 						"body": {
@@ -1016,9 +1016,9 @@
 					"request": {
 						"method": "GET",
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas",
+							"raw": "{{baseUrl}}/panel/people",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas"]
+							"path": ["panel", "people"]
 						}
 					}
 				},
@@ -1044,9 +1044,9 @@
 					"request": {
 						"method": "GET",
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas/jperez",
+							"raw": "{{baseUrl}}/panel/people/jperez",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas", "jperez"]
+							"path": ["panel", "people", "jperez"]
 						}
 					}
 				},
@@ -1066,9 +1066,9 @@
 					"request": {
 						"method": "GET",
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas/nadie",
+							"raw": "{{baseUrl}}/panel/people/nadie",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas", "nadie"]
+							"path": ["panel", "people", "nadie"]
 						}
 					}
 				},
@@ -1103,9 +1103,9 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas",
+							"raw": "{{baseUrl}}/panel/people",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas"]
+							"path": ["panel", "people"]
 						}
 					}
 				},
@@ -1138,9 +1138,9 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}",
+							"raw": "{{baseUrl}}/panel/people/{{new_uid}}",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas", "{{new_uid}}"]
+							"path": ["panel", "people", "{{new_uid}}"]
 						}
 					}
 				},
@@ -1204,9 +1204,9 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/reset-password",
+							"raw": "{{baseUrl}}/panel/people/{{new_uid}}/reset-password",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas", "{{new_uid}}", "reset-password"]
+							"path": ["panel", "people", "{{new_uid}}", "reset-password"]
 						}
 					}
 				},
@@ -1288,9 +1288,9 @@
 					"request": {
 						"method": "POST",
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/disable",
+							"raw": "{{baseUrl}}/panel/people/{{new_uid}}/disable",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas", "{{new_uid}}", "disable"]
+							"path": ["panel", "people", "{{new_uid}}", "disable"]
 						}
 					}
 				},
@@ -1374,9 +1374,9 @@
 					"request": {
 						"method": "POST",
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/enable",
+							"raw": "{{baseUrl}}/panel/people/{{new_uid}}/enable",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas", "{{new_uid}}", "enable"]
+							"path": ["panel", "people", "{{new_uid}}", "enable"]
 						}
 					}
 				},
@@ -1444,9 +1444,9 @@
 					"request": {
 						"method": "GET",
 						"url": {
-							"raw": "{{baseUrl}}/panel/grupos",
+							"raw": "{{baseUrl}}/panel/groups",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "grupos"]
+							"path": ["panel", "groups"]
 						}
 					}
 				},
@@ -1476,9 +1476,9 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/grupos",
+							"raw": "{{baseUrl}}/panel/groups",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "grupos"]
+							"path": ["panel", "groups"]
 						}
 					}
 				},
@@ -1506,9 +1506,9 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/grupos",
+							"raw": "{{baseUrl}}/panel/groups",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "grupos"]
+							"path": ["panel", "groups"]
 						}
 					}
 				},
@@ -1536,9 +1536,9 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/grupos",
+							"raw": "{{baseUrl}}/panel/groups",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "grupos"]
+							"path": ["panel", "groups"]
 						}
 					}
 				},
@@ -1571,9 +1571,9 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/grupos/guardia-test/miembros",
+							"raw": "{{baseUrl}}/panel/groups/guardia-test/members",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "grupos", "guardia-test", "miembros"]
+							"path": ["panel", "groups", "guardia-test", "members"]
 						}
 					}
 				},
@@ -1631,9 +1631,9 @@
 					"request": {
 						"method": "DELETE",
 						"url": {
-							"raw": "{{baseUrl}}/panel/grupos/guardia-test/miembros/test-user",
+							"raw": "{{baseUrl}}/panel/groups/guardia-test/members/test-user",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "grupos", "guardia-test", "miembros", "test-user"]
+							"path": ["panel", "groups", "guardia-test", "members", "test-user"]
 						}
 					}
 				},
@@ -1653,9 +1653,9 @@
 					"request": {
 						"method": "DELETE",
 						"url": {
-							"raw": "{{baseUrl}}/panel/grupos/guardia-test",
+							"raw": "{{baseUrl}}/panel/groups/guardia-test",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "grupos", "guardia-test"]
+							"path": ["panel", "groups", "guardia-test"]
 						}
 					}
 				},
@@ -1675,9 +1675,9 @@
 					"request": {
 						"method": "DELETE",
 						"url": {
-							"raw": "{{baseUrl}}/panel/grupos/delegados",
+							"raw": "{{baseUrl}}/panel/groups/delegados",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "grupos", "delegados"]
+							"path": ["panel", "groups", "delegados"]
 						}
 					}
 				}
@@ -1704,9 +1704,9 @@
 					"request": {
 						"method": "GET",
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas",
+							"raw": "{{baseUrl}}/panel/people",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas"]
+							"path": ["panel", "people"]
 						}
 					}
 				},
@@ -1732,9 +1732,9 @@
 							]
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas",
+							"raw": "{{baseUrl}}/panel/people",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas"]
+							"path": ["panel", "people"]
 						}
 					}
 				},
@@ -1760,9 +1760,9 @@
 							]
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas/jperez",
+							"raw": "{{baseUrl}}/panel/people/jperez",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas", "jperez"]
+							"path": ["panel", "people", "jperez"]
 						}
 					}
 				},
@@ -1788,9 +1788,9 @@
 							]
 						},
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas",
+							"raw": "{{baseUrl}}/panel/people",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas"]
+							"path": ["panel", "people"]
 						}
 					}
 				},
@@ -1813,9 +1813,9 @@
 							{ "key": "Authorization", "value": "Bearer abc.def.ghi" }
 						],
 						"url": {
-							"raw": "{{baseUrl}}/panel/personas",
+							"raw": "{{baseUrl}}/panel/people",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "personas"]
+							"path": ["panel", "people"]
 						}
 					}
 				}

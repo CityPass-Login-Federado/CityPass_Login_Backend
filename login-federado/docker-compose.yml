@@ -61,8 +61,8 @@ services:
       SPRING_LDAP_PASSWORD: "readonly-secret"
       PANEL_LDAP_USERNAME: "cn=panel-writer,ou=ServiceAccounts,dc=citypass,dc=local"
       PANEL_LDAP_PASSWORD: "panel-writer-secret"
-      SVC_GRUPO1_SECRET: "grupo1-secret-dev"
-      SVC_GRUPO2_SECRET: "grupo2-secret-dev"
+      SVC_GROUP1_SECRET: "group1-secret-dev"
+      SVC_GROUP2_SECRET: "group2-secret-dev"
       ANOMALY_SERVICE_URL: "http://anomaly-detection:8000"
     depends_on:
       openldap:
