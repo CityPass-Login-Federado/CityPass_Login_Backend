@@ -3,6 +3,9 @@
 # =============================================================================
 FROM eclipse-temurin:21-jdk-alpine AS build
 
+# Parche para paquetes de alpine por temas de seguridad
+RUN apk update && apk upgrade --no-cache
+
 WORKDIR /app
 
 # Copiar pom.xml primero para cachear descarga de dependencias
@@ -18,6 +21,9 @@ RUN mvn package -DskipTests -B
 # Stage 2: Runtime — Solo JRE (imagen mínima)
 # =============================================================================
 FROM eclipse-temurin:21-jre-alpine AS runtime
+
+# Parche para paquetes de alpine por temas de seguridad
+RUN apk update && apk upgrade --no-cache
 
 # Crear usuario no-root para seguridad
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
