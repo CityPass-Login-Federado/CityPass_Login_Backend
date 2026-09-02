@@ -114,6 +114,10 @@ jobs:
                       cd ~/CityPass_Login_Backend/login-federado
                       git fetch origin main
                       git reset --hard origin/main
+
+                      # Otorgar permisos a scripts montados en contenedores
+                      chmod +x ldap/config/*.sh || true
+
                       cat > .env <<'ENVEOF'
                       SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD }}
                       SUPABASE_PROJECT_REF=${{ secrets.SUPABASE_PROJECT_REF }}
@@ -125,8 +129,12 @@ jobs:
                       SVC_GRUPO2_SECRET=${{ secrets.SVC_GRUPO2_SECRET }}
                       ANOMALY_SERVICE_URL=${{ secrets.ANOMALY_SERVICE_URL }}
                       ENVEOF
+
+                      # Autenticación a GHCR para descargar las imágenes
+                      echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
                       docker compose -f docker-compose.prod.yml pull
-                      docker compose -f docker-compose.prod.yml up -d
+                      docker compose -f docker-compose.prod.yml up -d --remove-orphans
                       docker image prune -f
 
     deploy-ai:
@@ -148,10 +156,15 @@ jobs:
                       cd ~/CityPass_Login_Backend/anomaly-detection
                       git fetch origin main
                       git reset --hard origin/main
+
                       cat > .env <<'ENVEOF'
                       SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD }}
                       SUPABASE_PROJECT_REF=${{ secrets.SUPABASE_PROJECT_REF }}
                       ENVEOF
+
+                      # Autenticación a GHCR para descargar las imágenes
+                      echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
                       docker compose -f docker-compose.prod.yml pull
-                      docker compose -f docker-compose.prod.yml up -d
+                      docker compose -f docker-compose.prod.yml up -d --remove-orphans
                       docker image prune -f

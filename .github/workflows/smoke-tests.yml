@@ -124,13 +124,26 @@ jobs:
               working-directory: login-federado
               run: docker compose -f docker-compose.prod.yml config --quiet
 
-            - name: Levantar solo lo que no depende de Supabase (LDAP real, imágenes reales)
+            - name: Dar permisos de ejecución a scripts LDAP
+              run: chmod +x login-federado/ldap/config/*.sh || true
+
+            - name: Levantar solo lo que no depende de Supabase
               working-directory: login-federado
-              run: docker compose -f docker-compose.prod.yml up -d --wait openldap ldap-config
+              run: |
+                  # Levantar sin --wait para gestionar la espera manualmente sin dar falso positivo
+                  docker compose -f docker-compose.prod.yml up -d openldap ldap-config
 
             - name: Confirmar que LDAP no se cayó
               working-directory: login-federado
               run: |
+                  echo "Esperando a que ldap-config termine..."
+                  TIMEOUT=45
+                  ELAPSED=0
+                  until [ "$(docker inspect --format='{{.State.Status}}' citypass-ldap-config 2>/devnull)" = "exited" ] || [ $ELAPSED -ge $TIMEOUT ]; do
+                    sleep 3
+                    ELAPSED=$((ELAPSED+3))
+                  done
+
                   docker compose -f docker-compose.prod.yml ps -a
 
                   # 1. Validar que openldap esté corriendo
@@ -140,7 +153,7 @@ jobs:
                   fi
 
                   # 2. Validar que ldap-config terminó con código 0
-                  CONFIG_EXIT_CODE=$(docker inspect --format='{{.State.ExitCode}}' $(docker compose -f docker-compose.prod.yml ps -a -q ldap-config))
+                  CONFIG_EXIT_CODE=$(docker inspect --format='{{.State.ExitCode}}' citypass-ldap-config 2>/devnull || echo "1")
                   if [ "$CONFIG_EXIT_CODE" -ne 0 ]; then
                     echo "ERROR: ldap-config finalizó con código de error $CONFIG_EXIT_CODE"
                     exit 1
