@@ -108,7 +108,7 @@ jobs:
                   username: ${{ secrets.ORACLE_SSH_USER }}
                   key: ${{ secrets.ORACLE_SSH_KEY_BACKEND }}
                   script: |
-                      if [ ! -d "~/CityPass_Login_Backend" ]; then
+                      if [ ! -d "$HOME/CityPass_Login_Backend" ]; then
                         git clone https://github.com/citypass-login-federado/CityPass_Login_Backend.git ~/CityPass_Login_Backend
                       fi
                       cd ~/CityPass_Login_Backend/login-federado
@@ -142,7 +142,7 @@ jobs:
                   username: ${{ secrets.ORACLE_SSH_USER }}
                   key: ${{ secrets.ORACLE_SSH_KEY_AI }}
                   script: |
-                      if [ ! -d "~/CityPass_Login_Backend" ]; then
+                      if [ ! -d "$HOME/CityPass_Login_Backend" ]; then
                         git clone https://github.com/citypass-login-federado/CityPass_Login_Backend.git ~/CityPass_Login_Backend
                       fi
                       cd ~/CityPass_Login_Backend/anomaly-detection

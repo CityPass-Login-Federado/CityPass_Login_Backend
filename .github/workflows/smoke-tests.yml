@@ -122,47 +122,69 @@ jobs:
 
             - name: Validar sintaxis/variables del compose de prod (sin conectarse a nada externo)
               working-directory: login-federado
-              run: docker compose -f docker-compose.prod.yml config --quiet
+              run: |
+                  cat > docker-compose.smoke.yml <<'EOF'
+                  services:
+                    postgres:
+                      image: postgres:16-alpine
+                      environment:
+                        POSTGRES_DB: login_federado
+                        POSTGRES_USER: citypass
+                        POSTGRES_PASSWORD: citypass
+                      healthcheck:
+                        test: ["CMD-SHELL", "pg_isready -U citypass -d login_federado"]
+                        interval: 5s
+                        timeout: 5s
+                        retries: 12
 
-            - name: Levantar solo lo que no depende de Supabase (LDAP real, imágenes reales)
+                    app:
+                      environment:
+                        DB_USERNAME: citypass
+                        DB_PASSWORD: citypass
+                        SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/login_federado
+                        SPRING_DOCKER_COMPOSE_ENABLED: "false"
+                        SVC_GROUP1_SECRET: group1-test
+                        SVC_GROUP5_SECRET: group5-test
+                        ANOMALY_SERVICE_URL: http://anomaly-detection:8000
+                      depends_on:
+                        postgres:
+                          condition: service_healthy
+
+                    anomaly-detection:
+                      environment:
+                        ANOMALY_DB_URL: postgresql://citypass:citypass@postgres:5432/login_federado
+                      depends_on:
+                        postgres:
+                          condition: service_healthy
+                  EOF
+
+                  docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml config --quiet
+
+            - name: Levantar el stack de producción con Postgres efímero
               working-directory: login-federado
-              run: docker compose -f docker-compose.prod.yml up -d --wait openldap ldap-config
+              run: docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml up -d --wait
 
-            - name: Confirmar que LDAP no se cayó
+            - name: Confirmar salud de LDAP, backend y anomaly-detection
               working-directory: login-federado
               run: |
-                  docker compose -f docker-compose.prod.yml ps -a
+                  docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml ps -a
+                  curl --fail --retry 10 --retry-delay 2 http://localhost:8081/actuator/health
+                  curl --fail --retry 10 --retry-delay 2 http://localhost:8000/health
 
-                  # 1. Validar que openldap esté corriendo
-                  if [ $(docker compose -f docker-compose.prod.yml ps --status=running --quiet openldap | wc -l) -eq 0 ]; then
-                    echo "ERROR: openldap no está en ejecución."
-                    exit 1
-                  fi
-
-                  # 2. Validar que ldap-config terminó con código 0
-                  CONFIG_EXIT_CODE=$(docker inspect --format='{{.State.ExitCode}}' $(docker compose -f docker-compose.prod.yml ps -a -q ldap-config))
+                  CONFIG_EXIT_CODE=$(docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml ps -a -q ldap-config | xargs docker inspect --format='{{.State.ExitCode}}')
                   if [ "$CONFIG_EXIT_CODE" -ne 0 ]; then
                     echo "ERROR: ldap-config finalizó con código de error $CONFIG_EXIT_CODE"
                     exit 1
                   fi
 
-                  echo "LDAP y configuración inicializados correctamente."
+                  echo "LDAP, backend y anomaly-detection están saludables."
 
             - name: Logs (si algo falló arriba)
               if: failure()
               working-directory: login-federado
-              run: docker compose -f docker-compose.prod.yml logs
+              run: docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml logs
 
             - name: Bajar todo
               if: always()
               working-directory: login-federado
-              run: docker compose -f docker-compose.prod.yml down -v
-
-            - name: Validar sintaxis/variables del compose de anomaly-detection
-              working-directory: anomaly-detection
-              run: |
-                  cat > .env <<'ENVEOF'
-                  SUPABASE_DB_PASSWORD=dummy
-                  SUPABASE_PROJECT_REF=dummy
-                  ENVEOF
-                  docker compose -f docker-compose.prod.yml config --quiet
+              run: docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml down -v
