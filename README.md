@@ -82,3 +82,4 @@ mvn clean verify
 Una vez ejecutado el comando mencionado anteriormente, podras ver la covertura de los test en el siguiente archivo:
 ```
 login-federado/target/site/jacoco/index.html
+test
