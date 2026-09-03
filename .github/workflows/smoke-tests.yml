@@ -113,8 +113,8 @@ jobs:
                   SUPABASE_PROJECT_REF=dummy
                   LDAP_ADMIN_PASSWORD=admin-test
                   LDAP_CONFIG_PASSWORD=config-test
-                  LDAP_READONLY_PASSWORD=readonly-test
-                  LDAP_PANEL_WRITER_PASSWORD=panel-test
+                  LDAP_READONLY_PASSWORD=changeit123
+                  LDAP_PANEL_WRITER_PASSWORD=changeit123
                   SVC_GRUPO1_SECRET=grupo1-test
                   SVC_GRUPO2_SECRET=grupo2-test
                   ANOMALY_SERVICE_URL=http://anomaly-detection:8000
