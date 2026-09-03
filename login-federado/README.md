@@ -108,7 +108,7 @@ curl -X POST http://localhost:8081/auth/login \
 Token de servicio:
 
 ```bash
-curl -u grupo1:grupo1-secret-dev -X POST http://localhost:8081/oauth/token \
+curl -u group1:group1-secret-dev -X POST http://localhost:8081/oauth/token \
   -H "Content-Type: application/json" \
   -d '{"audience":"citypass-platform"}'
 ```
@@ -132,7 +132,7 @@ Password de todos: `changeit123`
 |---|---|---|
 | citypass-reclamos-web / movilidad-web / residuos-web / emergencias-web / espacios-web / analitica-web | human | `citypass-<módulo>-api` |
 | citypass-admin-web | human transversal | `citypass-admin-api` |
-| grupo1 / grupo5 | service | `citypass-platform` |
+| group1 / group5 | service | `citypass-platform` |
 
 El panel requiere token con audience `citypass-admin-api`, claim `module`,
 grupo `delegados`. El módulo operado sale **siempre del token**: ningún

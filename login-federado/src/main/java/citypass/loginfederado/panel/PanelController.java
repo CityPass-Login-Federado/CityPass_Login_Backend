@@ -43,9 +43,9 @@ public class PanelController {
     private final RefreshTokenService refreshTokens;
 
     public PanelController(PanelDirectoryService directory,
-                           PanelAuthorization authorization,
-                           PanelAuditService audit,
-                           RefreshTokenService refreshTokens) {
+                        PanelAuthorization authorization,
+                        PanelAuditService audit,
+                        RefreshTokenService refreshTokens) {
         this.directory = directory;
         this.authorization = authorization;
         this.audit = audit;
@@ -56,30 +56,30 @@ public class PanelController {
     // Personas
     // ------------------------------------------------------------------
 
-    @GetMapping("/personas")
-    public List<PersonView> listPersons(@AuthenticationPrincipal Jwt jwt) {
-        return directory.listPersons(module(jwt));
+    @GetMapping("/people")
+    public List<PersonView> listPeople(@AuthenticationPrincipal Jwt jwt) {
+        return directory.listPeople(module(jwt));
     }
 
-    @GetMapping("/personas/{uid}")
+    @GetMapping("/people/{uid}")
     public PersonView getPerson(@AuthenticationPrincipal Jwt jwt, @PathVariable String uid) {
         return directory.findPerson(module(jwt), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
     }
 
-    @PostMapping("/personas")
+    @PostMapping("/people")
     public ResponseEntity<PersonView> createPerson(@AuthenticationPrincipal Jwt jwt,
-                                                   @Valid @RequestBody NewPersonRequest request) {
+                                                @Valid @RequestBody NewPersonRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         PersonView created = directory.createPerson(delegate, delegate.module(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     /** Corrección de datos y/o renombre con reparación de membresías. */
-    @PutMapping("/personas/{uid}")
+    @PutMapping("/people/{uid}")
     public PersonView updatePerson(@AuthenticationPrincipal Jwt jwt,
-                                   @PathVariable String uid,
-                                   @RequestBody UpdatePersonRequest request) {
+                                @PathVariable String uid,
+                                @RequestBody UpdatePersonRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         return directory.updatePerson(delegate, delegate.module(), uid, request);
     }
@@ -88,9 +88,9 @@ public class PanelController {
      * Baja (D7): nunca borra la ficha; bloquea vía ppolicy Y mata todas las
      * sesiones vivas (refresh tokens) al instante.
      */
-    @PostMapping("/personas/{uid}/disable")
+    @PostMapping("/people/{uid}/disable")
     public ResponseEntity<Void> disablePerson(@AuthenticationPrincipal Jwt jwt,
-                                              @PathVariable String uid) {
+                                            @PathVariable String uid) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         PersonView person = directory.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
@@ -101,18 +101,18 @@ public class PanelController {
     }
 
     /** Rehabilitación: recupera identidad, historial y grupos intactos. */
-    @PostMapping("/personas/{uid}/enable")
+    @PostMapping("/people/{uid}/enable")
     public ResponseEntity<Void> enablePerson(@AuthenticationPrincipal Jwt jwt,
-                                             @PathVariable String uid) {
+                                            @PathVariable String uid) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         directory.enablePerson(delegate, delegate.module(), uid);
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/personas/{uid}/reset-password")
+    @PostMapping("/people/{uid}/reset-password")
     public ResponseEntity<Void> resetPassword(@AuthenticationPrincipal Jwt jwt,
-                                              @PathVariable String uid,
-                                              @Valid @RequestBody PasswordResetRequest request) {
+                                            @PathVariable String uid,
+                                            @Valid @RequestBody PasswordResetRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         directory.resetPassword(delegate, delegate.module(), uid, request.temporaryPassword());
         return ResponseEntity.noContent().build();
@@ -122,21 +122,21 @@ public class PanelController {
     // Grupos
     // ------------------------------------------------------------------
 
-    @GetMapping("/grupos")
+    @GetMapping("/groups")
     public List<GroupView> listGroups(@AuthenticationPrincipal Jwt jwt) {
         return directory.listGroups(module(jwt));
     }
 
-    @PostMapping("/grupos")
+    @PostMapping("/groups")
     public ResponseEntity<GroupView> createGroup(@AuthenticationPrincipal Jwt jwt,
-                                                 @Valid @RequestBody GroupCreateRequest request) {
+                                                @Valid @RequestBody GroupCreateRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         GroupView created = directory.createGroup(delegate, delegate.module(), request.name());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     /** El grupo reservado 'delegados' se niega dentro del servicio. */
-    @DeleteMapping("/grupos/{name}")
+    @DeleteMapping("/groups/{name}")
     public ResponseEntity<Void> deleteGroup(@AuthenticationPrincipal Jwt jwt,
                                             @PathVariable String name) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
@@ -144,18 +144,18 @@ public class PanelController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/grupos/{name}/miembros")
+    @PostMapping("/groups/{name}/members")
     public MembershipChangeResponse addMember(@AuthenticationPrincipal Jwt jwt,
-                                              @PathVariable String name,
-                                              @Valid @RequestBody MemberRequest request) {
+                                            @PathVariable String name,
+                                            @Valid @RequestBody MemberRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         return directory.addMember(delegate, delegate.module(), name, request.memberUid());
     }
 
-    @DeleteMapping("/grupos/{name}/miembros/{uid}")
+    @DeleteMapping("/groups/{name}/members/{uid}")
     public MembershipChangeResponse removeMember(@AuthenticationPrincipal Jwt jwt,
-                                                 @PathVariable String name,
-                                                 @PathVariable String uid) {
+                                                @PathVariable String name,
+                                                @PathVariable String uid) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         return directory.removeMember(delegate, delegate.module(), name, uid);
     }

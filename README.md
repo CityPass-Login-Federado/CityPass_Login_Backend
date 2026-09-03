@@ -1,19 +1,3 @@
-## To do:
-- [ ] Servicio OAuth2 para el bus (bloqueante para otros grupos)
-- [ ] Capa 2 de IA — Isolation Forest para detección de anomalías (diseño listo, sin código) --> geoip2
-- [ ] Tests con Testcontainers (0% cobertura, rúbrica pide 60%)
-- [ ] CI/CD con GitHub Actions
-- [ ] Revisar/decidir el destino del EventPublisher
-- [ ] ADR formal (es un único ADR)
-      Estructura deseada: titulo, quienes, consideradores extensible, opciones, por todo esto nosotros definimos, consecuencias positivas negativas, referencias (benchmark)
-- [ ] Diagramas C4/4+1
-- [ ] Deploy a cloud
-- [ ] GET /auth/me
-- [ ] Cambio/recuperación de contraseña (a definir)
-- [ ] Publicación real de eventos al bus (Kafka)
-- [ ] Pasar las claves a secrets, no ENV de dockerfile
-
-
 # 🏙️ CityPass+ | Módulo 2: Login Federado</h1>
   <p><strong>Plataforma de Servicios Urbanos Inteligentes</strong></p>
   
@@ -81,3 +65,20 @@ Para levantar el entorno de desarrollo en tu máquina local, asegúrate de tener
 En la raíz del proyecto, ejecuta el siguiente comando para iniciar los contenedores en segundo plano:
 ```bash
 docker-compose up -d
+```
+
+---
+
+## 🚀 Tests
+
+
+### 1. Correr los test
+En la raíz del proyecto, ejecuta los siguientes comandos:
+```bash
+cd login-federado
+mvn clean verify
+```
+### 2. Obtener el test coverage
+Una vez ejecutado el comando mencionado anteriormente, podras ver la covertura de los test en el siguiente archivo:
+```
+login-federado/target/site/jacoco/index.html

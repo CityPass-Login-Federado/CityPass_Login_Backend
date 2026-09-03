@@ -1,0 +1,200 @@
+[1mdiff --git a/login-federado/README.md b/login-federado/README.md[m
+[1mindex 5cb2a5d..386d748 100644[m
+[1m--- a/login-federado/README.md[m
+[1m+++ b/login-federado/README.md[m
+[36m@@ -85,7 +85,7 @@[m [mcurl -X POST http://localhost:8081/auth/login \[m
+ Token de servicio:[m
+ [m
+ ```bash[m
+[31m-curl -u grupo1:grupo1-secret-dev -X POST http://localhost:8081/oauth/token \[m
+[32m+[m[32mcurl -u group1:group1-secret-dev -X POST http://localhost:8081/oauth/token \[m
+   -H "Content-Type: application/json" \[m
+   -d '{"audience":"citypass-platform"}'[m
+ ```[m
+[36m@@ -109,7 +109,7 @@[m [mPassword de todos: `changeit123`[m
+ |---|---|---|[m
+ | citypass-reclamos-web / movilidad-web / residuos-web / emergencias-web / espacios-web / analitica-web | human | `citypass-<módulo>-api` |[m
+ | citypass-admin-web | human transversal | `citypass-admin-api` |[m
+[31m-| grupo1 / grupo5 | service | `citypass-platform` |[m
+[32m+[m[32m| group1 / group5 | service | `citypass-platform` |[m
+ [m
+ El panel requiere token con audience `citypass-admin-api`, claim `module`,[m
+ grupo `delegados`. El módulo operado sale **siempre del token**: ningún[m
+[1mdiff --git a/login-federado/citypass-login-federado.postman_collection.json b/login-federado/citypass-login-federado.postman_collection.json[m
+[1mindex f556372..88e3245 100644[m
+[1m--- a/login-federado/citypass-login-federado.postman_collection.json[m
+[1m+++ b/login-federado/citypass-login-federado.postman_collection.json[m
+[36m@@ -850,7 +850,7 @@[m
+ 									"pm.test('Claims de servicio: namespace y SIN groups', () => {",[m
+ 									"  pm.expect(p.token_use).to.eql('service');",[m
+ 									"  pm.expect(p.sub).to.eql('grupo1');",[m
+[31m-									"  pm.expect(p.namespace).to.eql('com.citypass.grupo1');",[m
+[32m+[m									[32m"  pm.expect(p.namespace).to.eql('com.citypass.group1');",[m
+ 									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-platform');",[m
+ 									"  pm.expect(p).to.not.have.property('groups');",[m
+ 									"  pm.expect(p.exp - p.iat).to.eql(3600);",[m
+[36m@@ -865,8 +865,8 @@[m
+ 						"auth": {[m
+ 							"type": "basic",[m
+ 							"basic": [[m
+[31m-								{ "key": "username", "value": "grupo1", "type": "string" },[m
+[31m-								{ "key": "password", "value": "grupo1-secret-dev", "type": "string" }[m
+[32m+[m								[32m{ "key": "username", "value": "group1", "type": "string" },[m
+[32m+[m								[32m{ "key": "password", "value": "group1-secret-dev", "type": "string" }[m
+ 							][m
+ 						},[m
+ 						"body": {[m
+[36m@@ -902,7 +902,7 @@[m
+ 						"auth": {[m
+ 							"type": "basic",[m
+ 							"basic": [[m
+[31m-								{ "key": "username", "value": "grupo1", "type": "string" },[m
+[32m+[m								[32m{ "key": "username", "value": "group1", "type": "string" },[m
+ 								{ "key": "password", "value": "secreto-equivocado", "type": "string" }[m
+ 							][m
+ 						},[m
+[36m@@ -937,8 +937,8 @@[m
+ 						"auth": {[m
+ 							"type": "basic",[m
+ 							"basic": [[m
+[31m-								{ "key": "username", "value": "grupo1", "type": "string" },[m
+[31m-								{ "key": "password", "value": "grupo1-secret-dev", "type": "string" }[m
+[32m+[m								[32m{ "key": "username", "value": "group1", "type": "string" },[m
+[32m+[m								[32m{ "key": "password", "value": "group1-secret-dev", "type": "string" }[m
+ 							][m
+ 						},[m
+ 						"body": {[m
+[36m@@ -1016,9 +1016,9 @@[m
+ 					"request": {[m
+ 						"method": "GET",[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/personas",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/people",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "personas"][m
+[32m+[m							[32m"path": ["panel", "people"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1044,9 +1044,9 @@[m
+ 					"request": {[m
+ 						"method": "GET",[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/personas/jperez",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/people/jperez",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "personas", "jperez"][m
+[32m+[m							[32m"path": ["panel", "people", "jperez"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1066,9 +1066,9 @@[m
+ 					"request": {[m
+ 						"method": "GET",[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/personas/nadie",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/people/nadie",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "personas", "nadie"][m
+[32m+[m							[32m"path": ["panel", "people", "nadie"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1103,9 +1103,9 @@[m
+ 							"options": { "raw": { "language": "json" } }[m
+ 						},[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/personas",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/people",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "personas"][m
+[32m+[m							[32m"path": ["panel", "people"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1138,9 +1138,9 @@[m
+ 							"options": { "raw": { "language": "json" } }[m
+ 						},[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/people/{{new_uid}}",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "personas", "{{new_uid}}"][m
+[32m+[m							[32m"path": ["panel", "people", "{{new_uid}}"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1204,9 +1204,9 @@[m
+ 							"options": { "raw": { "language": "json" } }[m
+ 						},[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/reset-password",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/people/{{new_uid}}/reset-password",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "personas", "{{new_uid}}", "reset-password"][m
+[32m+[m							[32m"path": ["panel", "people", "{{new_uid}}", "reset-password"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1288,9 +1288,9 @@[m
+ 					"request": {[m
+ 						"method": "POST",[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/disable",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/people/{{new_uid}}/disable",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "personas", "{{new_uid}}", "disable"][m
+[32m+[m							[32m"path": ["panel", "people", "{{new_uid}}", "disable"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1374,9 +1374,9 @@[m
+ 					"request": {[m
+ 						"method": "POST",[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/personas/{{new_uid}}/enable",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/people/{{new_uid}}/enable",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "personas", "{{new_uid}}", "enable"][m
+[32m+[m							[32m"path": ["panel", "people", "{{new_uid}}", "enable"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1444,9 +1444,9 @@[m
+ 					"request": {[m
+ 						"method": "GET",[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/grupos",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/groups",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "grupos"][m
+[32m+[m							[32m"path": ["panel", "groups"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1476,9 +1476,9 @@[m
+ 							"options": { "raw": { "language": "json" } }[m
+ 						},[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/grupos",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/groups",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "grupos"][m
+[32m+[m							[32m"path": ["panel", "groups"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1506,9 +1506,9 @@[m
+ 							"options": { "raw": { "language": "json" } }[m
+ 						},[m
+ 						"url": {[m
+[31m-							"raw": "{{baseUrl}}/panel/grupos",[m
+[32m+[m							[32m"raw": "{{baseUrl}}/panel/groups",[m
+ 							"host": ["{{baseUrl}}"],[m
+[31m-							"path": ["panel", "grupos"][m
+[32m+[m							[32m"path": ["panel", "groups"][m
+ 						}[m
+ 					}[m
+ 				},[m
+[36m@@ -1536,9 +1536,9 @@[m
+ 							"options": { "raw": { "language": "json" } 
