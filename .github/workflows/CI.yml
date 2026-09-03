@@ -210,12 +210,30 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.vars.outputs.login-tag }}
+          format: sarif
+          output: trivy-image-results.sarif
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
+
+      - name: Subir resultados SARIF de login-federado
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image-results.sarif
+          category: trivy-image
 
       - name: Trivy - anomaly-detection
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.vars.outputs.anomaly-tag }}
+          format: sarif
+          output: trivy-anomaly-image-results.sarif
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
+
+      - name: Subir resultados SARIF de anomaly-detection
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-anomaly-image-results.sarif
+          category: trivy-image-anomaly
