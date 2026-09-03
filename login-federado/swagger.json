@@ -1,0 +1,686 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CityPass+ Login Federado — API",
+    "description": "Proveedor de identidad (IdP) de CityPass+.\n\n**Autenticación** (`/auth`): login, refresh y logout con LDAP + JWT (RS256).\n**Panel de administración** (`/panel`): ABM de personas y grupos, exclusivo para delegados de módulo.\n**OAuth** (`/oauth/token`): tokens de servicio backend-a-backend (client_credentials).\n**JWKS** (`/.well-known/jwks.json`): clave pública para que otros módulos validen tokens sin llamarnos.",
+    "version": "0.1.0-SNAPSHOT",
+    "contact": {
+      "name": "Grupo 2",
+      "email": "grupo2@citypass.local"
+    }
+  },
+  "servers": [
+    { "url": "http://localhost:8081", "description": "Desarrollo" }
+  ],
+  "security": [
+    { "bearer-jwt": [] }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": ["Autenticación"],
+        "summary": "Login de usuario",
+        "description": "Autentica contra LDAP y emite access + refresh token. Todos los errores devuelven exactamente la misma respuesta (sin enumeração de usuarios).",
+        "operationId": "login",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tokens emitidos",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["Autenticación"],
+        "summary": "Refresh token",
+        "description": "Canjea un refresh token por un par nuevo. Revalida contra LDAP en cada canje.",
+        "operationId": "refresh",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RefreshRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tokens renovados",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Autenticación"],
+        "summary": "Logout",
+        "description": "Revoca el refresh token. El access token vigente sigue vivo hasta 15 min.",
+        "operationId": "logout",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RefreshRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Sesión invalidada (token inexistente devuelve lo mismo)" }
+        }
+      }
+    },
+    "/oauth/token": {
+      "post": {
+        "tags": ["OAuth"],
+        "summary": "Token de servicio (client_credentials)",
+        "description": "Backend-a-backend. Autenticación por Basic Auth (client_id:client_secret). El token resultante NO tiene groups ni module.",
+        "operationId": "serviceToken",
+        "security": [],
+        "parameters": [
+          {
+            "name": "grant_type",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "enum": ["client_credentials"] }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "grant_type": { "type": "string", "enum": ["client_credentials"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token de servicio",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ServiceTokenResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/.well-known/jwks.json": {
+      "get": {
+        "tags": ["Infraestructura"],
+        "summary": "Clave pública JWKS",
+        "description": "Expone la clave pública RS256 del IdP para que los módulos validen tokens sin llamarnos.",
+        "operationId": "jwks",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "JWKSSet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Objeto JWKSet estándar (keys[], keys[].kid, keys[].kty, etc.)"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/personas": {
+      "get": {
+        "tags": ["Panel — Personas"],
+        "summary": "Listar personas del módulo",
+        "operationId": "listPersons",
+        "responses": {
+          "200": {
+            "description": "Lista de personas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/PersonView" }
+                }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
+        }
+      },
+      "post": {
+        "tags": ["Panel — Personas"],
+        "summary": "Crear persona",
+        "description": "Alta con ID automático secuencial (D3). Unicidad global pre-chequeada.",
+        "operationId": "createPerson",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NewPersonRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Persona creada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PersonView" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "422": {
+            "description": "Regla de negocio incumplida",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/personas/{uid}": {
+      "get": {
+        "tags": ["Panel — Personas"],
+        "summary": "Obtener persona por UID",
+        "operationId": "getPerson",
+        "parameters": [
+          { "$ref": "#/components/parameters/uid" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Persona",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PersonView" }
+              }
+            }
+          },
+          "404": {
+            "description": "No encontrada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
+        }
+      },
+      "put": {
+        "tags": ["Panel — Personas"],
+        "summary": "Actualizar persona",
+        "description": "Corrección de datos y/o renombre con reparación de membresías.",
+        "operationId": "updatePerson",
+        "parameters": [
+          { "$ref": "#/components/parameters/uid" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdatePersonRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Persona actualizada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PersonView" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "422": {
+            "description": "Regla de negocio",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/personas/{uid}/disable": {
+      "post": {
+        "tags": ["Panel — Personas"],
+        "summary": "Deshabilitar persona",
+        "description": "Baja (D7): bloquea vía ppolicy y revoca todas las sesiones vivas al instante.",
+        "operationId": "disablePerson",
+        "parameters": [
+          { "$ref": "#/components/parameters/uid" }
+        ],
+        "responses": {
+          "204": { "description": "Deshabilitada" },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "404": {
+            "description": "No encontrada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/personas/{uid}/enable": {
+      "post": {
+        "tags": ["Panel — Personas"],
+        "summary": "Rehabilitar persona",
+        "description": "Recupera identidad, historial y grupos intactos.",
+        "operationId": "enablePerson",
+        "parameters": [
+          { "$ref": "#/components/parameters/uid" }
+        ],
+        "responses": {
+          "204": { "description": "Rehabilitada" },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "404": {
+            "description": "No encontrada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/personas/{uid}/reset-password": {
+      "post": {
+        "tags": ["Panel — Personas"],
+        "summary": "Resetear contraseña",
+        "operationId": "resetPassword",
+        "parameters": [
+          { "$ref": "#/components/parameters/uid" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PasswordResetRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Contraseña reiniciada" },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "404": {
+            "description": "No encontrada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/grupos": {
+      "get": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Listar grupos del módulo",
+        "operationId": "listGroups",
+        "responses": {
+          "200": {
+            "description": "Lista de grupos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/GroupView" }
+                }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
+        }
+      },
+      "post": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Crear grupo",
+        "description": "D6: solo minúsculas, números y guiones. 'delegados' es reservado.",
+        "operationId": "createGroup",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GroupCreateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Grupo creado",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GroupView" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "409": {
+            "description": "Conflicto (ya existe o es el grupo delegados)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/grupos/{name}": {
+      "delete": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Eliminar grupo",
+        "description": "El grupo 'delegados' no se puede borrar.",
+        "operationId": "deleteGroup",
+        "parameters": [
+          { "$ref": "#/components/parameters/groupName" }
+        ],
+        "responses": {
+          "204": { "description": "Eliminado" },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "409": {
+            "description": "Conflicto (es el grupo delegados)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/grupos/{name}/miembros": {
+      "post": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Agregar miembro a grupo",
+        "description": "Solo se agregan personas (no grupos). D5: máximo 50 grupos por persona.",
+        "operationId": "addMember",
+        "parameters": [
+          { "$ref": "#/components/parameters/groupName" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/MemberRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Miembro agregado",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MembershipChangeResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "422": {
+            "description": "Regla de negocio",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/grupos/{name}/miembros/{uid}": {
+      "delete": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Quitar miembro de grupo",
+        "description": "Si el grupo es 'delegados', no puede quedar vacío.",
+        "operationId": "removeMember",
+        "parameters": [
+          { "$ref": "#/components/parameters/groupName" },
+          { "$ref": "#/components/parameters/uid" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Miembro removido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MembershipChangeResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "422": {
+            "description": "Regla de negocio (ej: delegados no puede quedar vacío)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer-jwt": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT emitido por el IdP. Panel requiere: aud=citypass-admin-api, token_use=human, grupo delegados, claim module."
+      }
+    },
+    "parameters": {
+      "uid": {
+        "name": "uid",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "UID (preferred_username) de la persona"
+      },
+      "groupName": {
+        "name": "name",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "description": "Nombre del grupo (solo minúsculas, números, guiones)"
+      }
+    },
+    "responses": {
+      "AccessDenied": {
+        "description": "Token sin claims requeridos (audience, delegados, module)",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/AccessDeniedError" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "required": ["username", "password", "clientId"],
+        "properties": {
+          "username": { "type": "string", "description": "Nombre de usuario (uid en LDAP)" },
+          "password": { "type": "string", "description": "Contraseña en texto plano" },
+          "clientId": { "type": "string", "description": "client_id de la aplicación (ej: citypass-admin-web, citypass-reclamos-web)" }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": { "type": "string", "description": "JWT RS256, vida 15 min" },
+          "refresh_token": { "type": "string", "description": "Token opaco rotativo, vida 8 h" },
+          "token_type": { "type": "string", "example": "Bearer" },
+          "expires_in": { "type": "integer", "description": "Segundos hasta expiración del access token", "example": 900 }
+        }
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": ["refreshToken"],
+        "properties": {
+          "refreshToken": { "type": "string", "description": "Refresh token vigente a canjear" }
+        }
+      },
+      "ServiceTokenResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": { "type": "string", "description": "JWT RS256 de servicio (sin groups)" },
+          "token_type": { "type": "string", "example": "Bearer" },
+          "expires_in": { "type": "integer", "description": "Segundos hasta expiración", "example": 3600 }
+        }
+      },
+      "AuthErrorResponse": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "status": { "type": "integer", "example": 401 },
+          "error": { "type": "string", "example": "Credenciales inválidas" },
+          "message": { "type": "string", "example": "Usuario o contraseña inválidos" }
+        }
+      },
+      "AccessDeniedError": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "status": { "type": "integer", "example": 403 },
+          "error": { "type": "string", "example": "Acceso denegado" },
+          "message": { "type": "string", "example": "No tiene permisos para acceder a este recurso" }
+        }
+      },
+      "BusinessError": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "status": { "type": "integer", "description": "422 (regla de negocio) o 409 (conflicto)" },
+          "error": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      },
+      "NewPersonRequest": {
+        "type": "object",
+        "required": ["givenName", "sn", "username", "email", "temporaryPassword"],
+        "properties": {
+          "givenName": { "type": "string", "description": "Nombre" },
+          "sn": { "type": "string", "description": "Apellido" },
+          "username": { "type": "string", "description": "Nombre de usuario (3-32 chars, a-z 0-9 . _ -), único global" },
+          "email": { "type": "string", "format": "email", "description": "Mail, único global" },
+          "temporaryPassword": { "type": "string", "description": "Contraseña inicial (mín 8 chars), el usuario debe cambiarla al entrar" }
+        }
+      },
+      "UpdatePersonRequest": {
+        "type": "object",
+        "properties": {
+          "givenName": { "type": "string", "description": "Nombre (opcional, null = sin cambio)" },
+          "sn": { "type": "string", "description": "Apellido (opcional, null = sin cambio)" },
+          "email": { "type": "string", "format": "email", "description": "Mail (opcional, null = sin cambio)" },
+          "newUsername": { "type": "string", "description": "Nuevo username. Dispara renombre con reparación de membresías." }
+        }
+      },
+      "PasswordResetRequest": {
+        "type": "object",
+        "required": ["temporaryPassword"],
+        "properties": {
+          "temporaryPassword": { "type": "string", "description": "Nueva contraseña temporal (mín 8 chars)" }
+        }
+      },
+      "PersonView": {
+        "type": "object",
+        "properties": {
+          "employeeNumber": { "type": "string", "description": "ID estable, formato U000000 (inmutable, D3)", "example": "U000042" },
+          "uid": { "type": "string", "description": "Nombre de usuario", "example": "jperez" },
+          "givenName": { "type": "string", "description": "Nombre", "example": "Juan" },
+          "sn": { "type": "string", "description": "Apellido", "example": "Perez" },
+          "email": { "type": "string", "description": "Mail", "example": "jperez@citypass.local" },
+          "disabled": { "type": "boolean", "description": "true si la cuenta está bloqueada vía ppolicy (D7)" }
+        }
+      },
+      "GroupCreateRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "description": "Nombre del grupo (a-z, 0-9, guiones; máx 64)", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "example": "soporte-n2" }
+        }
+      },
+      "GroupView": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "soporte-n2" },
+          "members": { "type": "array", "items": { "type": "string" }, "description": "UIDs de las personas miembros (el placeholder técnico nunca aparece)" },
+          "reserved": { "type": "boolean", "description": "true si es el grupo 'delegados'" }
+        }
+      },
+      "MemberRequest": {
+        "type": "object",
+        "required": ["memberUid"],
+        "properties": {
+          "memberUid": { "type": "string", "description": "UID de la persona a agregar" }
+        }
+      },
+      "MembershipChangeResponse": {
+        "type": "object",
+        "properties": {
+          "group": { "$ref": "#/components/schemas/GroupView" },
+          "warnings": { "type": "array", "items": { "type": "string" }, "description": "Avisos preventivos (ej: acumula 30+ grupos, D5)" }
+        }
+      }
+    }
+  }
+}

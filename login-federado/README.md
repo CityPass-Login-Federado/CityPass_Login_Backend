@@ -57,6 +57,29 @@ docker compose up -d openldap postgres anomaly-detection
 
 Swagger UI: <http://localhost:8081/docs>
 
+## Documentación de la API (Swagger)
+
+La documentación interactiva la genera **SpringDoc** (OpenAPI 3.0) a partir de
+los controllers, sin mantenimiento manual.
+
+- **Swagger UI**: <http://localhost:8081/docs> — UI interactiva: explorar cada
+  endpoint, ver cuerpos de request/response y probarlo desde el navegador.
+- **Especificación JSON**: <http://localhost:8081/v3/api-docs> — OpenAPI crudo
+  (mismo contenido que ve la UI). Se puede importar tal cual en
+  [swagger.io](https://swagger.io/) o Postman con "Import from URL".
+- **`swagger.json`** (raíz del repo): snapshot estático de la misma
+  especificación, para quienes quieren importarla sin levantar el servicio.
+
+Usar el botón **Authorize** (arriba a la derecha) y pegar un access token
+(`Bearer <token>`) para probar los endpoints protegidos, p. ej. `/panel/**`,
+que exigen token de delegado (audience `citypass-admin-api`, grupo `delegados`,
+claim `module`). Los endpoints `/auth/**`, `/oauth/token` y `/jwks` son públicos
+y no requieren token.
+
+Los 15 endpoints documentados: login/refresh/logout (`/auth`), token de servicio
+(`/oauth/token`), clave pública (`/.well-known/jwks.json`) y el ABM del panel
+(`/panel/**`).
+
 ## Probar con Postman
 
 Importar `citypass-login-federado.postman_collection.json` (raíz del repo).
