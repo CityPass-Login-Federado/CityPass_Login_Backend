@@ -4,7 +4,6 @@ import citypass.loginfederado.panel.dto.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
-import org.mockito.ArgumentCaptor;
 import org.springframework.ldap.NameAlreadyBoundException;
 import org.springframework.ldap.NameNotFoundException;
 import org.springframework.ldap.core.AttributesMapper;
@@ -18,7 +17,6 @@ import javax.naming.directory.BasicAttributes;
 import javax.naming.directory.ModificationItem;
 import javax.naming.ldap.LdapName;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -39,18 +37,18 @@ class PanelDirectoryServiceTest {
 
     @Test
     void rejectsUnknownModule() {
-        assertThatThrownBy(() -> service.listPeople("desconocido"))
+        assertThatThrownBy(() -> service.listPeople("desconocido", new PeopleSearchCriteria(0, 10, null, null, null)))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
         void listPeopleSortsByUid() throws Exception {
-        when(ldap.search(any(LdapName.class), eq("(objectClass=inetOrgPerson)"), ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class), ArgumentMatchers.<AttributesMapper<PersonView>>any()))
                                 .thenAnswer(invocation -> {
-                                        AttributesMapper<PersonView> mapper = invocation.getArgument(2);
+                                        AttributesMapper<PersonView> mapper = invocation.getArgument(1);
                                             return List.of(mapper.mapFromAttributes(person("zeta")), mapper.mapFromAttributes(person("alpha")));
                                 });
-        assertThat(service.listPeople("reclamos")).extracting(PersonView::uid)
+        assertThat(service.listPeople("reclamos", new PeopleSearchCriteria(0, 10, null, null, null)).content()).extracting(PersonView::uid)
                 .containsExactly("alpha", "zeta");
     }
 

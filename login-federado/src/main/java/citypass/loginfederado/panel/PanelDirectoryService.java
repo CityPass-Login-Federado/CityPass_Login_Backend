@@ -10,9 +10,17 @@ import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.ContextMapper;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
+import org.springframework.ldap.filter.AndFilter;
+import org.springframework.ldap.filter.EqualsFilter;
+import org.springframework.ldap.filter.LikeFilter;
+import org.springframework.ldap.filter.OrFilter;
+import org.springframework.ldap.query.LdapQuery;
+import static org.springframework.ldap.query.LdapQueryBuilder.query;
 import org.springframework.ldap.support.LdapUtils;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
+import citypass.loginfederado.panel.dto.PaginatedResponse;
 
 import javax.naming.directory.Attribute;
 import javax.naming.directory.Attributes;
@@ -69,13 +77,57 @@ public class PanelDirectoryService {
     // Personas
     // ------------------------------------------------------------------
 
-    public List<PersonView> listPeople(String module) {
+    public PaginatedResponse<PersonView> listPeople(String module, PeopleSearchCriteria criteria) {
         assertModule(module);
-        return ldap.search(
-                peopleBase(module),
-                "(objectClass=inetOrgPerson)",
+
+        AndFilter andFilter = new AndFilter();
+        andFilter.and(new EqualsFilter("objectClass", "inetOrgPerson"));
+
+        if (criteria.search() != null && !criteria.search().isBlank()) {
+            OrFilter searchFilter = new OrFilter();
+            String term = "*" + criteria.search().trim() + "*";
+            searchFilter.or(new LikeFilter("uid", term));
+            searchFilter.or(new LikeFilter("cn", term));
+            searchFilter.or(new LikeFilter("mail", term));
+            andFilter.and(searchFilter);
+        }
+
+        if (criteria.group() != null && !criteria.group().isBlank()) {
+            andFilter.and(new EqualsFilter("memberOf", criteria.group().trim()));
+        }
+
+        LdapQuery query = query()
+                .base(peopleBase(module))
+                .attributes("uid", "cn", "sn", "givenName", "mail", "employeeNumber", "pwdAccountLockedTime")
+                .filter(andFilter);
+
+        List<PersonView> allFiltered = ldap.search(
+                query,
                 (AttributesMapper<PersonView>) PanelDirectoryService::toView
-        ).stream().sorted(java.util.Comparator.comparing(PersonView::uid)).toList();
+        ).stream()
+         .filter(p -> criteria.disabled() == null || p.disabled() == criteria.disabled().booleanValue())
+         .sorted(java.util.Comparator.comparing(PersonView::uid))
+         .toList();
+
+        int totalElements = allFiltered.size();
+        int size = criteria.size() > 0 ? criteria.size() : 10;
+        int page = criteria.page() >= 0 ? criteria.page() : 0;
+
+        int totalPages = (int) Math.ceil((double) totalElements / size);
+        int fromIndex = page * size;
+        int toIndex = Math.min(fromIndex + size, totalElements);
+
+        List<PersonView> pageContent = fromIndex < totalElements 
+                ? allFiltered.subList(fromIndex, toIndex) 
+                : List.of();
+
+        return new PaginatedResponse<>(
+                pageContent,
+                totalElements,
+                totalPages,
+                page,
+                size
+        );
     }
 
     public Optional<PersonView> findPerson(String module, String uid) {
