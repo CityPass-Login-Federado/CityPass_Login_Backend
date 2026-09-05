@@ -20,6 +20,7 @@ import org.springframework.ldap.support.LdapUtils;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
+import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
 
 import javax.naming.directory.Attribute;
@@ -308,11 +309,47 @@ public class PanelDirectoryService {
     // Grupos
     // ------------------------------------------------------------------
 
-    public List<GroupView> listGroups(String module) {
+    public PaginatedResponse<GroupView> listGroups(String module, GroupSearchCriteria criteria) {
         assertModule(module);
-        return ldap.search(groupsBase(module), "(objectClass=groupOfNames)",
+
+        AndFilter andFilter = new AndFilter();
+        andFilter.and(new EqualsFilter("objectClass", "groupOfNames"));
+
+        if (criteria.search() != null && !criteria.search().isBlank()) {
+            String term = "*" + criteria.search().trim() + "*";
+            andFilter.and(new LikeFilter("cn", term));
+        }
+
+        LdapQuery query = query()
+                .base(groupsBase(module))
+                .filter(andFilter);
+
+        List<GroupView> allFiltered = ldap.search(query,
                         (AttributesMapper<GroupView>) PanelDirectoryService::toGroupView)
-                .stream().sorted(java.util.Comparator.comparing(GroupView::name)).toList();
+                .stream()
+                .filter(g -> criteria.reserved() == null || g.reserved() == criteria.reserved().booleanValue())
+                .sorted(java.util.Comparator.comparing(GroupView::name))
+                .toList();
+
+        int totalElements = allFiltered.size();
+        int size = criteria.size() > 0 ? criteria.size() : 10;
+        int page = criteria.page() >= 0 ? criteria.page() : 0;
+
+        int totalPages = (int) Math.ceil((double) totalElements / size);
+        int fromIndex = page * size;
+        int toIndex = Math.min(fromIndex + size, totalElements);
+
+        List<GroupView> pageContent = fromIndex < totalElements 
+                ? allFiltered.subList(fromIndex, toIndex) 
+                : List.of();
+
+        return new PaginatedResponse<>(
+                pageContent,
+                totalElements,
+                totalPages,
+                page,
+                size
+        );
     }
 
     /** Alta con placeholder como miembro técnico: ningún grupo nace vacío. */

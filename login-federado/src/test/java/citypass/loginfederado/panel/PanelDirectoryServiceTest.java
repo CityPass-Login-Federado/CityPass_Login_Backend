@@ -242,12 +242,12 @@ class PanelDirectoryServiceTest {
         Attributes b = new BasicAttributes(true);
         b.put("cn", "alpha");
         b.put("member", "uid=alpha,ou=People,ou=Reclamos,dc=citypass,dc=local");
-        when(ldap.search(any(LdapName.class), eq("(objectClass=groupOfNames)"), ArgumentMatchers.<AttributesMapper<GroupView>>any()))
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class), ArgumentMatchers.<AttributesMapper<GroupView>>any()))
                 .thenAnswer(invocation -> {
-                    AttributesMapper<GroupView> mapper = invocation.getArgument(2);
+                    AttributesMapper<GroupView> mapper = invocation.getArgument(1);
                     return List.of(mapper.mapFromAttributes(a), mapper.mapFromAttributes(b));
                 });
-        var groups = service.listGroups("reclamos");
+        var groups = service.listGroups("reclamos", new citypass.loginfederado.panel.dto.GroupSearchCriteria(0, 10, null, null)).content();
         assertThat(groups).extracting(GroupView::name).containsExactly("alpha", "zeta");
         assertThat(groups.get(1).members()).containsExactly("zeta");
     }
