@@ -57,6 +57,29 @@ docker compose up -d openldap postgres anomaly-detection
 
 Swagger UI: <http://localhost:8081/docs>
 
+## Documentación de la API (Swagger)
+
+La documentación interactiva la genera **SpringDoc** (OpenAPI 3.0) a partir de
+los controllers, sin mantenimiento manual.
+
+- **Swagger UI**: <http://localhost:8081/docs> — UI interactiva: explorar cada
+  endpoint, ver cuerpos de request/response y probarlo desde el navegador.
+- **Especificación JSON**: <http://localhost:8081/v3/api-docs> — OpenAPI crudo
+  (mismo contenido que ve la UI). Se puede importar tal cual en
+  [swagger.io](https://swagger.io/) o Postman con "Import from URL".
+- **`swagger.json`** (raíz del repo): snapshot estático de la misma
+  especificación, para quienes quieren importarla sin levantar el servicio.
+
+Usar el botón **Authorize** (arriba a la derecha) y pegar un access token
+(`Bearer <token>`) para probar los endpoints protegidos, p. ej. `/panel/**`,
+que exigen token de delegado (audience `citypass-admin-api`, grupo `delegados`,
+claim `module`). Los endpoints `/auth/**`, `/oauth/token` y `/jwks` son públicos
+y no requieren token.
+
+Los 15 endpoints documentados: login/refresh/logout (`/auth`), token de servicio
+(`/oauth/token`), clave pública (`/.well-known/jwks.json`) y el ABM del panel
+(`/panel/**`).
+
 ## Probar con Postman
 
 Importar `citypass-login-federado.postman_collection.json` (raíz del repo).
@@ -85,7 +108,7 @@ curl -X POST http://localhost:8081/auth/login \
 Token de servicio:
 
 ```bash
-curl -u group1:group1-secret-dev -X POST http://localhost:8081/oauth/token \
+curl -u grupo1:grupo1-secret-dev -X POST http://localhost:8081/oauth/token \
   -H "Content-Type: application/json" \
   -d '{"audience":"citypass-platform"}'
 ```
@@ -109,7 +132,7 @@ Password de todos: `changeit123`
 |---|---|---|
 | citypass-reclamos-web / movilidad-web / residuos-web / emergencias-web / espacios-web / analitica-web | human | `citypass-<módulo>-api` |
 | citypass-admin-web | human transversal | `citypass-admin-api` |
-| group1 / group5 | service | `citypass-platform` |
+| grupo1 / grupo5 | service | `citypass-platform` |
 
 El panel requiere token con audience `citypass-admin-api`, claim `module`,
 grupo `delegados`. El módulo operado sale **siempre del token**: ningún
