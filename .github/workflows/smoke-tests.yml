@@ -1,0 +1,222 @@
+name: Smoke Test (local + prod config)
+
+on:
+    workflow_call:
+    workflow_dispatch:
+
+jobs:
+    build-images:
+        name: Build imágenes de test (sin push)
+        runs-on: ubuntu-latest
+        outputs:
+            login-tag: ${{ steps.vars.outputs.login-tag }}
+            anomaly-tag: ${{ steps.vars.outputs.anomaly-tag }}
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: docker/setup-buildx-action@v3
+
+            - name: Definir tags (mismos nombres que usa CD, para reusar en el compose de prod)
+              id: vars
+              run: |
+                  echo "login-tag=ghcr.io/citypass-login-federado/citypass-login-backend:latest" >> "$GITHUB_OUTPUT"
+                  echo "anomaly-tag=ghcr.io/citypass-login-federado/citypass-anomaly-detection:latest" >> "$GITHUB_OUTPUT"
+
+            - name: Build login-federado (local, sin push)
+              uses: docker/build-push-action@v6
+              with:
+                  context: login-federado
+                  file: login-federado/Dockerfile
+                  push: false
+                  load: true
+                  tags: ${{ steps.vars.outputs.login-tag }}
+
+            - name: Build anomaly-detection (local, sin push)
+              uses: docker/build-push-action@v6
+              with:
+                  context: anomaly-detection
+                  file: anomaly-detection/Dockerfile
+                  push: false
+                  load: true
+                  tags: ${{ steps.vars.outputs.anomaly-tag }}
+
+            - name: Guardar imágenes para los jobs siguientes
+              run: |
+                  docker save "${{ steps.vars.outputs.login-tag }}" -o /tmp/login-backend.tar
+                  docker save "${{ steps.vars.outputs.anomaly-tag }}" -o /tmp/anomaly-detection.tar
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: test-images
+                  path: /tmp/*.tar
+                  retention-days: 1
+
+    smoke-test-local:
+        name: docker compose up (dev, con Postgres local)
+        needs: build-images
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Levantar el stack local completo
+              working-directory: login-federado
+              run: docker compose up -d --build --wait
+
+            - name: Confirmar que nada se cayó
+              working-directory: login-federado
+              run: |
+                  docker compose ps -a
+
+                  # Filtrar contenedores cuya salida (ExitCode) sea distinta de 0
+                  FAILED_CONTAINERS=$(docker compose ps -a -q | xargs -I {} docker inspect --format '{{.Name}} -> ExitCode: {{.State.ExitCode}}' {} | grep -v 'ExitCode: 0' || true)
+
+                  if [ -n "$FAILED_CONTAINERS" ]; then
+                    echo "ERROR: Se detectaron contenedores con fallas:"
+                    echo "$FAILED_CONTAINERS"
+                    exit 1
+                  fi
+
+                  echo "Todos los servicios están funcionando o finalizaron correctamente."
+
+            - name: Logs (si algo falló arriba)
+              if: failure()
+              working-directory: login-federado
+              run: docker compose logs
+
+            - name: Bajar todo
+              if: always()
+              working-directory: login-federado
+              run: docker compose down -v
+
+    smoke-test-prod:
+        name: docker compose up (prod, LDAP real + config validado)
+        needs: build-images
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: actions/download-artifact@v4
+              with:
+                  name: test-images
+                  path: /tmp
+
+            - name: Cargar imágenes (mismos tags que usa docker-compose.prod.yml)
+              run: |
+                  docker load -i /tmp/login-backend.tar
+                  docker load -i /tmp/anomaly-detection.tar
+
+            - name: .env de prueba (valores dummy, no son secrets reales)
+              working-directory: login-federado
+              run: |
+                  cat > .env <<'ENVEOF'
+                  SUPABASE_DB_PASSWORD=dummy
+                  SUPABASE_PROJECT_REF=dummy
+                  LDAP_ADMIN_PASSWORD=admin-test
+                  LDAP_CONFIG_PASSWORD=config-test
+                  LDAP_READONLY_PASSWORD=readonly-secret
+                  LDAP_PANEL_WRITER_PASSWORD=panel-writer-secret
+                  SVC_GRUPO1_SECRET=grupo1-test
+                  SVC_GRUPO2_SECRET=grupo2-test
+                  ANOMALY_SERVICE_URL=http://anomaly-detection:8000
+                  ENVEOF
+
+            - name: Validar sintaxis/variables del compose de prod (sin conectarse a nada externo)
+              working-directory: login-federado
+              run: |
+                  cat > docker-compose.smoke.yml <<'EOF'
+                  services:
+                    postgres:
+                      image: postgres:16-alpine
+                      environment:
+                        POSTGRES_DB: login_federado
+                        POSTGRES_USER: citypass
+                        POSTGRES_PASSWORD: citypass
+                      healthcheck:
+                        test: ["CMD-SHELL", "pg_isready -U citypass -d login_federado"]
+                        interval: 5s
+                        timeout: 5s
+                        retries: 12
+
+                    app:
+                      extra_hosts:
+                        - "host.docker.internal:host-gateway"
+                      environment:
+                        DB_USERNAME: citypass
+                        DB_PASSWORD: citypass
+                        SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/login_federado
+                        SPRING_DOCKER_COMPOSE_ENABLED: "false"
+                        SVC_GROUP1_SECRET: group1-test
+                        SVC_GROUP5_SECRET: group5-test
+                        ANOMALY_SERVICE_URL: http://host.docker.internal:8000
+                      depends_on:
+                        postgres:
+                          condition: service_healthy
+                  EOF
+
+                  docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml config --quiet
+
+            - name: Validar sintaxis del compose de anomaly-detection aislado
+              working-directory: anomaly-detection
+              run: |
+                  cat > docker-compose.smoke.yml <<'EOF'
+                  services:
+                    postgres:
+                      image: postgres:16-alpine
+                      environment:
+                        POSTGRES_DB: login_federado
+                        POSTGRES_USER: citypass
+                        POSTGRES_PASSWORD: citypass
+                      healthcheck:
+                        test: ["CMD-SHELL", "pg_isready -U citypass -d login_federado"]
+                        interval: 5s
+                        timeout: 5s
+                        retries: 12
+
+                    anomaly-detection:
+                      image: ghcr.io/citypass-login-federado/citypass-anomaly-detection:latest
+                      environment:
+                        ANOMALY_DB_URL: postgresql://citypass:citypass@postgres:5432/login_federado
+                      depends_on:
+                        postgres:
+                          condition: service_healthy
+                  EOF
+
+                  docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml config --quiet
+
+            - name: Levantar VM2 simulada (anomaly-detection + Postgres)
+              working-directory: anomaly-detection
+              run: docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml up -d --wait
+
+            - name: Levantar VM1 simulada (LDAP + Spring + Postgres)
+              working-directory: login-federado
+              run: docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml up -d --wait
+
+            - name: Confirmar salud de las dos VMs simuladas
+              working-directory: login-federado
+              run: |
+                  docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml ps -a
+                  curl --fail --retry 10 --retry-delay 2 http://localhost:8081/actuator/health
+                  curl --fail --retry 10 --retry-delay 2 http://localhost:8000/health
+                  docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml exec -T app wget -qO- http://host.docker.internal:8000/health
+
+                  CONFIG_EXIT_CODE=$(docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml ps -a -q ldap-config | xargs docker inspect --format='{{.State.ExitCode}}')
+                  if [ "$CONFIG_EXIT_CODE" -ne 0 ]; then
+                    echo "ERROR: ldap-config finalizó con código de error $CONFIG_EXIT_CODE"
+                    exit 1
+                  fi
+
+                  echo "VM1 (LDAP + backend) y VM2 (anomaly-detection) están saludables."
+
+            - name: Logs (si algo falló arriba)
+              if: failure()
+              working-directory: login-federado
+              run: |
+                  docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml logs
+                  docker compose -f ../anomaly-detection/docker-compose.prod.yml -f ../anomaly-detection/docker-compose.smoke.yml logs
+
+            - name: Bajar todo
+              if: always()
+              working-directory: login-federado
+              run: |
+                  docker compose -f docker-compose.prod.yml -f docker-compose.smoke.yml down -v
+                  docker compose -f ../anomaly-detection/docker-compose.prod.yml -f ../anomaly-detection/docker-compose.smoke.yml down -v

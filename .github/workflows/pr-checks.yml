@@ -23,3 +23,11 @@ jobs:
       contents: read
       pull-requests: read
       security-events: write
+  
+  smoke-tests:
+    name: Smoke Test (local + prod config)
+    needs: ci
+    uses: "./.github/workflows/smoke-tests.yml"
+    secrets: inherit
+    permissions:
+      contents: read

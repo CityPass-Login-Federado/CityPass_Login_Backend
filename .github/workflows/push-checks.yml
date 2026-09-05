@@ -1,15 +1,8 @@
 name: Push Checks
 
-# Se ejecuta en cada push (merge) a main o develop.
-# Corre los mismos checks que las PRs (via ci.yml) y ademas publica
-# la imagen Docker en GitHub Container Registry.
-
 on:
   push:
     branches: [ "main", "develop" ]
-
-env:
-  WORKING_DIR: login-federado
 
 jobs:
   ci:
@@ -21,58 +14,11 @@ jobs:
       pull-requests: read
       security-events: write
 
-  # ---------------------------------------------------------------------
-  # Publicar imagen en GitHub Container Registry (GHCR)
-  # Solo corre despues de que ci.yml termino OK (incluye el scaneo Trivy
-  # de la imagen).
-  # ---------------------------------------------------------------------
-  publish-image:
-    name: Publish Image (GHCR)
+  cd:
+    name: CD
     needs: ci
-    runs-on: ubuntu-latest
-
+    uses: ./.github/workflows/CD.yml
+    secrets: inherit
     permissions:
       contents: read
-      packages: write   # requerido para publicar en GHCR
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login a GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Calcula tags y labels automaticamente: rama, sha corto, "latest"
-      # (solo en la rama por defecto), y metadata de trazabilidad.
-      - name: Extraer metadata (tags & labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=branch
-            type=sha,format=short,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
-          labels: |
-            org.opencontainers.image.title=login-federado
-            com.citypass.ci.workflow=${{ github.workflow }}
-            com.citypass.ci.run-id=${{ github.run_id }}
-            com.citypass.ci.run-url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            com.citypass.ci.branch=${{ github.ref_name }}
-            com.citypass.ci.commit=${{ github.sha }}
-
-      - name: Build & Push a GHCR
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ env.WORKING_DIR }}
-          file: ${{ env.WORKING_DIR }}/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      packages: write

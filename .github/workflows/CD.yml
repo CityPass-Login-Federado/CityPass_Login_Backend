@@ -1,0 +1,157 @@
+name: CD
+
+on:
+    workflow_call:
+    workflow_dispatch:
+
+jobs:
+    publish-login-federado:
+        name: Publish login-federado (GHCR)
+        if: github.ref_name == 'main' || startsWith(github.ref_name, 'release')
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: docker/setup-buildx-action@v3
+
+            - name: Login a GHCR
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Extraer metadata (tags & labels)
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/citypass-login-federado/citypass-login-backend
+                  tags: |
+                      type=ref,event=branch
+                      type=sha,format=short,prefix=
+                      type=raw,value=latest,enable={{is_default_branch}}
+                  labels: |
+                      org.opencontainers.image.title=login-federado
+                      com.citypass.ci.workflow=${{ github.workflow }}
+                      com.citypass.ci.run-id=${{ github.run_id }}
+                      com.citypass.ci.run-url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                      com.citypass.ci.branch=${{ github.ref_name }}
+                      com.citypass.ci.commit=${{ github.sha }}
+
+            - name: Build & Push a GHCR
+              uses: docker/build-push-action@v6
+              with:
+                  context: login-federado
+                  file: login-federado/Dockerfile
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+
+    publish-anomaly-detection:
+        name: Publish anomaly-detection (GHCR)
+        if: github.ref_name == 'main' || startsWith(github.ref_name, 'release')
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: docker/setup-buildx-action@v3
+
+            - name: Login a GHCR
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Extraer metadata (tags & labels)
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/citypass-login-federado/citypass-anomaly-detection
+                  tags: |
+                      type=ref,event=branch
+                      type=sha,format=short,prefix=
+                      type=raw,value=latest,enable={{is_default_branch}}
+                  labels: |
+                      org.opencontainers.image.title=anomaly-detection
+                      com.citypass.ci.workflow=${{ github.workflow }}
+                      com.citypass.ci.run-id=${{ github.run_id }}
+                      com.citypass.ci.run-url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                      com.citypass.ci.branch=${{ github.ref_name }}
+                      com.citypass.ci.commit=${{ github.sha }}
+
+            - name: Build & Push a GHCR
+              uses: docker/build-push-action@v6
+              with:
+                  context: anomaly-detection
+                  file: anomaly-detection/Dockerfile
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+
+    deploy-backend:
+        name: Deploy login-federado + LDAP (VM1)
+        needs: publish-login-federado
+        runs-on: ubuntu-latest
+        if: github.ref == 'refs/heads/main'
+        steps:
+            - name: SSH y redeploy en Backend (VM1)
+              uses: appleboy/ssh-action@v1
+              with:
+                  host: ${{ secrets.ORACLE_HOST_BACKEND }}
+                  username: ${{ secrets.ORACLE_SSH_USER }}
+                  key: ${{ secrets.ORACLE_SSH_KEY_BACKEND }}
+                  script: |
+                      if [ ! -d "$HOME/CityPass_Login_Backend" ]; then
+                        git clone https://github.com/citypass-login-federado/CityPass_Login_Backend.git ~/CityPass_Login_Backend
+                      fi
+                      cd ~/CityPass_Login_Backend/login-federado
+                      git fetch origin main
+                      git reset --hard origin/main
+                      cat > .env <<'ENVEOF'
+                      SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD }}
+                      SUPABASE_PROJECT_REF=${{ secrets.SUPABASE_PROJECT_REF }}
+                      LDAP_ADMIN_PASSWORD=${{ secrets.LDAP_ADMIN_PASSWORD }}
+                      LDAP_CONFIG_PASSWORD=${{ secrets.LDAP_CONFIG_PASSWORD }}
+                      LDAP_READONLY_PASSWORD=${{ secrets.LDAP_READONLY_PASSWORD }}
+                      LDAP_PANEL_WRITER_PASSWORD=${{ secrets.LDAP_PANEL_WRITER_PASSWORD }}
+                      SVC_GRUPO1_SECRET=${{ secrets.SVC_GRUPO1_SECRET }}
+                      SVC_GRUPO2_SECRET=${{ secrets.SVC_GRUPO2_SECRET }}
+                      ANOMALY_SERVICE_URL=${{ secrets.ANOMALY_SERVICE_URL }}
+                      ENVEOF
+                      docker compose -f docker-compose.prod.yml pull
+                      docker compose -f docker-compose.prod.yml up -d
+                      docker image prune -f
+
+    deploy-ai:
+        name: Deploy anomaly-detection (VM2)
+        needs: publish-anomaly-detection
+        runs-on: ubuntu-latest
+        if: github.ref == 'refs/heads/main'
+        steps:
+            - name: SSH y redeploy en AI (VM2)
+              uses: appleboy/ssh-action@v1
+              with:
+                  host: ${{ secrets.ORACLE_HOST_AI }}
+                  username: ${{ secrets.ORACLE_SSH_USER }}
+                  key: ${{ secrets.ORACLE_SSH_KEY_AI }}
+                  script: |
+                      if [ ! -d "$HOME/CityPass_Login_Backend" ]; then
+                        git clone https://github.com/citypass-login-federado/CityPass_Login_Backend.git ~/CityPass_Login_Backend
+                      fi
+                      cd ~/CityPass_Login_Backend/anomaly-detection
+                      git fetch origin main
+                      git reset --hard origin/main
+                      cat > .env <<'ENVEOF'
+                      SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD }}
+                      SUPABASE_PROJECT_REF=${{ secrets.SUPABASE_PROJECT_REF }}
+                      ENVEOF
+                      docker compose -f docker-compose.prod.yml pull
+                      docker compose -f docker-compose.prod.yml up -d
+                      docker image prune -f

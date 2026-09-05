@@ -1,0 +1,67 @@
+services:
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: citypass-ldap
+    environment:
+      LDAP_ORGANISATION: "CityPass"
+      LDAP_DOMAIN: "citypass.local"
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ldapwhoami", "-x", "-H", "ldap://localhost:389", "-D", "cn=admin,dc=citypass,dc=local", "-w", "${LDAP_ADMIN_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  ldap-config:
+    image: osixia/openldap:1.5.0
+    container_name: citypass-ldap-config
+    entrypoint: ["/bin/bash", "/config/apply-config.sh"]
+    environment:
+      LDAP_HOST: openldap
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD}"
+    volumes:
+      - ./ldap/config:/config:ro
+    depends_on:
+      openldap:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: ghcr.io/citypass-login-federado/citypass-login-backend:latest
+    container_name: citypass-login
+    ports:
+      - "8081:8081"
+    environment:
+      DB_USERNAME: "postgres.${SUPABASE_PROJECT_REF}"
+      DB_PASSWORD: "${SUPABASE_DB_PASSWORD}"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
+      SPRING_LDAP_URLS: "ldap://openldap:389"
+      SPRING_LDAP_USERNAME: "cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local"
+      SPRING_LDAP_PASSWORD: "${LDAP_READONLY_PASSWORD}"
+      PANEL_LDAP_USERNAME: "cn=panel-writer,ou=ServiceAccounts,dc=citypass,dc=local"
+      PANEL_LDAP_PASSWORD: "${LDAP_PANEL_WRITER_PASSWORD}"
+      SVC_GRUPO1_SECRET: "${SVC_GRUPO1_SECRET}"
+      SVC_GRUPO2_SECRET: "${SVC_GRUPO2_SECRET}"
+      ANOMALY_SERVICE_URL: "${ANOMALY_SERVICE_URL}"
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60.0 -XX:+UseSerialGC -Xss256k"
+      SPRINGDOC_API_DOCS_ENABLED: "false"
+      SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+    depends_on:
+      openldap:
+        condition: service_healthy
+      ldap-config:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: 500m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
