@@ -22,6 +22,25 @@ INTERVAL="$1"; shift
 EXCLUDE=("$@")   # nombres de *servicio* a excluir del total de RAM —
                   # p.ej. el postgres que solo existe para el smoke test,
                   # no corre en la VM real.
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  SUMMARY_FILE="$GITHUB_STEP_SUMMARY"
+else
+  SUMMARY_FILE="/tmp/resource-report-${PROJECT}.md"
+  rm -f "$SUMMARY_FILE"
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  {
+    echo "### Recursos máximos — ${VM_LABEL}"
+    echo ""
+    echo "⚠️ Docker no está disponible o el daemon no está iniciado en este runner."
+    echo ""
+  } >> "$SUMMARY_FILE"
+  if [ -z "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat "$SUMMARY_FILE"
+  fi
+  exit 0
+fi
 
 is_excluded() {
   local svc="$1"
@@ -42,11 +61,24 @@ to_mib() {
   '
 }
 
-CONTAINER_IDS=$(docker ps -q --filter "label=com.docker.compose.project=${PROJECT}")
-if [ -z "$CONTAINER_IDS" ]; then
-  echo "⚠️ No se encontraron contenedores para el proyecto '${PROJECT}'." >&2
+mapfile -t CONTAINER_IDS < <(
+  docker ps --filter "label=com.docker.compose.project=${PROJECT}" --format '{{.ID}}'
+)
+if [ "${#CONTAINER_IDS[@]}" -eq 0 ]; then
+  {
+    echo "### Recursos máximos — ${VM_LABEL}"
+    echo ""
+    echo "⚠️ No se encontraron contenedores en ejecución para el proyecto Compose \\`${PROJECT}\\`."
+    echo ""
+  } >> "$SUMMARY_FILE"
+  echo "No se encontraron contenedores para el proyecto '${PROJECT}'." >&2
+  if [ -z "${GITHUB_STEP_SUMMARY:-}" ]; then
+    cat "$SUMMARY_FILE"
+  fi
   exit 0
 fi
+
+echo "Muestreando ${#CONTAINER_IDS[@]} contenedor(es) del proyecto '${PROJECT}': ${CONTAINER_IDS[*]}" >&2
 
 declare -A MAX_MIB
 declare -A MAX_CPU
@@ -67,7 +99,7 @@ while [ "$SECONDS" -lt "$END" ]; do
     CUR_CPU="${MAX_CPU[$NAME]:-0}"
     GREATER_CPU=$(awk -v a="$CPU_NUM" -v b="$CUR_CPU" 'BEGIN { print (a>b) ? 1 : 0 }')
     [ "$GREATER_CPU" -eq 1 ] && MAX_CPU["$NAME"]="$CPU_NUM"
-  done < <(docker stats --no-stream --format '{{.Name}};{{.CPUPerc}};{{.MemUsage}}' $CONTAINER_IDS 2>/dev/null || true)
+  done < <(docker stats --no-stream --format '{{.Name}};{{.CPUPerc}};{{.MemUsage}}' "${CONTAINER_IDS[@]}" 2>/dev/null || true)
   sleep "$INTERVAL"
 done
 
@@ -77,6 +109,9 @@ done
   echo "| Contenedor | RAM máxima | CPU máxima* |"
   echo "|---|---|---|"
   TOTAL_MEM=0
+  if [ "${#MAX_MIB[@]}" -eq 0 ]; then
+    echo "| _Sin muestras de docker stats_ | _N/D_ | _N/D_ |"
+  fi
   for NAME in "${!MAX_MIB[@]}"; do
     M="${MAX_MIB[$NAME]:-0}"
     C="${MAX_CPU[$NAME]:-0}"
@@ -102,4 +137,8 @@ done
   echo "corridas, no como predicción absoluta de cómo se va a comportar en"
   echo "la VM real._"
   echo ""
-} >> "$GITHUB_STEP_SUMMARY"
+} >> "$SUMMARY_FILE"
+
+if [ -z "${GITHUB_STEP_SUMMARY:-}" ]; then
+  cat "$SUMMARY_FILE"
+fi

@@ -245,6 +245,20 @@ jobs:
                   [ -f /tmp/resource-vm2.pid ] && tail --pid="$(cat /tmp/resource-vm2.pid)" -f /dev/null 2>/dev/null || true
                   [ -f /tmp/resource-vm1.pid ] && tail --pid="$(cat /tmp/resource-vm1.pid)" -f /dev/null 2>/dev/null || true
 
+            - name: Publicar diagnóstico del muestreo de recursos
+              if: always()
+              run: |
+                  for report in /tmp/resource-vm2.log /tmp/resource-vm1.log; do
+                    if [ -f "$report" ]; then
+                      {
+                        echo "### Diagnóstico de $report"
+                        echo '```text'
+                        cat "$report"
+                        echo '```'
+                      } >> "$GITHUB_STEP_SUMMARY"
+                    fi
+                  done
+
             - name: Reporte de tamaño de imágenes
               if: always()
               run: |
