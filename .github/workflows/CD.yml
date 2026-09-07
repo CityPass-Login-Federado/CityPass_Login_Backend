@@ -121,8 +121,8 @@ jobs:
                       LDAP_CONFIG_PASSWORD=${{ secrets.LDAP_CONFIG_PASSWORD }}
                       LDAP_READONLY_PASSWORD=${{ secrets.LDAP_READONLY_PASSWORD }}
                       LDAP_PANEL_WRITER_PASSWORD=${{ secrets.LDAP_PANEL_WRITER_PASSWORD }}
-                      SVC_GRUPO1_SECRET=${{ secrets.SVC_GRUPO1_SECRET }}
-                      SVC_GRUPO2_SECRET=${{ secrets.SVC_GRUPO2_SECRET }}
+                      SVC_GROUP1_SECRET=${{ secrets.SVC_GROUP1_SECRET }}
+                      SVC_GROUP5_SECRET=${{ secrets.SVC_GROUP5_SECRET }}
                       ANOMALY_SERVICE_URL=${{ secrets.ANOMALY_SERVICE_URL }}
                       ENVEOF
                       docker compose -f docker-compose.prod.yml pull
