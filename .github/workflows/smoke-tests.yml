@@ -196,11 +196,12 @@ jobs:
             # el tráfico real que generan los curl del paso siguiente.
             - name: Iniciar muestreo de recursos (background)
               run: |
-                  nohup bash .github/scripts/resource-report.sh "VM2 (login-ai)" anomaly-detection 45 3 postgres > /tmp/resource-vm2.log 2>&1 &
+                  rm -f /tmp/resource-vm1-summary.md /tmp/resource-vm2-summary.md
+                  GITHUB_STEP_SUMMARY=/tmp/resource-vm2-summary.md nohup bash .github/scripts/resource-report.sh "VM2 (login-ai)" anomaly-detection 45 3 postgres > /tmp/resource-vm2.log 2>&1 &
                   disown
                   echo "$!" > /tmp/resource-vm2.pid
 
-                  nohup bash .github/scripts/resource-report.sh "VM1 (login-backend)" login-federado 45 3 postgres > /tmp/resource-vm1.log 2>&1 &
+                  GITHUB_STEP_SUMMARY=/tmp/resource-vm1-summary.md nohup bash .github/scripts/resource-report.sh "VM1 (login-backend)" login-federado 45 3 postgres > /tmp/resource-vm1.log 2>&1 &
                   disown
                   echo "$!" > /tmp/resource-vm1.pid
 
@@ -248,6 +249,19 @@ jobs:
             - name: Publicar diagnóstico del muestreo de recursos
               if: always()
               run: |
+                  for summary in /tmp/resource-vm2-summary.md /tmp/resource-vm1-summary.md; do
+                    if [ -f "$summary" ]; then
+                      cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+                    else
+                      {
+                        echo "### Diagnóstico de $summary"
+                        echo '```text'
+                        echo "No se generó el archivo de métricas."
+                        echo '```'
+                      } >> "$GITHUB_STEP_SUMMARY"
+                    fi
+                  done
+
                   for report in /tmp/resource-vm2.log /tmp/resource-vm1.log; do
                     if [ -f "$report" ]; then
                       {
