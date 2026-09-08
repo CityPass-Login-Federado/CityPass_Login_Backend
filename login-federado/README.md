@@ -76,7 +76,7 @@ que exigen token de delegado (audience `citypass-admin-api`, grupo `delegados`,
 claim `module`). Los endpoints `/auth/**`, `/oauth/token` y `/jwks` son públicos
 y no requieren token.
 
-Los 15 endpoints documentados: login/refresh/logout (`/auth`), token de servicio
+Los 17 endpoints documentados: login/refresh/logout (`/auth`), token de servicio
 (`/oauth/token`), clave pública (`/.well-known/jwks.json`) y el ABM del panel
 (`/panel/**`).
 
