@@ -422,6 +422,34 @@ class PanelDirectoryServiceTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void addMemberTranslatesDuplicateValueError() {
+                doReturn(personContext("ops")).when(ldap).lookupContext(any(LdapName.class));
+                when(ldap.search(any(LdapName.class), contains("uid=jperez"), any(javax.naming.directory.SearchControls.class), ArgumentMatchers.<org.springframework.ldap.core.ContextMapper<Integer>>any()))
+                .thenReturn(List.of(0));
+        doThrow(new org.springframework.ldap.AttributeInUseException(new javax.naming.directory.AttributeInUseException("already member")))
+                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        assertThatThrownBy(() -> service.addMember(actor, "reclamos", "ops", "jperez"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void removeMemberTranslatesMissingValueError() {
+                doReturn(personContext("ops")).when(ldap).lookupContext(any(LdapName.class));
+        doThrow(new org.springframework.ldap.NoSuchAttributeException(new javax.naming.directory.NoSuchAttributeException("not a member")))
+                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        assertThatThrownBy(() -> service.removeMember(actor, "reclamos", "ops", "jperez"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void listPeopleRejectsInvalidGroupFilterNoLdap() {
+        assertThatThrownBy(() -> service.listPeople("reclamos",
+                new PeopleSearchCriteria(0, 10, null, "Bad Name", null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(ldap);
+    }
+
     private Attributes person(String uid) {
         BasicAttributes a = new BasicAttributes(true);
         a.put(new BasicAttribute("uid", uid));

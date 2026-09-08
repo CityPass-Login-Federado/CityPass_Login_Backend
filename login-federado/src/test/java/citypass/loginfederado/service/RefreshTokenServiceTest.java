@@ -75,9 +75,42 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    void concurrentExchangeLosesAtomicRevocationAndKillsChain() {
+        RefreshToken stored = storedToken(false);
+        when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(stored));
+        // El UPDATE condicional devuelve 0: otro request con el MISMO token
+        // canjeó primero (TOCTOU). El perdedor no toca filas → reuso.
+        when(repository.revokeIfActive(eq(TOKEN_HASH), any(Instant.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> service.continueChain(RAW_TOKEN))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(repository).revokeChain(eq(CHAIN_ID), any(Instant.class));
+        verify(ldapDirectory, never()).reloadBySub(any());
+    }
+
+    @Test
+    void personMovedToAnotherModuleBetweenExchangesKillsSession() {
+        RefreshToken stored = storedToken(false);
+        when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(stored));
+        when(repository.revokeIfActive(eq(TOKEN_HASH), any(Instant.class))).thenReturn(1);
+        // Persona releída desde LDAP: ahora vive en Movilidad, el cliente del
+        // login emite solo para reclamos (misma regla de módulo que el login).
+        var movedPerson = new LdapDirectoryPerson(
+                "uid=jperez,ou=People,ou=Movilidad,dc=citypass,dc=local",
+                "U000042", "jperez", "Juan Perez", null, "Movilidad", List.of("delegados"));
+        when(ldapDirectory.reloadBySub("U000042")).thenReturn(Optional.of(movedPerson));
+
+        assertThatThrownBy(() -> service.continueChain(RAW_TOKEN))
+                .isInstanceOf(BadCredentialsException.class)
+                .hasMessage(ClientRegistry.GENERIC_ERROR_MESSAGE);
+    }
+
+    @Test
     void validExchangeRevokesOldLinkAndReloadsPersonFromLdap() {
         RefreshToken stored = storedToken(false);
         when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(stored));
+        when(repository.revokeIfActive(eq(TOKEN_HASH), any(Instant.class))).thenReturn(1);
         when(ldapDirectory.reloadBySub("U000042")).thenReturn(Optional.of(person));
 
         RefreshTokenService.ChainContinuation continuation = service.continueChain(RAW_TOKEN);
@@ -99,6 +132,7 @@ class RefreshTokenServiceTest {
     void personDeletedOrDisabledBetweenExchangesKillsSession() {
         RefreshToken stored = storedToken(false);
         when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(stored));
+        when(repository.revokeIfActive(eq(TOKEN_HASH), any(Instant.class))).thenReturn(1);
         when(ldapDirectory.reloadBySub("U000042")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.continueChain(RAW_TOKEN))

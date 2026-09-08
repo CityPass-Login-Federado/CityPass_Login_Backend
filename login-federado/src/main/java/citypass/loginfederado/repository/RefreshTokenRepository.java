@@ -16,6 +16,18 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
         Optional<RefreshToken> findByTokenHash(String tokenHash);
 
         /**
+     * Revoca ESTE eslabón solo si sigue activo (revoked_at is null).
+     * Devuelve 1 si el request ganó el canje, 0 si otro ya lo canjeó o
+     * revocó. Cierra el TOCTOU del reuso: read + save no alcanzan porque
+     * dos hilos pueden pasar la validación a la vez con la misma palabra
+     * de paso; el UPDATE condicional arbitra quién queda.
+         */
+        @Modifying
+        @Query("update RefreshToken t set t.revokedAt = :now " +
+                "where t.tokenHash = :tokenHash and t.revokedAt is null")
+        int revokeIfActive(@Param("tokenHash") String tokenHash, @Param("now") Instant now);
+
+        /**
      * Revoca TODA la cadena en un solo UPDATE persistido (reuso = robo).
      * Devuelve la cantidad de filas afectadas.
         */
