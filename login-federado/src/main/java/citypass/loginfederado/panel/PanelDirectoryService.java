@@ -54,6 +54,16 @@ public class PanelDirectoryService {
     /** Username: minúsculas/números/._-, 3–32 chars. */
     public static final Pattern USERNAME = Pattern.compile("^[a-z0-9][a-z0-9._-]{2,31}$");
 
+    /**
+     * Ficha completa para la vista del panel. pwdAccountLockedTime es un
+     * atributo OPERACIONAL del esquema ppolicy: LDAP NO lo devuelve en una
+     * búsqueda salvo que se pida por nombre. Si no está en la lista, el
+     * flag `disabled` queda siempre en false.
+     */
+    private static final String[] PERSON_VIEW_ATTRIBUTES = {
+            "employeeNumber", "uid", "givenName", "sn", "mail", "pwdAccountLockedTime"
+    };
+
     public static final int MAX_GROUPS = 50;   // D5: bloqueo duro (token bloat)
     public static final int WARN_GROUPS = 30;  // D5: aviso preventivo
 
@@ -71,9 +81,13 @@ public class PanelDirectoryService {
 
     public List<PersonView> listPeople(String module) {
         assertModule(module);
+        SearchControls controls = new SearchControls();
+        controls.setSearchScope(SearchControls.SUBTREE_SCOPE);
+        controls.setReturningAttributes(PERSON_VIEW_ATTRIBUTES);
         return ldap.search(
                 peopleBase(module),
                 "(objectClass=inetOrgPerson)",
+                controls,
                 (AttributesMapper<PersonView>) PanelDirectoryService::toView
         ).stream().sorted(java.util.Comparator.comparing(PersonView::uid)).toList();
     }
@@ -89,6 +103,11 @@ public class PanelDirectoryService {
                     ctx.getStringAttribute("sn"),
                     ctx.getStringAttribute("mail"),
                     isDisabled(ctx)));
+            // lookup explícito de los atributos de la ficha: pwdAccountLockedTime
+            // es operacional y solo se devuelve si se pide por nombre.
+            PersonView view = ldap.lookup(personDn(module, uid), PERSON_VIEW_ATTRIBUTES,
+                    (AttributesMapper<PersonView>) PanelDirectoryService::toView);
+            return Optional.of(view);
         } catch (org.springframework.ldap.NameNotFoundException ex) {
             return Optional.empty();
         }
@@ -146,7 +165,7 @@ public class PanelDirectoryService {
 
     /** Corrección de datos y/o renombre (con reparación de membresías). */
     public PersonView updatePerson(PanelAuthorization.Delegate actor, String module,
-                                String uid, UpdatePersonRequest req) {
+                                   String uid, UpdatePersonRequest req) {
         assertModule(module);
         requireContext(personDn(module, uid));
 
@@ -193,7 +212,7 @@ public class PanelDirectoryService {
      * apuntan al DN viejo; después del modrdn se reescriben explícitamente.
      */
     private void renamePerson(PanelAuthorization.Delegate actor, String module,
-                            String oldUid, String newUid) {
+                              String oldUid, String newUid) {
         validateUsername(newUid);
         LdapName oldDn = personDn(module, oldUid);
         LdapName newDn = personDn(module, newUid);
@@ -241,7 +260,7 @@ public class PanelDirectoryService {
      * antes de guardar (olcPPolicyHashCleartext). Nadie ve nunca un hash.
      */
     public void resetPassword(PanelAuthorization.Delegate actor, String module,
-                            String uid, String temporaryPassword) {
+                              String uid, String temporaryPassword) {
         assertModule(module);
         if (temporaryPassword == null || temporaryPassword.length() < 8) {
             throw new IllegalArgumentException("La contraseña temporal debe tener al menos 8 caracteres");
@@ -303,7 +322,7 @@ public class PanelDirectoryService {
      * grupos con aviso desde 30 (token bloat).
      */
     public MembershipChangeResponse addMember(PanelAuthorization.Delegate actor, String module,
-                                            String groupName, String memberUid) {
+                                              String groupName, String memberUid) {
         assertModule(module);
         LdapName groupDn = groupDn(module, groupName);
         requireContext(groupDn);
@@ -329,7 +348,7 @@ public class PanelDirectoryService {
     }
 
     public MembershipChangeResponse removeMember(PanelAuthorization.Delegate actor, String module,
-                                                String groupName, String memberUid) {
+                                                 String groupName, String memberUid) {
         assertModule(module);
         LdapName groupDn = groupDn(module, groupName);
         requireContext(groupDn);

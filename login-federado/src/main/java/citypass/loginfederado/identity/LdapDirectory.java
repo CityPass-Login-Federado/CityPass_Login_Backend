@@ -10,6 +10,7 @@ import javax.naming.NamingException;
 import javax.naming.directory.SearchControls;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -64,6 +65,10 @@ public class LdapDirectory {
             return Optional.empty();
         }
         return found.stream().findFirst();
+        // mapPerson devuelve null para fichas deshabilitadas (mismo tratamiento
+        // que "no existe"); filtrar antes de findFirst, si no un único null en
+        // la lista hace explotar Optional.of con NPE → 500 en vez de 401.
+        return found.stream().filter(Objects::nonNull).findFirst();
     }
 
     /** Relectura por employeeNumber (sub) para revalidar sesiones. */
@@ -76,6 +81,7 @@ public class LdapDirectory {
                 mapper
         );
         return found.stream().findFirst();
+        return found.stream().filter(Objects::nonNull).findFirst();
     }
 
     /**

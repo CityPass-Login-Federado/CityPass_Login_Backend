@@ -142,6 +142,21 @@ userPassword: {SSHA}mfAwIET/pDulJ/sD/5aDquTVP4stOEKk8HxlAw==
 # pwdAttribute: userPassword
 # pwdLockout: FALSE
 # pwdMinLength: 8
+# Esta corresponde al DIT (DIT policy), referenciada por olcPPolicyDefault en
+# cn=config. Debe existir antes de usar overlay ppolicy sobre la base.
+# -----------------------------------------------------------------------------
+
+dn: ou=Policies,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Policies
+
+dn: cn=default,ou=Policies,dc=citypass,dc=local
+objectClass: organizationalRole
+objectClass: pwdPolicy
+cn: default
+pwdAttribute: 2.5.4.34
+pwdLockout: FALSE
+pwdMinLength: 8
 
 # -----------------------------------------------------------------------------
 # Personas de prueba. employeeNumber = identificador estable (U + 6 dígitos),

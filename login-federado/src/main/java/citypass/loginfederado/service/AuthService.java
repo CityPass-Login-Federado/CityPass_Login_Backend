@@ -138,8 +138,12 @@ public class AuthService {
 
         // Capa 2: consulta al microservicio de detección de anomalías.
         // Corre DESPUÉS de la Capa 1 (bloqueo por umbral) y del login LDAP exitoso.
+        // El servicio espera un user_agent SIEMPRE string (422 si llega null:
+        // curl, scripts y clientes sin la cabecera). Se normaliza a vacío.
         var riskAssessment = anomalyRiskClient.score(
                 request.username(), ipAddress, userAgent
+                request.username(), ipAddress,
+                userAgent != null ? userAgent : ""
         );
         if ("BLOCK".equals(riskAssessment.decision())) {
             // La razón del bloqueo NO sale en la respuesta (mismo error que todo).
