@@ -1,9 +1,31 @@
 package citypass.loginfederado.panel;
 
-import citypass.loginfederado.panel.dto.*;
+import java.util.List;
+
+import javax.naming.directory.Attributes;
+import javax.naming.directory.BasicAttribute;
+import javax.naming.directory.BasicAttributes;
+import javax.naming.directory.ModificationItem;
+import javax.naming.ldap.LdapName;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import org.springframework.ldap.NameAlreadyBoundException;
 import org.springframework.ldap.NameNotFoundException;
 import org.springframework.ldap.core.AttributesMapper;
@@ -11,16 +33,12 @@ import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
-import javax.naming.directory.Attributes;
-import javax.naming.directory.BasicAttribute;
-import javax.naming.directory.BasicAttributes;
-import javax.naming.directory.ModificationItem;
-import javax.naming.ldap.LdapName;
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import citypass.loginfederado.panel.dto.GroupSearchCriteria;
+import citypass.loginfederado.panel.dto.GroupView;
+import citypass.loginfederado.panel.dto.NewPersonRequest;
+import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
+import citypass.loginfederado.panel.dto.PersonView;
+import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 
 class PanelDirectoryServiceTest {
     private LdapTemplate ldap;
@@ -51,6 +69,69 @@ class PanelDirectoryServiceTest {
         assertThat(service.listPeople("reclamos", new PeopleSearchCriteria(0, 10, null, null, null)).content()).extracting(PersonView::uid)
                 .containsExactly("alpha", "zeta");
     }
+
+    @Test
+    void listPeopleFiltersDisabledUsersSortsAndPaginates() {
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
+                    Attributes disabled = person("bravo");
+                    disabled.put("pwdAccountLockedTime", "000001010000Z");
+                    return List.of(
+                            mapper.mapFromAttributes(person("zeta")),
+                            mapper.mapFromAttributes(disabled),
+                            mapper.mapFromAttributes(person("alpha")));
+                });
+
+        var result = service.listPeople("reclamos",
+                new PeopleSearchCriteria(1, 1, " jperez ", "ops", false));
+
+        assertThat(result.content()).extracting(PersonView::uid).containsExactly("zeta");
+        assertThat(result.totalElements()).isEqualTo(2);
+        assertThat(result.totalPages()).isEqualTo(2);
+        assertThat(result.currentPage()).isEqualTo(1);
+        assertThat(result.size()).isEqualTo(1);
+    }
+
+    @Test
+    void listPeopleUsesDefaultsForNonPositivePaginationAndReturnsEmptyOutOfRange() {
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapFromAttributes(person("alpha")));
+                });
+
+        var result = service.listPeople("reclamos",
+                new PeopleSearchCriteria(-1, 0, " ", " ", null));
+        var emptyPage = service.listPeople("reclamos",
+                new PeopleSearchCriteria(2, 1, null, null, null));
+
+        assertThat(result.content()).extracting(PersonView::uid).containsExactly("alpha");
+        assertThat(result.currentPage()).isZero();
+        assertThat(result.size()).isEqualTo(10);
+        assertThat(result.totalPages()).isEqualTo(1);
+        assertThat(emptyPage.content()).isEmpty();
+    }
+
+        @Test
+        void listPeopleCanSelectDisabledUsers() {
+                when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+                                .thenAnswer(invocation -> {
+                                        AttributesMapper<PersonView> mapper = invocation.getArgument(1);
+                                        Attributes disabled = person("locked");
+                                        disabled.put("pwdAccountLockedTime", "000001010000Z");
+                                        return List.of(mapper.mapFromAttributes(disabled),
+                                                        mapper.mapFromAttributes(person("active")));
+                                });
+
+                var result = service.listPeople("reclamos",
+                                new PeopleSearchCriteria(0, 10, null, null, true));
+
+                assertThat(result.content()).extracting(PersonView::uid).containsExactly("locked");
+        }
 
     @Test
     void findPersonReturnsEmptyWhenMissing() {
@@ -250,6 +331,51 @@ class PanelDirectoryServiceTest {
         var groups = service.listGroups("reclamos", new citypass.loginfederado.panel.dto.GroupSearchCriteria(0, 10, null, null)).content();
         assertThat(groups).extracting(GroupView::name).containsExactly("alpha", "zeta");
         assertThat(groups.get(1).members()).containsExactly("zeta");
+    }
+
+    @Test
+    void listGroupsFiltersReservedGroupsAndPaginates() {
+        Attributes reserved = new BasicAttributes(true);
+        reserved.put("cn", "delegados");
+        reserved.put("member", "uid=admin,ou=People,ou=Reclamos,dc=citypass,dc=local");
+        Attributes normal = new BasicAttributes(true);
+        normal.put("cn", "ops");
+        normal.put("member", "uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local");
+        Attributes other = new BasicAttributes(true);
+        other.put("cn", "zeta");
+        other.put("member", "uid=zeta,ou=People,ou=Reclamos,dc=citypass,dc=local");
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<GroupView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<GroupView> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapFromAttributes(other),
+                            mapper.mapFromAttributes(reserved), mapper.mapFromAttributes(normal));
+                });
+
+        var result = service.listGroups("reclamos",
+                new GroupSearchCriteria(0, 1, " ops ", false));
+
+        assertThat(result.content()).extracting(GroupView::name).containsExactly("ops");
+        assertThat(result.totalElements()).isEqualTo(2);
+        assertThat(result.totalPages()).isEqualTo(2);
+        assertThat(result.currentPage()).isZero();
+        assertThat(result.size()).isEqualTo(1);
+    }
+
+    @Test
+    void listGroupsUsesDefaultsForNonPositivePaginationAndHandlesEmptyPage() {
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<GroupView>>any()))
+                .thenReturn(List.of());
+
+        var result = service.listGroups("reclamos",
+                new GroupSearchCriteria(-1, 0, " ", null));
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.totalElements()).isZero();
+        assertThat(result.totalPages()).isZero();
+        assertThat(result.currentPage()).isZero();
+        assertThat(result.size()).isEqualTo(10);
     }
 
     @Test
