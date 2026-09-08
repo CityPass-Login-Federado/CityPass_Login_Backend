@@ -54,6 +54,16 @@ public class PanelDirectoryService {
     /** Username: minúsculas/números/._-, 3–32 chars. */
     public static final Pattern USERNAME = Pattern.compile("^[a-z0-9][a-z0-9._-]{2,31}$");
 
+    /**
+     * Ficha completa para la vista del panel. pwdAccountLockedTime es un
+     * atributo OPERACIONAL del esquema ppolicy: LDAP NO lo devuelve en una
+     * búsqueda salvo que se pida por nombre. Si no está en la lista, el
+     * flag `disabled` queda siempre en false.
+     */
+    private static final String[] PERSON_VIEW_ATTRIBUTES = {
+            "employeeNumber", "uid", "givenName", "sn", "mail", "pwdAccountLockedTime"
+    };
+
     public static final int MAX_GROUPS = 50;   // D5: bloqueo duro (token bloat)
     public static final int WARN_GROUPS = 30;  // D5: aviso preventivo
 
@@ -71,9 +81,13 @@ public class PanelDirectoryService {
 
     public List<PersonView> listPeople(String module) {
         assertModule(module);
+        SearchControls controls = new SearchControls();
+        controls.setSearchScope(SearchControls.SUBTREE_SCOPE);
+        controls.setReturningAttributes(PERSON_VIEW_ATTRIBUTES);
         return ldap.search(
                 peopleBase(module),
                 "(objectClass=inetOrgPerson)",
+                controls,
                 (AttributesMapper<PersonView>) PanelDirectoryService::toView
         ).stream().sorted(java.util.Comparator.comparing(PersonView::uid)).toList();
     }
@@ -81,14 +95,11 @@ public class PanelDirectoryService {
     public Optional<PersonView> findPerson(String module, String uid) {
         assertModule(module);
         try {
-            DirContextOperations ctx = ldap.lookupContext(personDn(module, uid));
-            return Optional.of(new PersonView(
-                    ctx.getStringAttribute("employeeNumber"),
-                    ctx.getStringAttribute("uid"),
-                    ctx.getStringAttribute("givenName"),
-                    ctx.getStringAttribute("sn"),
-                    ctx.getStringAttribute("mail"),
-                    isDisabled(ctx)));
+            // lookup explícito de los atributos de la ficha: pwdAccountLockedTime
+            // es operacional y solo se devuelve si se pide por nombre.
+            PersonView view = ldap.lookup(personDn(module, uid), PERSON_VIEW_ATTRIBUTES,
+                    (AttributesMapper<PersonView>) PanelDirectoryService::toView);
+            return Optional.of(view);
         } catch (org.springframework.ldap.NameNotFoundException ex) {
             return Optional.empty();
         }
@@ -503,11 +514,6 @@ public class PanelDirectoryService {
                 attrValue(attrs, "sn"),
                 attrValue(attrs, "mail"),
                 locked != null && !locked.isBlank());
-    }
-
-    private static boolean isDisabled(DirContextOperations ctx) {
-        String locked = ctx.getStringAttribute("pwdAccountLockedTime");
-        return locked != null && !locked.isBlank();
     }
 
     private DirContextOperations requireContext(LdapName dn) {
