@@ -22,7 +22,8 @@ public class SecurityConfig {
             "/auth/**",
             "/oauth/**",
             "/.well-known/**",
-            "/jwks/**"
+            "/jwks/**",
+            "/actuator/health"
     };
 
     /**

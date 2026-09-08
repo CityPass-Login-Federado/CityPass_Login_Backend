@@ -19,6 +19,12 @@
 
     <properties>
         <java.version>21</java.version>
+
+        <!-- Overrides de seguridad para mitigar CVEs reportados por Trivy -->
+        <tomcat.version>10.1.55</tomcat.version>
+        <jackson.version>2.18.8</jackson.version>
+        <micrometer.version>1.13.12</micrometer.version>
+
         <!-- JDK 26 en el entorno local: el byte-buddy que trae Boot 3.3 no lo
              instrumenta aún; se pisan versiones solo para los tests. -->
         <mockito.version>5.20.0</mockito.version>
