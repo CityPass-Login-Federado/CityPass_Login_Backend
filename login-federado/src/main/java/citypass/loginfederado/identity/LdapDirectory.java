@@ -92,11 +92,6 @@ public class LdapDirectory {
     public void bind(String dn, String password) throws NamingException {
         javax.naming.directory.DirContext ctx =
                 ldapTemplate.getContextSource().getContext(dn, password);
-        try {
-            // Autenticación exitosa: nada que leer acá.
-        } finally {
-            ctx.close();
-        }
     }
 
     /** Bind deliberadamente fallido para emparejar tiempos (ver constante). */
