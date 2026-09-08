@@ -8,6 +8,9 @@ import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PasswordResetRequest;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
+import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
+import citypass.loginfederado.panel.dto.GroupSearchCriteria;
+import citypass.loginfederado.panel.dto.PaginatedResponse;
 import citypass.loginfederado.service.RefreshTokenService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -21,10 +24,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-
-import java.util.List;
 
 /**
  * Único entrypoint HTTP del backend del panel (manual §5-§6).
@@ -57,8 +59,14 @@ public class PanelController {
     // ------------------------------------------------------------------
 
     @GetMapping("/people")
-    public List<PersonView> listPeople(@AuthenticationPrincipal Jwt jwt) {
-        return directory.listPeople(module(jwt));
+    public PaginatedResponse<PersonView> listPeople(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String group,
+            @RequestParam(required = false) Boolean disabled) {
+        return directory.listPeople(module(jwt), new PeopleSearchCriteria(page, size, search, group, disabled));
     }
 
     @GetMapping("/people/{uid}")
@@ -123,8 +131,13 @@ public class PanelController {
     // ------------------------------------------------------------------
 
     @GetMapping("/groups")
-    public List<GroupView> listGroups(@AuthenticationPrincipal Jwt jwt) {
-        return directory.listGroups(module(jwt));
+    public PaginatedResponse<GroupView> listGroups(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) Boolean reserved) {
+        return directory.listGroups(module(jwt), new GroupSearchCriteria(page, size, search, reserved));
     }
 
     @PostMapping("/groups")
