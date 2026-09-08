@@ -45,9 +45,9 @@ class PanelDirectoryServiceTest {
 
     @Test
         void listPeopleSortsByUid() throws Exception {
-        when(ldap.search(any(LdapName.class), eq("(objectClass=inetOrgPerson)"), ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+        when(ldap.search(any(LdapName.class), eq("(objectClass=inetOrgPerson)"), any(javax.naming.directory.SearchControls.class), ArgumentMatchers.<AttributesMapper<PersonView>>any()))
                                 .thenAnswer(invocation -> {
-                                        AttributesMapper<PersonView> mapper = invocation.getArgument(2);
+                                        AttributesMapper<PersonView> mapper = invocation.getArgument(3);
                                             return List.of(mapper.mapFromAttributes(person("zeta")), mapper.mapFromAttributes(person("alpha")));
                                 });
         assertThat(service.listPeople("reclamos")).extracting(PersonView::uid)
