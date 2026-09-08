@@ -39,7 +39,6 @@ apply_cfg() {
   local file="$1" desc="$2"
   echo "--> ${desc}"
   if ! ldapmodify -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" -f "$file" >"$TMP/out.log" 2>&1; then
-    if grep -qiE "(already exists|Type or value exists|modifications require|no such attribute|Object class violation|No such object|Undefined attribute|undefined)" "$TMP/out.log"; then
     if grep -qiE "(already exists|Type or value exists|modifications require|no such attribute)" "$TMP/out.log"; then
       echo "    ya aplicado — se omite"
     else
@@ -78,11 +77,6 @@ echo "==> Base de datos: ${DB_DN}"
 # -----------------------------------------------------------------------------
 # 1) Módulos dinámicos
 # -----------------------------------------------------------------------------
-cat >"$TMP/modules.ldif" <<EOF
-dn: cn=module,cn=config
-changetype: add
-objectClass: olcModuleList
-cn: module
 # La imagen base crea una única entrada cn=module{0}; usar un DN "cn=module"
 # sin índice aquí es el bug clásico que rompe la idempotencia (OpenLDAP crea
 # una entrada nueva por cada intento). Detectamos la entrada real para operar
@@ -100,13 +94,10 @@ dn: ${MODULE_DN}
 changetype: modify
 add: olcModulePath
 olcModulePath: /usr/lib/ldap
-olcModuleLoad: memberof.la
 EOF
-apply_cfg "$TMP/modules.ldif" "Cargando entrada de módulos dinámicos"
   apply_cfg "$TMP/module-path.ldif" "Fijando olcModulePath"
 fi
 
-for mod in refint unique ppolicy constraint; do
 # Cargar cada módulo faltante, de a uno, sobre la entrada REAL detectada.
 # La imagen base precarga back_mdb/memberof/refint con valores tipo "{1}memberof"
 # (sin extensión .la); aceptamos ambos formatos al chequear.
@@ -117,7 +108,6 @@ for mod in memberof refint unique ppolicy constraint; do
     continue
   fi
   cat >"$TMP/mod-$mod.ldif" <<EOF
-dn: cn=module,cn=config
 dn: ${MODULE_DN}
 changetype: modify
 add: olcModuleLoad
@@ -166,11 +156,6 @@ if [ -z "$MO_DN" ]; then
   echo "ERROR: overlay memberof no encontrado bajo ${DB_DN}"; exit 1
 fi
 cat >"$TMP/ov-memberof.ldif" <<EOF
-dn: olcOverlay=memberof,${DB_DN}
-changetype: add
-objectClass: olcOverlayConfig
-objectClass: olcMemberOf
-olcOverlay: memberof
 dn: ${MO_DN}
 changetype: modify
 replace: olcMemberOfGroupOC
@@ -178,13 +163,10 @@ olcMemberOfGroupOC: groupOfNames
 -
 replace: olcMemberOfMemberAD
 olcMemberOfMemberAD: member
-olcMemberOfMemberofAD: memberOf
-olcMemberOfRefInt: TRUE
 -
 replace: olcMemberOfMemberOfAD
 olcMemberOfMemberOfAD: memberOf
 EOF
-apply_cfg "$TMP/ov-memberof.ldif" "Overlay memberof"
 apply_cfg "$TMP/ov-memberof.ldif" "Overlay memberof (config al modelo groupOfNames)"
 
 # --- refint: integridad referencial del atributo member ---
@@ -196,7 +178,6 @@ objectClass: olcRefintConfig
 olcOverlay: refint
 olcRefintAttribute: member
 EOF
-apply_cfg "$TMP/ov-refint.ldif" "Overlay refint"
 apply_overlay "olcOverlay=refint" "$TMP/ov-refint.ldif" "Overlay refint"
 
 # --- unique: unicidad GLOBAL de uid, mail y employeeNumber (D3/D5 del diseño) ---
@@ -210,7 +191,6 @@ olcUniqueUri: ldap:///?uid?sub
 olcUniqueUri: ldap:///?mail?sub
 olcUniqueUri: ldap:///?employeeNumber?sub
 EOF
-apply_cfg "$TMP/ov-unique.ldif" "Overlay unique (uid/mail/employeeNumber globales)"
 apply_overlay "olcOverlay=unique" "$TMP/ov-unique.ldif" "Overlay unique (uid/mail/employeeNumber globales)"
 
 # --- constraint: anti-anidamiento (D4). Un `member` solo puede ser una
@@ -223,7 +203,6 @@ objectClass: olcConstraintConfig
 olcOverlay: constraint
 olcConstraintAttribute: member regex ^(uid=[^,]+,ou=People,ou=[^,]+|cn=empty-group-placeholder,ou=ServiceAccounts),dc=citypass,dc=local$
 EOF
-apply_cfg "$TMP/ov-constraint.ldif" "Overlay constraint (anti-anidamiento de grupos)"
 apply_overlay "olcOverlay=constraint" "$TMP/ov-constraint.ldif" "Overlay constraint (anti-anidamiento de grupos)"
 
 # --- ppolicy: habilita pwdAccountLockedTime (baja = bloqueo permanente, D7) ---
@@ -236,7 +215,6 @@ olcOverlay: ppolicy
 olcPPolicyDefault: cn=default,ou=Policies,dc=citypass,dc=local
 olcPPolicyHashCleartext: TRUE
 EOF
-apply_cfg "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
 apply_overlay "olcOverlay=ppolicy" "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
 
 # -----------------------------------------------------------------------------
@@ -245,8 +223,6 @@ apply_overlay "olcOverlay=ppolicy" "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
 
 # Las contraseñas que lleguen sin esquema (ej. reset desde el panel) se guardan
 # hasheadas con SSHA a nivel servidor: el backend nunca manipula hashes.
-cat >"$TMP/hash.ldif" <<EOF
-dn: ${DB_DN}
 # olcPasswordHash pertenece a olcFrontendConfig, no a la base mdb.
 if ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
     -b "olcDatabase={-1}frontend,cn=config" olcPasswordHash 2>/dev/null \
@@ -259,7 +235,6 @@ changetype: modify
 add: olcPasswordHash
 olcPasswordHash: {SSHA}
 EOF
-apply_cfg "$TMP/hash.ldif" "olcPasswordHash {SSHA}"
   apply_cfg "$TMP/hash.ldif" "olcPasswordHash {SSHA}"
 fi
 
