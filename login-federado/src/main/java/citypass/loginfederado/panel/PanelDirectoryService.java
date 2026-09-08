@@ -96,13 +96,6 @@ public class PanelDirectoryService {
         assertModule(module);
         try {
             DirContextOperations ctx = ldap.lookupContext(personDn(module, uid));
-            return Optional.of(new PersonView(
-                    ctx.getStringAttribute("employeeNumber"),
-                    ctx.getStringAttribute("uid"),
-                    ctx.getStringAttribute("givenName"),
-                    ctx.getStringAttribute("sn"),
-                    ctx.getStringAttribute("mail"),
-                    isDisabled(ctx)));
             // lookup explícito de los atributos de la ficha: pwdAccountLockedTime
             // es operacional y solo se devuelve si se pide por nombre.
             PersonView view = ldap.lookup(personDn(module, uid), PERSON_VIEW_ATTRIBUTES,
