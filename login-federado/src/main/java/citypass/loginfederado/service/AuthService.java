@@ -141,7 +141,6 @@ public class AuthService {
         // El servicio espera un user_agent SIEMPRE string (422 si llega null:
         // curl, scripts y clientes sin la cabecera). Se normaliza a vacío.
         var riskAssessment = anomalyRiskClient.score(
-                request.username(), ipAddress, userAgent
                 request.username(), ipAddress,
                 userAgent != null ? userAgent : ""
         );
