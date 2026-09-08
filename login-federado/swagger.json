@@ -176,7 +176,7 @@
         }
       }
     },
-    "/panel/personas": {
+    "/panel/people": {
       "get": {
         "tags": ["Panel — Personas"],
         "summary": "Listar personas del módulo",
@@ -230,7 +230,7 @@
         }
       }
     },
-    "/panel/personas/{uid}": {
+    "/panel/people/{uid}": {
       "get": {
         "tags": ["Panel — Personas"],
         "summary": "Obtener persona por UID",
@@ -295,7 +295,7 @@
         }
       }
     },
-    "/panel/personas/{uid}/disable": {
+    "/panel/people/{uid}/disable": {
       "post": {
         "tags": ["Panel — Personas"],
         "summary": "Deshabilitar persona",
@@ -318,7 +318,7 @@
         }
       }
     },
-    "/panel/personas/{uid}/enable": {
+    "/panel/people/{uid}/enable": {
       "post": {
         "tags": ["Panel — Personas"],
         "summary": "Rehabilitar persona",
@@ -341,7 +341,7 @@
         }
       }
     },
-    "/panel/personas/{uid}/reset-password": {
+    "/panel/people/{uid}/reset-password": {
       "post": {
         "tags": ["Panel — Personas"],
         "summary": "Resetear contraseña",
@@ -371,7 +371,7 @@
         }
       }
     },
-    "/panel/grupos": {
+    "/panel/groups": {
       "get": {
         "tags": ["Panel — Grupos"],
         "summary": "Listar grupos del módulo",
@@ -425,7 +425,7 @@
         }
       }
     },
-    "/panel/grupos/{name}": {
+    "/panel/groups/{name}": {
       "delete": {
         "tags": ["Panel — Grupos"],
         "summary": "Eliminar grupo",
@@ -448,7 +448,7 @@
         }
       }
     },
-    "/panel/grupos/{name}/miembros": {
+    "/panel/groups/{name}/members": {
       "post": {
         "tags": ["Panel — Grupos"],
         "summary": "Agregar miembro a grupo",
@@ -486,7 +486,7 @@
         }
       }
     },
-    "/panel/grupos/{name}/miembros/{uid}": {
+    "/panel/groups/{name}/members/{uid}": {
       "delete": {
         "tags": ["Panel — Grupos"],
         "summary": "Quitar miembro de grupo",
