@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "b7e3f2a1-4c8d-4e5a-9f6b-1a2c3d4e5f60",
 		"name": "CityPass Login Federado",
-		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout)\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una  mata sus sesiones al instante\n- El panel aísla módulos y exige grupo 'delegados'",
+		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout)\n  admin-global (panel GLOBAL, grupo cn=admin-global,ou=admin — opera los 6 módulos vía ?module=)\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una  mata sus sesiones al instante\n- El panel aísla módulos y exige grupo 'delegados' (o 'admin-global' como única excepción global)",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -15,6 +15,8 @@
 		{ "key": "mov_refresh_token", "value": "" },
 		{ "key": "admin_access_token", "value": "" },
 		{ "key": "admin_refresh_token", "value": "" },
+		{ "key": "admin_global_access_token", "value": "" },
+		{ "key": "admin_global_refresh_token", "value": "" },
 		{ "key": "movdel_access_token", "value": "" },
 		{ "key": "service_token", "value": "" },
 		{ "key": "new_uid", "value": "" },
@@ -2030,6 +2032,363 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "11 Panel Admin Global",
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{ "key": "token", "value": "{{admin_global_access_token}}", "type": "string" }
+				]
+			},
+			"description": "Rol admin-global (grupo reservado cn=admin-global,ou=admin): gestiona los 6 módulos con los MISMOS endpoints de /panel/** agregando ?module= en cada request. NO hay endpoints propios /admin/.\n\nUsuario seed: admin-global / changeit123 (módulo de ORIGEN analitica, irrelevante: opera sobre el módulo que pase en ?module=).\n\nPRERREQUISITO: correr '01 Login admin-global' primero (captura admin_global_access_token).\n\nPoderes extra vs delegado normal: puede borrar/crear el grupo reservado 'delegados' y dejarlo sin integrantes.",
+			"item": [
+				{
+					"name": "01 Login admin-global (captura token)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.test('Claims de admin global (aud panel + grupo admin-global)', () => {",
+									"  pm.expect(p.sub).to.eql('U000007');",
+									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-admin-api');",
+									"  pm.expect(p.token_use).to.eql('human');",
+									"  pm.expect(p.module).to.eql('analitica');",
+									"  pm.expect(p.groups).to.include('admin-global');",
+									"});",
+									"pm.collectionVariables.set('admin_global_access_token', r.access_token);",
+									"pm.collectionVariables.set('admin_global_refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin-global\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "02 Listar personas de OTRO módulo (movilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Ve movilidad, no reclamos: cruce de módulos real', () => {",
+									"  const uids = r.content.map(x => x.uid);",
+									"  pm.expect(uids).to.include('mgomez');",
+									"  pm.expect(uids).to.include('delegado-mov');",
+									"  pm.expect(uids).to.not.include('jperez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/people?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "03 Obtener persona de OTRO módulo (mgomez)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Ficha de persona de otro módulo', () => {",
+									"  pm.expect(r.uid).to.eql('mgomez');",
+									"  pm.expect(r.employeeNumber).to.eql('U000002');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/people/mgomez?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people", "mgomez"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "04 Listar grupos de OTRO módulo (movilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Grupos del módulo elegido con reservados marcados', () => {",
+									"  const nombres = r.content.map(g => g.name);",
+									"  pm.expect(nombres).to.include('delegados');",
+									"  const d = r.content.find(g => g.name === 'delegados');",
+									"  pm.expect(d.reserved).to.eql(true);",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "05 Agregar miembro al grupo reservado delegados (movilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Admin global puede tocar el grupo reservado ajeno', () => {",
+									"  pm.expect(r.group.name).to.eql('delegados');",
+									"  pm.expect(r.group.members).to.include('mgomez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"memberUid\": \"mgomez\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups/delegados/members?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups", "delegados", "members"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "06 Quitar miembro de delegados (deja delegado-mov, no lo vacía)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Se revierte el cambio: delegados sin mgomez', () => {",
+									"  pm.expect(r.group.members).to.not.include('mgomez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups/delegados/members/mgomez?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups", "delegados", "members", "mgomez"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "07 Crear grupo temporal en OTRO módulo (residuos)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+									"const r = pm.response.json();",
+									"pm.expect(r.name).to.eql('global-ops-test');"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"global-ops-test\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups?module=residuos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups"],
+							"query": [{ "key": "module", "value": "residuos" }]
+						}
+					}
+				},
+				{
+					"name": "08 Borrar grupo temporal",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups/global-ops-test?module=residuos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups", "global-ops-test"],
+							"query": [{ "key": "module", "value": "residuos" }]
+						}
+					}
+},
+			{
+				"name": "09 Listar módulos existentes (6 de la spec §2.2)",
+				"event": [
+					{
+						"listen": "test",
+						"script": {
+							"type": "text/javascript",
+							"exec": [
+								"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+								"const mods = pm.response.json();",
+								"pm.test('Devuelve los 6 módulos en orden de la spec §2.2', () => {",
+								"  pm.expect(mods).to.eql(['movilidad','residuos','reclamos','emergencias','espacios','analitica']);",
+								"});"
+							]
+						}
+					}
+				],
+				"request": {
+					"method": "GET",
+					"url": {
+						"raw": "{{baseUrl}}/panel/modules",
+						"host": ["{{baseUrl}}"],
+						"path": ["panel", "modules"]
+					}
+				}
+			},
+			{
+				"name": "10 Sin ?module= → 400 (obligatorio para global)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 400: el admin global debe indicar el módulo', () => pm.response.to.have.status(400));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/people",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people"]
+						}
+					}
+				},
+				{
+					"name": "11 ?module= inválido → 400",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 400: módulo fuera de los 6', () => pm.response.to.have.status(400));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/people?module=noexiste",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people"],
+							"query": [{ "key": "module", "value": "noexiste" }]
+						}
+					}
+				},
+				{
+					"name": "12 Delegado normal NO cruza con ?module= (aislamiento intacto)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('El param se ignora: sigue viendo SOLO su módulo (movilidad)', () => {",
+									"  const uids = r.content.map(x => x.uid);",
+									"  pm.expect(uids).to.include('delegado-mov');",
+									"  pm.expect(uids).to.not.include('jperez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{ "key": "token", "value": "{{movdel_access_token}}", "type": "string" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/people?module=reclamos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people"],
+							"query": [{ "key": "module", "value": "reclamos" }]
+						}
 					}
 				}
 			]

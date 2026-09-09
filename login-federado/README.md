@@ -73,8 +73,9 @@ los controllers, sin mantenimiento manual.
 Usar el botón **Authorize** (arriba a la derecha) y pegar un access token
 (`Bearer <token>`) para probar los endpoints protegidos, p. ej. `/panel/**`,
 que exigen token de delegado (audience `citypass-admin-api`, grupo `delegados`,
-claim `module`). Los endpoints `/auth/**`, `/oauth/token` y `/jwks` son públicos
-y no requieren token.
+claim `module`) o de **admin global** (grupo `admin-global`, que opera el módulo
+indicado con `?module=` en cada request). Los endpoints `/auth/**`, `/oauth/token`
+y `/jwks` son públicos y no requieren token.
 
 Los 17 endpoints documentados: login/refresh/logout (`/auth`), token de servicio
 (`/oauth/token`), clave pública (`/.well-known/jwks.json`) y el ABM del panel

@@ -206,6 +206,7 @@
         "description": "Lista paginada de personas del módulo del delegado. Solo ve el módulo de su token: nunca personas de otros módulos. Filtros opcionales: search, group y disabled.",
         "operationId": "listPeople",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "default": 0 }, "description": "Número de página (base 0)" },
           { "name": "size", "in": "query", "required": false, "schema": { "type": "integer", "default": 10 }, "description": "Tamaño de página" },
           { "name": "search", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Texto libre en nombre, apellido, uid o mail" },
@@ -230,6 +231,9 @@
         "summary": "Crear persona",
         "description": "Alta con ID automático secuencial (D3): el employeeNumber lo asigna el sistema, nadie lo elige. Unicidad global de username y email pre-chequeada.",
         "operationId": "createPerson",
+        "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -267,6 +271,7 @@
         "description": "Ficha completa de una persona del propio módulo.",
         "operationId": "getPerson",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "$ref": "#/components/parameters/uid" }
         ],
         "responses": {
@@ -295,6 +300,7 @@
         "description": "Corrección de datos y/o renombre con reparación de membresías. El employeeNumber es inmutable (D3): no existe campo para cambiarlo.",
         "operationId": "updatePerson",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "$ref": "#/components/parameters/uid" }
         ],
         "requestBody": {
@@ -341,6 +347,7 @@
         "description": "Nunca borra la ficha: bloquea vía ppolicy Y mata todas las sesiones vivas (refresh tokens) al instante.",
         "operationId": "disablePerson",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "$ref": "#/components/parameters/uid" }
         ],
         "responses": {
@@ -364,6 +371,7 @@
         "description": "Recupera identidad, historial y grupos intactos.",
         "operationId": "enablePerson",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "$ref": "#/components/parameters/uid" }
         ],
         "responses": {
@@ -387,6 +395,7 @@
         "description": "Asigna una contraseña temporal. La persona debe cambiarla al entrar.",
         "operationId": "resetPassword",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "$ref": "#/components/parameters/uid" }
         ],
         "requestBody": {
@@ -418,6 +427,7 @@
         "description": "Lista paginada de grupos del módulo del delegado. El grupo reservado 'delegados' aparece marcado con reserved=true.",
         "operationId": "listGroups",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "default": 0 }, "description": "Número de página (base 0)" },
           { "name": "size", "in": "query", "required": false, "schema": { "type": "integer", "default": 10 }, "description": "Tamaño de página" },
           { "name": "search", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Texto libre en el nombre del grupo" },
@@ -441,6 +451,9 @@
         "summary": "Crear grupo",
         "description": "D6: solo minúsculas, números y guiones. 'delegados' es reservado y se niega dentro del servicio.",
         "operationId": "createGroup",
+        "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -485,6 +498,7 @@
         "description": "El grupo reservado 'delegados' no se puede borrar.",
         "operationId": "deleteGroup",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "$ref": "#/components/parameters/groupName" }
         ],
         "responses": {
@@ -508,6 +522,7 @@
         "description": "Solo se agregan personas (no grupos). D5: máximo 50 grupos por persona.",
         "operationId": "addMember",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "$ref": "#/components/parameters/groupName" }
         ],
         "requestBody": {
@@ -546,6 +561,7 @@
         "description": "Si el grupo es 'delegados', no puede quedar vacío.",
         "operationId": "removeMember",
         "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (solo admin global)" },
           { "$ref": "#/components/parameters/groupName" },
           { "$ref": "#/components/parameters/uid" }
         ],
@@ -569,6 +585,29 @@
           }
         }
       }
+    },
+    "/panel/modules": {
+      "get": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Listar módulos existentes",
+        "description": "Los 6 módulos del directorio. Pensado para que el admin global sepa qué valores acepta ?module=?; un delegado normal solo recuerda que su módulo viene de su token.",
+        "operationId": "listModules",
+        "responses": {
+          "200": {
+            "description": "Lista de módulos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "type": "string", "example": "movilidad" }
+                }
+              }
+            }
+          },
+          "401": { "description": "Token ausente o inválido" },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
+        }
+      }
     }
   },
   "components": {
@@ -577,7 +616,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "JWT emitido por el IdP. Panel requiere: aud=citypass-admin-api, token_use=human, grupo delegados, claim module."
+        "description": "JWT emitido por el IdP. Panel requiere: aud=citypass-admin-api, token_use=human y grupo delegados (claim module) O grupo admin-global (módulo vía ?module= en cada request)."
       }
     },
     "parameters": {
@@ -598,7 +637,7 @@
     },
     "responses": {
       "AccessDenied": {
-        "description": "Token sin claims requeridos (audience, delegados, module)",
+        "description": "Token sin claims requeridos (audience, grupo delegados o admin-global, claim module)",
         "content": {
           "application/json": {
             "schema": { "$ref": "#/components/schemas/AccessDeniedError" }

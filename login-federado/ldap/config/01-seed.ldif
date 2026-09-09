@@ -90,6 +90,24 @@ objectClass: organizationalUnit
 ou: Groups
 
 # -----------------------------------------------------------------------------
+# ou=admin — rol reservado "admin-global". A nivel raíz (NO dentro de un módulo):
+# opera los 6 módulos vía ?module= en el panel. El grupo no lo administra el
+# panel: solo puede darse de alta por seed, así el rol no se puede borrar ni
+# vaciar desde la API (autoprotección del rol). El IdP lo lleva en el claim
+# `groups` del token igual que cualquier otro grupo memberOf.
+# -----------------------------------------------------------------------------
+
+dn: ou=admin,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: admin
+
+# OJO: el grupo cn=admin-global NO se define aquí, sino en la sección "Grupos"
+# al final del archivo. El overlay memberof calcula la referencia inversa
+# (memberOf en la persona) recién cuando el DN del miembro ya existe: si el
+# grupo se cargara antes que la persona, el login funcionaría PERFECTO y el
+# token saldría sin groups, silenciosamente (spec §2.7).
+
+# -----------------------------------------------------------------------------
 # ou=ServiceAccounts — fuera del alcance de búsqueda de personas y fuera de
 # lo que el panel administra (spec §2.8: una cuenta administrativa no puede
 # vivir dentro del alcance que administra).
@@ -195,6 +213,28 @@ givenName: Delegado
 mail: delegado-mov@citypass.local
 employeeNumber: U000006
 userPassword: {SSHA}xoI/iMZorLQuqTB17j/8XEEnFfUhRlpbMEcJQg==
+
+# Admin global de prueba (rol reservado): pertenece a cn=admin-global,ou=admin.
+# Su módulo de origen (Analitica) solo importa para el claim `module` del token;
+# al operar el panel elige el módulo con ?module= (PanelController).
+dn: uid=admin-global,ou=People,ou=Analitica,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: admin-global
+cn: Admin Global
+sn: Global
+givenName: Admin
+mail: admin-global@citypass.local
+employeeNumber: U000007
+userPassword: {SSHA}LiH1xCJrWzf7h09XEWHQntO6i+fc/bR04t21Yg==
+
+# Grupo del rol admin-global. Se define DESPUÉS de la persona (ver nota en la
+# sección ou=admin): el overlay memberof necesita el miembro existente para
+# calcular memberOf, y el panel exige ese grupo en el claim `groups` del token.
+dn: cn=admin-global,ou=admin,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: admin-global
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=admin-global,ou=People,ou=Analitica,dc=citypass,dc=local
 
 # -----------------------------------------------------------------------------
 # Grupos. Listas con nombre; NO definen permisos. El grupo reservado

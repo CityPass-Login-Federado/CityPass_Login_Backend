@@ -32,6 +32,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
+import java.util.Locale;
+
 /**
  * Único entrypoint HTTP del backend del panel (manual §5-§6).
  *
@@ -79,12 +82,13 @@ public class PanelController {
     @GetMapping("/people")
     public PaginatedResponse<PersonView> listPeople(
             @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
             @Parameter(description = "Número de página (base 0)") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Tamaño de página") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "Texto libre en nombre, apellido, uid o mail") @RequestParam(required = false) String search,
             @Parameter(description = "Nombre de grupo para filtrar por membresía") @RequestParam(required = false) String group,
             @Parameter(description = "true: solo deshabilitadas; false: solo habilitadas") @RequestParam(required = false) Boolean disabled) {
-        return directory.listPeople(module(jwt), new PeopleSearchCriteria(page, size, search, group, disabled));
+        return directory.listPeople(delegate(jwt, module).module(), new PeopleSearchCriteria(page, size, search, group, disabled));
     }
 
     @Operation(summary = "Obtener persona por UID",
@@ -99,8 +103,9 @@ public class PanelController {
     @GetMapping("/people/{uid}")
     public PersonView getPerson(
             @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
-        return directory.findPerson(module(jwt), uid)
+        return directory.findPerson(delegate(jwt, module).module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
     }
 
@@ -117,8 +122,9 @@ public class PanelController {
     })
     @PostMapping("/people")
     public ResponseEntity<PersonView> createPerson(@AuthenticationPrincipal Jwt jwt,
+                                                @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                                 @Valid @RequestBody NewPersonRequest request) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         PersonView created = directory.createPerson(delegate, delegate.module(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -137,9 +143,10 @@ public class PanelController {
     })
     @PutMapping("/people/{uid}")
     public PersonView updatePerson(@AuthenticationPrincipal Jwt jwt,
+                                @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                 @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
                                 @RequestBody UpdatePersonRequest request) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         return directory.updatePerson(delegate, delegate.module(), uid, request);
     }
 
@@ -155,8 +162,9 @@ public class PanelController {
     })
     @PostMapping("/people/{uid}/disable")
     public ResponseEntity<Void> disablePerson(@AuthenticationPrincipal Jwt jwt,
+                                            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         PersonView person = directory.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
         directory.disablePerson(delegate, delegate.module(), uid);
@@ -176,8 +184,9 @@ public class PanelController {
     })
     @PostMapping("/people/{uid}/enable")
     public ResponseEntity<Void> enablePerson(@AuthenticationPrincipal Jwt jwt,
+                                            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         directory.enablePerson(delegate, delegate.module(), uid);
         return ResponseEntity.noContent().build();
     }
@@ -194,9 +203,10 @@ public class PanelController {
     })
     @PostMapping("/people/{uid}/reset-password")
     public ResponseEntity<Void> resetPassword(@AuthenticationPrincipal Jwt jwt,
+                                            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
                                             @Valid @RequestBody PasswordResetRequest request) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         directory.resetPassword(delegate, delegate.module(), uid, request.temporaryPassword());
         return ResponseEntity.noContent().build();
     }
@@ -217,11 +227,12 @@ public class PanelController {
     @GetMapping("/groups")
     public PaginatedResponse<GroupView> listGroups(
             @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
             @Parameter(description = "Número de página (base 0)") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Tamaño de página") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "Texto libre en el nombre del grupo") @RequestParam(required = false) String search,
             @Parameter(description = "true: solo grupos reservados; false: solo no reservados") @RequestParam(required = false) Boolean reserved) {
-        return directory.listGroups(module(jwt), new GroupSearchCriteria(page, size, search, reserved));
+        return directory.listGroups(delegate(jwt, module).module(), new GroupSearchCriteria(page, size, search, reserved));
     }
 
     @Operation(summary = "Crear grupo",
@@ -237,8 +248,9 @@ public class PanelController {
     })
     @PostMapping("/groups")
     public ResponseEntity<GroupView> createGroup(@AuthenticationPrincipal Jwt jwt,
+                                                @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                                 @Valid @RequestBody GroupCreateRequest request) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         GroupView created = directory.createGroup(delegate, delegate.module(), request.name());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -254,8 +266,9 @@ public class PanelController {
     })
     @DeleteMapping("/groups/{name}")
     public ResponseEntity<Void> deleteGroup(@AuthenticationPrincipal Jwt jwt,
+                                            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         directory.deleteGroup(delegate, delegate.module(), name);
         return ResponseEntity.noContent().build();
     }
@@ -271,9 +284,10 @@ public class PanelController {
     })
     @PostMapping("/groups/{name}/members")
     public MembershipChangeResponse addMember(@AuthenticationPrincipal Jwt jwt,
+                                            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name,
                                             @Valid @RequestBody MemberRequest request) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         return directory.addMember(delegate, delegate.module(), name, request.memberUid());
     }
 
@@ -288,22 +302,51 @@ public class PanelController {
     })
     @DeleteMapping("/groups/{name}/members/{uid}")
     public MembershipChangeResponse removeMember(@AuthenticationPrincipal Jwt jwt,
+                                                @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                                 @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name,
                                                 @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
-        PanelAuthorization.Delegate delegate = delegate(jwt);
+        var delegate = delegate(jwt, module);
         return directory.removeMember(delegate, delegate.module(), name, uid);
+    }
+
+    @Operation(summary = "Listar módulos existentes",
+            description = "Los 6 módulos del directorio (spec §2.2). "
+                    + "Pensado para que el admin global sepa qué valores acepta ?module=?; "
+                    + "un delegado normal solo recuerda que su módulo viene de su token.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lista de módulos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado")
+    })
+    @GetMapping("/modules")
+    public List<String> listModules(@AuthenticationPrincipal Jwt jwt) {
+        authorization.requireDelegate(jwt);
+        return PanelDirectoryService.MODULES;
     }
 
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
-    private PanelAuthorization.Delegate delegate(Jwt jwt) {
-        return authorization.requireDelegate(jwt);
-    }
-
-    private String module(Jwt jwt) {
-        return delegate(jwt).module();
+    /**
+     * Resuelve quién opera y sobre qué módulo. Un delegado NORMAL solo puede
+     * operar el módulo del claim de su token (ignora cualquier ?module=).
+     * Un admin GLOBAL opera el módulo que indica en ?module=, obligatorio.
+     */
+    private PanelAuthorization.Delegate delegate(Jwt jwt, String moduleParam) {
+        PanelAuthorization.Delegate base = authorization.requireDelegate(jwt);
+        if (!base.global()) {
+            return base;
+        }
+        if (moduleParam == null || moduleParam.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo requerido para admin global");
+        }
+        String module = moduleParam.trim().toLowerCase(Locale.ROOT);
+        if (!PanelDirectoryService.MODULES.contains(module)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo inválido: " + moduleParam);
+        }
+        return new PanelAuthorization.Delegate(base.sub(), base.uid(), module, true);
     }
 
     private static ResponseStatusException notFound(String message) {

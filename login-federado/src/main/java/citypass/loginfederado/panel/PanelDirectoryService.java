@@ -364,7 +364,7 @@ public class PanelDirectoryService {
     public GroupView createGroup(PanelAuthorization.Delegate actor, String module, String name) {
         assertModule(module);
         validateGroupName(name);
-        if (DELEGADOS.equals(name)) {
+        if (DELEGADOS.equals(name) && !actor.global()) {
             throw new IllegalStateException("El grupo '" + DELEGADOS + "' es reservado y ya existe en su módulo");
         }
         LdapName dn = groupDn(module, name);
@@ -381,10 +381,10 @@ public class PanelDirectoryService {
         return buildGroupView(name, module);
     }
 
-    /** Baja física del grupo. delegados NO se borra jamás (spec §7 del manual). */
+    /** Baja física del grupo. delegados NO se borra jamás... salvo admin global. */
     public void deleteGroup(PanelAuthorization.Delegate actor, String module, String name) {
         assertModule(module);
-        if (DELEGADOS.equalsIgnoreCase(name)) {
+        if (DELEGADOS.equalsIgnoreCase(name) && !actor.global()) {
             throw new IllegalStateException("El grupo '" + DELEGADOS + "' no se puede borrar");
         }
         LdapName dn = groupDn(module, name);
@@ -431,7 +431,9 @@ public class PanelDirectoryService {
         LdapName groupDn = groupDn(module, groupName);
         requireContext(groupDn);
 
-        if (DELEGADOS.equalsIgnoreCase(groupName)) {
+        if (DELEGADOS.equalsIgnoreCase(groupName) && !actor.global()) {
+            // Solo el delegado normal está obligado a no dejar el grupo vacío;
+            // el admin global puede dejar 'delegados' sin integrantes.
             ensureDelegadosSurvivesRemoval(module, memberUid);
         }
 
