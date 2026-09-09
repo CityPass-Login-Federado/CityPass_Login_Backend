@@ -45,6 +45,7 @@ class PanelDirectoryServiceTest {
     private PanelAuditService audit;
     private PanelDirectoryService service;
     private final PanelAuthorization.Delegate actor = new PanelAuthorization.Delegate("U000001", "admin", "reclamos");
+    private final PanelAuthorization.Delegate globalActor = new PanelAuthorization.Delegate("U000007", "admin-global", "analitica", true);
 
     @BeforeEach
     void setUp() {
@@ -268,6 +269,32 @@ class PanelDirectoryServiceTest {
     }
 
     @Test
+    void globalAdminCanDeleteReservedDelegadosGroup() {
+        doReturn(personContext("delegados")).when(ldap).lookupContext(any(LdapName.class));
+        service.deleteGroup(globalActor, "movilidad", "delegados");
+        verify(ldap).unbind(any(LdapName.class));
+        verify(audit).record(eq(globalActor), eq("GROUP_DELETED"), anyString(), isNull());
+    }
+
+    @Test
+    void globalAdminCanCreateReservedDelegadosGroup() {
+        DirContextOperations group = mock(DirContextOperations.class);
+        when(group.getStringAttributes("member")).thenReturn(new String[]{
+                "cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local"});
+        when(ldap.lookupContext(any(LdapName.class))).thenReturn(group);
+        service.createGroup(globalActor, "movilidad", "delegados");
+        verify(ldap).bind(any(LdapName.class), isNull(), any(Attributes.class));
+        verify(audit).record(eq(globalActor), eq("GROUP_CREATED"), anyString(), isNull());
+    }
+
+    @Test
+    void globalAdminIsStillScopedToKnownModules() {
+        assertThatThrownBy(() -> service.deleteGroup(globalActor, "desconocido", "delegados"))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(ldap, never()).lookupContext(any(LdapName.class));
+    }
+
+    @Test
     void addMemberWarnsAtThirtyGroups() {
                 doReturn(personContext("ops")).when(ldap).lookupContext(any(LdapName.class));
                 when(ldap.search(any(LdapName.class), contains("uid=jperez"), any(javax.naming.directory.SearchControls.class), ArgumentMatchers.<org.springframework.ldap.core.ContextMapper<Integer>>any()))
@@ -299,6 +326,17 @@ class PanelDirectoryServiceTest {
         assertThatThrownBy(() -> service.removeMember(actor, "reclamos", "delegados", "jperez"))
                 .isInstanceOf(IllegalStateException.class);
         verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+    }
+
+    @Test
+    void globalAdminCanRemoveLastHumanFromDelegados() {
+        DirContextOperations group = mock(DirContextOperations.class);
+        when(group.getStringAttributes("member")).thenReturn(new String[]{"uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local"});
+        when(ldap.lookupContext(any(LdapName.class))).thenReturn(group);
+        var result = service.removeMember(globalActor, "reclamos", "delegados", "jperez");
+        assertThat(result.warnings()).isEmpty();
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verify(audit).record(eq(globalActor), eq("MEMBER_REMOVED"), anyString(), eq("uid=jperez"));
     }
 
     @Test

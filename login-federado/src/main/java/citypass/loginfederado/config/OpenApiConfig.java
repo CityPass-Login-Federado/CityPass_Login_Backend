@@ -25,7 +25,9 @@ public class OpenApiConfig {
                 .bearerFormat("JWT")
                 .description("JWT emitido por el IdP. "
                         + "Los endpoints de panel requieren: "
-                        + "audience citypass-admin-api + token_use=human + grupo delegados + claim module.");
+                        + "audience citypass-admin-api + token_use=human "
+                        + "+ grupo delegados (claim module) "
+                        + "O grupo admin-global (módulo vía ?module= en cada request).");
 
         return new OpenAPI()
                 .info(new Info()
@@ -49,9 +51,9 @@ public class OpenApiConfig {
                         new Tag().name("Autenticación")
                                 .description("Login, refresh y logout públicos (contrato §2)."),
                         new Tag().name("Panel — Personas")
-                                .description("ABM de personas, exclusivo para delegados de módulo."),
+                                .description("ABM de personas, exclusivo para delegados de módulo o admin-global (con ?module=)."),
                         new Tag().name("Panel — Grupos")
-                                .description("ABM de grupos y membresías, exclusivo para delegados de módulo."),
+                                .description("ABM de grupos y membresías, exclusivo para delegados de módulo o admin-global (con ?module=)."),
                         new Tag().name("OAuth")
                                 .description("Token de servicio backend-a-backend (client_credentials)."),
                         new Tag().name("Infraestructura")
