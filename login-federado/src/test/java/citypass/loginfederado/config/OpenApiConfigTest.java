@@ -20,6 +20,9 @@ class OpenApiConfigTest {
         assertThat(openApi.getSecurity()).singleElement()
                 .satisfies(requirement -> assertThat(requirement).containsKey("bearer-jwt"));
 
+        assertThat(openApi.getTags()).extracting(tag -> tag.getName())
+                .contains("Autenticación", "Panel — Personas", "Panel — Grupos", "OAuth", "Infraestructura");
+
         var bearerScheme = openApi.getComponents().getSecuritySchemes().get("bearer-jwt");
         assertThat(bearerScheme.getType().toString()).isEqualTo("http");
         assertThat(bearerScheme.getScheme()).isEqualTo("bearer");

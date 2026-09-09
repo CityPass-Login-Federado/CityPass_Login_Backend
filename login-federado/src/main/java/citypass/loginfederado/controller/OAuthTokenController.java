@@ -4,6 +4,11 @@ import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.dto.ServiceTokenResponse;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.token.AccessTokenIssuer;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,6 +30,8 @@ import java.util.Base64;
  * identidad de una persona viaja como dato del evento (actorSub), jamás
  * reenviando su token humano al bus.
  */
+@Tag(name = "OAuth", description = "Token de servicio backend-a-backend (client_credentials, contrato §7). "
+        + "El token emitido NO trae groups ni module: su identidad es el namespace.")
 @RestController
 public class OAuthTokenController {
 
@@ -40,9 +47,19 @@ public class OAuthTokenController {
         this.jwtProperties = jwtProperties;
     }
 
+    @Operation(summary = "Token de servicio (client_credentials)",
+            description = "Emite un JWT de servicio backend-a-backend. "
+                    + "Autenticación por Basic Auth (client_id:client_secret). "
+                    + "Solo se admite grant_type=client_credentials.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "JWT de servicio emitido"),
+            @ApiResponse(responseCode = "401", description = "Credenciales de servicio inválidas")
+    })
     @PostMapping(value = "/oauth/token", consumes = "application/x-www-form-urlencoded")
-    public ServiceTokenResponse token(@RequestParam("grant_type") String grantType,
-                                      HttpServletRequest request) {
+    public ServiceTokenResponse token(
+            @Parameter(description = "Grant type; solo se admite client_credentials")
+            @RequestParam("grant_type") String grantType,
+            HttpServletRequest request) {
         if (!"client_credentials".equals(grantType)) {
             throw new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE);
         }

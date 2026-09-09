@@ -127,22 +127,9 @@ description: Miembro tecnico para que ningun grupo quede vacio - ignorar
 userPassword: {SSHA}mfAwIET/pDulJ/sD/5aDquTVP4stOEKk8HxlAw==
 
 # -----------------------------------------------------------------------------
-# Política de contraseñas por defecto (overlay ppolicy).
-# Nota: Esta definición es para cn=config; en el DIT se gestiona diferente.
-# Por ahora se omite del seed.
-
-# dn: ou=Policies,dc=citypass,dc=local
-# objectClass: organizationalUnit
-# ou: Policies
-
-# dn: cn=default,ou=Policies,dc=citypass,dc=local
-# objectClass: organizationalRole
-# objectClass: pwdPolicy
-# cn: default
-# pwdAttribute: userPassword
-# pwdLockout: FALSE
-# pwdMinLength: 8
-
+# Política de contraseñas por defecto (overlay ppolicy) — NO se seedea aquí.
+# Vive en 02-ppolicy-policy.ldif y apply-config.sh la aplica recién cuando el
+# esquema pwdPolicy quedó disponible en cn=config (ver apply-config.sh §1).
 # -----------------------------------------------------------------------------
 # Personas de prueba. employeeNumber = identificador estable (U + 6 dígitos),
 # único global, secuencial. Solo existen vía panel en producción; estos son

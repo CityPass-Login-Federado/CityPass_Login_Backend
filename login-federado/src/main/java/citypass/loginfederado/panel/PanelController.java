@@ -12,6 +12,10 @@ import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
 import citypass.loginfederado.service.RefreshTokenService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,6 +38,9 @@ import org.springframework.web.server.ResponseStatusException;
  * Regla de segregación hecha "opción que no existe": el módulo operado sale
  * SIEMPRE del claim `module` del token del delegado — ningún endpoint acepta
  * un módulo por parámetro, así nadie puede siquiera nombrar otro módulo.
+ *
+ * Todos los endpoints requieren un access token humano con:
+ * audience=citypass-admin-api, token_use=human, grupo delegados y claim module.
  */
 @RestController
 @RequestMapping("/panel")
@@ -58,23 +65,56 @@ public class PanelController {
     // Personas
     // ------------------------------------------------------------------
 
+    @Operation(
+            summary = "Listar personas del módulo",
+            description = "Lista paginada de personas del módulo del delegado. "
+                    + "Solo ve el módulo de su token: nunca personas de otros módulos. "
+                    + "Filtros opcionales: search, group y disabled.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página de personas del módulo"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado")
+    })
     @GetMapping("/people")
     public PaginatedResponse<PersonView> listPeople(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false) String group,
-            @RequestParam(required = false) Boolean disabled) {
+            @Parameter(description = "Número de página (base 0)") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Tamaño de página") @RequestParam(defaultValue = "10") int size,
+            @Parameter(description = "Texto libre en nombre, apellido, uid o mail") @RequestParam(required = false) String search,
+            @Parameter(description = "Nombre de grupo para filtrar por membresía") @RequestParam(required = false) String group,
+            @Parameter(description = "true: solo deshabilitadas; false: solo habilitadas") @RequestParam(required = false) Boolean disabled) {
         return directory.listPeople(module(jwt), new PeopleSearchCriteria(page, size, search, group, disabled));
     }
 
+    @Operation(summary = "Obtener persona por UID",
+            description = "Ficha completa de una persona del propio módulo.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Ficha de la persona"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "404", description = "Persona inexistente en el módulo")
+    })
     @GetMapping("/people/{uid}")
-    public PersonView getPerson(@AuthenticationPrincipal Jwt jwt, @PathVariable String uid) {
+    public PersonView getPerson(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         return directory.findPerson(module(jwt), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
     }
 
+    @Operation(summary = "Crear persona",
+            description = "Alta con ID automático secuencial (D3): el employeeNumber lo asigna el sistema, "
+                    + "nadie lo elige. Unicidad global de username y email pre-chequeada.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Persona creada"),
+            @ApiResponse(responseCode = "400", description = "Validación de campos fallida"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "422", description = "Regla de negocio incumplida (ej: username duplicado)")
+    })
     @PostMapping("/people")
     public ResponseEntity<PersonView> createPerson(@AuthenticationPrincipal Jwt jwt,
                                                 @Valid @RequestBody NewPersonRequest request) {
@@ -83,22 +123,39 @@ public class PanelController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
-    /** Corrección de datos y/o renombre con reparación de membresías. */
+    @Operation(summary = "Actualizar persona",
+            description = "Corrección de datos y/o renombre con reparación de membresías. "
+                    + "El employeeNumber es inmutable (D3): no existe campo para cambiarlo.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Persona actualizada"),
+            @ApiResponse(responseCode = "400", description = "Validación de campos fallida"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "404", description = "Persona inexistente en el módulo"),
+            @ApiResponse(responseCode = "422", description = "Regla de negocio incumplida")
+    })
     @PutMapping("/people/{uid}")
     public PersonView updatePerson(@AuthenticationPrincipal Jwt jwt,
-                                @PathVariable String uid,
+                                @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
                                 @RequestBody UpdatePersonRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         return directory.updatePerson(delegate, delegate.module(), uid, request);
     }
 
-    /**
-     * Baja (D7): nunca borra la ficha; bloquea vía ppolicy Y mata todas las
-     * sesiones vivas (refresh tokens) al instante.
-     */
+    @Operation(summary = "Deshabilitar persona (baja D7)",
+            description = "Nunca borra la ficha: bloquea vía ppolicy Y mata todas las sesiones "
+                    + "vivas (refresh tokens) al instante.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Persona deshabilitada y sesiones revocadas"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "404", description = "Persona inexistente en el módulo")
+    })
     @PostMapping("/people/{uid}/disable")
     public ResponseEntity<Void> disablePerson(@AuthenticationPrincipal Jwt jwt,
-                                            @PathVariable String uid) {
+                                            @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         PersonView person = directory.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
@@ -108,18 +165,36 @@ public class PanelController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Rehabilitación: recupera identidad, historial y grupos intactos. */
+    @Operation(summary = "Rehabilitar persona",
+            description = "Recupera identidad, historial y grupos intactos.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Persona rehabilitada"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "404", description = "Persona inexistente en el módulo")
+    })
     @PostMapping("/people/{uid}/enable")
     public ResponseEntity<Void> enablePerson(@AuthenticationPrincipal Jwt jwt,
-                                            @PathVariable String uid) {
+                                            @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         directory.enablePerson(delegate, delegate.module(), uid);
         return ResponseEntity.noContent().build();
     }
 
+    @Operation(summary = "Resetear contraseña",
+            description = "Asigna una contraseña temporal. La persona debe cambiarla al entrar.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Contraseña reiniciada"),
+            @ApiResponse(responseCode = "400", description = "Validación de campos fallida"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "404", description = "Persona inexistente en el módulo")
+    })
     @PostMapping("/people/{uid}/reset-password")
     public ResponseEntity<Void> resetPassword(@AuthenticationPrincipal Jwt jwt,
-                                            @PathVariable String uid,
+                                            @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
                                             @Valid @RequestBody PasswordResetRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         directory.resetPassword(delegate, delegate.module(), uid, request.temporaryPassword());
@@ -130,16 +205,36 @@ public class PanelController {
     // Grupos
     // ------------------------------------------------------------------
 
+    @Operation(summary = "Listar grupos del módulo",
+            description = "Lista paginada de grupos del módulo del delegado. "
+                    + "El grupo reservado 'delegados' aparece marcado con reserved=true.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página de grupos del módulo"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado")
+    })
     @GetMapping("/groups")
     public PaginatedResponse<GroupView> listGroups(
             @AuthenticationPrincipal Jwt jwt,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String search,
-            @RequestParam(required = false) Boolean reserved) {
+            @Parameter(description = "Número de página (base 0)") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Tamaño de página") @RequestParam(defaultValue = "10") int size,
+            @Parameter(description = "Texto libre en el nombre del grupo") @RequestParam(required = false) String search,
+            @Parameter(description = "true: solo grupos reservados; false: solo no reservados") @RequestParam(required = false) Boolean reserved) {
         return directory.listGroups(module(jwt), new GroupSearchCriteria(page, size, search, reserved));
     }
 
+    @Operation(summary = "Crear grupo",
+            description = "D6: solo minúsculas, números y guiones. 'delegados' es reservado y se niega dentro del servicio.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Grupo creado"),
+            @ApiResponse(responseCode = "400", description = "Validación de campos fallida"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "409", description = "Conflicto: el grupo ya existe o es 'delegados'"),
+            @ApiResponse(responseCode = "422", description = "Regla de negocio incumplida (nombre inválido D6)")
+    })
     @PostMapping("/groups")
     public ResponseEntity<GroupView> createGroup(@AuthenticationPrincipal Jwt jwt,
                                                 @Valid @RequestBody GroupCreateRequest request) {
@@ -148,27 +243,53 @@ public class PanelController {
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
-    /** El grupo reservado 'delegados' se niega dentro del servicio. */
+    @Operation(summary = "Eliminar grupo",
+            description = "El grupo reservado 'delegados' no se puede borrar.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Grupo eliminado"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "409", description = "Conflicto: es el grupo reservado 'delegados'")
+    })
     @DeleteMapping("/groups/{name}")
     public ResponseEntity<Void> deleteGroup(@AuthenticationPrincipal Jwt jwt,
-                                            @PathVariable String name) {
+                                            @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         directory.deleteGroup(delegate, delegate.module(), name);
         return ResponseEntity.noContent().build();
     }
 
+    @Operation(summary = "Agregar miembro a grupo",
+            description = "Solo se agregan personas (no grupos). D5: máximo 50 grupos por persona.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Grupo resultante con el miembro agregado"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "422", description = "Regla de negocio incumplida (ej: tope D5)")
+    })
     @PostMapping("/groups/{name}/members")
     public MembershipChangeResponse addMember(@AuthenticationPrincipal Jwt jwt,
-                                            @PathVariable String name,
+                                            @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name,
                                             @Valid @RequestBody MemberRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         return directory.addMember(delegate, delegate.module(), name, request.memberUid());
     }
 
+    @Operation(summary = "Quitar miembro de grupo",
+            description = "Si el grupo es 'delegados', no puede quedar vacío.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Grupo resultante sin el miembro"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin claims de delegado"),
+            @ApiResponse(responseCode = "422", description = "Regla de negocio incumplida (ej: 'delegados' no puede quedar vacío)")
+    })
     @DeleteMapping("/groups/{name}/members/{uid}")
     public MembershipChangeResponse removeMember(@AuthenticationPrincipal Jwt jwt,
-                                                @PathVariable String name,
-                                                @PathVariable String uid) {
+                                                @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name,
+                                                @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         return directory.removeMember(delegate, delegate.module(), name, uid);
     }

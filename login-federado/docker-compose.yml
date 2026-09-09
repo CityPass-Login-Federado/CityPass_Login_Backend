@@ -2,6 +2,7 @@ services:
   openldap:
     image: osixia/openldap:1.5.0
     container_name: citypass-ldap
+    restart: unless-stopped
     environment:
       LDAP_ORGANISATION: "CityPass"
       LDAP_DOMAIN: "citypass.local"

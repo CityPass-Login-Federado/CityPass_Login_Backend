@@ -17,7 +17,8 @@
 		{ "key": "admin_refresh_token", "value": "" },
 		{ "key": "movdel_access_token", "value": "" },
 		{ "key": "service_token", "value": "" },
-		{ "key": "new_uid", "value": "" }
+		{ "key": "new_uid", "value": "" },
+		{ "key": "new_employee_number", "value": "" }
 	],
 	"item": [
 		{
@@ -1004,11 +1005,12 @@
 								"exec": [
 									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
 									"const r = pm.response.json();",
-									"pm.test('Lista de personas del módulo', () => {",
-									"  pm.expect(r).to.be.an('array');",
-									"  const uids = r.map(x => x.uid);",
-									"  pm.expect(uids).to.include('jperez');",
-									"});"
+"pm.test('Lista de personas del módulo (paginada)', () => {",
+								"  pm.expect(r.content).to.be.an('array');",
+								"  const uids = r.content.map(x => x.uid);",
+								"  pm.expect(uids).to.include('jperez');",
+								"  pm.expect(r.totalElements).to.be.a('number');",
+								"});"
 								]
 							}
 						}
@@ -1085,9 +1087,10 @@
 									"pm.test('El sistema asignó el employeeNumber (no lo eligió nadie)', () => {",
 									"  pm.expect(r.employeeNumber).to.match(/^U\\d{6}$/);",
 									"  pm.expect(r.uid).to.eql('test.user');",
-									"  pm.expect(r.disabled).to.eql(false);",
-									"});",
-									"pm.collectionVariables.set('new_uid', r.employeeNumber);"
+"  pm.expect(r.disabled).to.eql(false);",
+								"});",
+								"pm.collectionVariables.set('new_uid', r.uid);",
+								"pm.collectionVariables.set('new_employee_number', r.employeeNumber);"
 								]
 							}
 						}
@@ -1120,9 +1123,10 @@
 									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
 									"const r = pm.response.json();",
 									"pm.test('Renombre aplicado, employeeNumber inmutable (D3)', () => {",
-									"  pm.expect(r.uid).to.eql('test-user');",
-									"  pm.expect(r.employeeNumber).to.eql(pm.collectionVariables.get('new_uid'));",
-									"});"
+"  pm.expect(r.uid).to.eql('test-user');",
+								"  pm.expect(r.employeeNumber).to.eql(pm.collectionVariables.get('new_employee_number'));",
+								"});",
+								"pm.collectionVariables.set('new_uid', r.uid);"
 								]
 							}
 						}
@@ -1431,12 +1435,12 @@
 								"exec": [
 									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
 									"const r = pm.response.json();",
-									"pm.test('Grupos del módulo con reservados marcados', () => {",
-									"  const nombres = r.map(g => g.name);",
-									"  pm.expect(nombres).to.include.members(['delegados','soporte-n2','guardia-finde','consulta']);",
-									"  const delegados = r.find(g => g.name === 'delegados');",
-									"  pm.expect(delegados.reserved).to.eql(true);",
-									"});"
+"pm.test('Grupos del módulo con reservados marcados (paginada)', () => {",
+								"  const nombres = r.content.map(g => g.name);",
+								"  pm.expect(nombres).to.include.members(['delegados','soporte-n2','guardia-finde','consulta']);",
+								"  const delegados = r.content.find(g => g.name === 'delegados');",
+								"  pm.expect(delegados.reserved).to.eql(true);",
+								"});"
 								]
 							}
 						}

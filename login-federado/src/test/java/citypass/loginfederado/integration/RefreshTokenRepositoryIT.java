@@ -59,6 +59,16 @@ class RefreshTokenRepositoryIT {
     }
 
     @Test
+    void atomicallyRevokesAnActiveTokenOnlyOnce() {
+        var token = token("atomic", UUID.randomUUID());
+        repository.saveAndFlush(token);
+
+        assertThat(repository.revokeIfActive("atomic", Instant.now())).isEqualTo(1);
+        assertThat(repository.revokeIfActive("atomic", Instant.now())).isZero();
+        assertThat(repository.findByTokenHash("atomic").orElseThrow().isRevoked()).isTrue();
+    }
+
+    @Test
     void revokesAllActiveTokensForSubject() {
         var a = token("a", UUID.randomUUID());
         var b = token("b", UUID.randomUUID());

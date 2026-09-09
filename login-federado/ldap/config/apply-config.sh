@@ -57,7 +57,48 @@ if [ -z "$DB_DN" ]; then echo "ERROR: no se encontró la base mdb"; exit 1; fi
 echo "==> Base de datos: ${DB_DN}"
 
 # -----------------------------------------------------------------------------
-# 1) Módulos dinámicos
+# 1) Esquema ppolicy (objeto pwdPolicy / pwdAccountLockedTime)
+#
+# En OpenLDAP 2.4 los módulos NO auto-registran su esquema: si el overlay
+# ppolicy se activa sin la definición de pwdPolicy, el atributo de bloqueo
+# (cualquier update del panel sobre el) y la entrada de política fallan con
+# "undefined object class". Cómo se resuelve sin romper la imagen:
+#   * /config/ppolicy.schema (canónico de OpenLDAP 2.4) se convierte a LDIF
+#     con el propio slaptest de la imagen (no se escribe la conversión a mano)
+#     y se carga por cn=config.
+#   * Si no hay slaptest o falla la conversión, se salta con advertencia: la
+#     app sigue bloqueando en su capa de código (LdapDirectory.mapPerson)
+#     pero se pierde la garantía "el directorio rechaza el bind".
+# -----------------------------------------------------------------------------
+PP_READY=0
+if ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+    -b cn=config -s one '(olcObjectClasses=*pwdPolicy*)' dn 2>/dev/null | grep -q '^dn: olcSchemaConfig'; then
+  PP_READY=1
+else
+  if [ -f /config/ppolicy.schema ] && command -v slaptest >/dev/null 2>&1; then
+    echo "==> Esquema ppolicy (conversión vía slaptest)"
+    mkdir -p "$TMP/pp-cfg"
+    printf 'include /etc/ldap/schema/core.schema\ninclude /config/ppolicy.schema\n' > "$TMP/pp-slapd.conf"
+    if slaptest -f "$TMP/pp-slapd.conf" -F "$TMP/pp-out" >"$TMP/pp-slaptest.log" 2>&1; then
+      PP_LDIF=$(find "$TMP/pp-out" -path '*cn=schema*' -name 'cn=*ppolicy.ldif' | head -n1)
+      if [ -n "$PP_LDIF" ]; then
+        sed -i -E '1s/^dn: cn=\{[0-9]+\}ppolicy,/dn: cn=ppolicy,/' "$PP_LDIF"
+        sed -i -E 's/^((olcAttributeTypes|olcObjectClasses|olcMatchingRules|olcSyntaxes): )\{[0-9]+\}/\1/' "$PP_LDIF"
+        apply_cfg "$PP_LDIF" "Esquema ppolicy (pwdPolicy/pwdAccountLockedTime)"
+        PP_READY=1
+      else
+        echo "    ADVERTENCIA: slaptest no generó la entrada ppolicy — se omite"
+      fi
+    else
+      echo "    ADVERTENCIA: no se pudo convertir el esquema ppolicy — se omite (la app igual cubre D7 en código)"
+    fi
+  else
+    echo "    ADVERTENCIA: sin slaptest o sin /config/ppolicy.schema — ppolicy no disponible"
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 2) Módulos dinámicos
 # -----------------------------------------------------------------------------
 cat >"$TMP/modules.ldif" <<EOF
 dn: cn=module,cn=config
@@ -80,7 +121,7 @@ EOF
 done
 
 # -----------------------------------------------------------------------------
-# 2) Overlays
+# 3) Overlays
 # -----------------------------------------------------------------------------
 
 # --- memberof: referencia inversa persona→grupos (spec §2.7) ---
@@ -142,8 +183,17 @@ olcPPolicyHashCleartext: TRUE
 EOF
 apply_cfg "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
 
+# La entrada que referencian olcPPolicyDefault/olcPPolicyUseLockout solo se
+# carga si el esquema quedó disponible (evita romper el bootstrap con
+# "undefined object class" si la imagen no pudo cargarlo).
+if [ "$PP_READY" -eq 1 ]; then
+  apply_cfg /config/02-ppolicy-policy.ldif "Política de contraseñas por defecto (cn=default)"
+else
+  echo "    ADVERTENCIA: sin esquema ppolicy no se aplica la política — solo aplica la capa de código"
+fi
+
 # -----------------------------------------------------------------------------
-# 3) Hash de contraseñas, índices y ACLs
+# 4) Hash de contraseñas, índices y ACLs
 # -----------------------------------------------------------------------------
 
 # Las contraseñas que lleguen sin esquema (ej. reset desde el panel) se guardan
@@ -207,7 +257,7 @@ EOF
 apply_cfg "$TMP/acls.ldif" "ACLs del directorio"
 
 # -----------------------------------------------------------------------------
-# 4) Seed de datos — DESPUÉS de los overlays (ver comentario del encabezado)
+# 5) Seed de datos — DESPUÉS de los overlays (ver comentario del encabezado)
 # -----------------------------------------------------------------------------
 echo "--> Cargando seed (01-seed.ldif)"
 if ldapadd -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" -c -f /config/01-seed.ldif >"$TMP/seed.log" 2>&1; then

@@ -44,6 +44,10 @@ jwt:
   service-token-expiration-minutes: 60
   private-key-path: file:./keys/private_key.pem
   public-key-path: file:./keys/public_key.pem
+  # Dev: si faltan los PEM, se generan solos al arrancar. En staging/prod
+  # ponerlo en false: si falta una clave el arranque falla en vez de
+  # fabricar material criptográfico en el filesystem (JwtKeyConfig).
+  auto-generate-keys: true
 
 # --- Cuenta de escritura del backend del panel (los delegados no la conocen) ---
 panel:

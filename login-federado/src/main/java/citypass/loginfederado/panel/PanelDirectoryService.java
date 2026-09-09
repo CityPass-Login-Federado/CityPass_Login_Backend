@@ -5,7 +5,9 @@ import citypass.loginfederado.panel.dto.MembershipChangeResponse;
 import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
+import org.springframework.ldap.AttributeInUseException;
 import org.springframework.ldap.NameAlreadyBoundException;
+import org.springframework.ldap.NoSuchAttributeException;
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.ContextMapper;
 import org.springframework.ldap.core.DirContextOperations;
@@ -94,7 +96,13 @@ public class PanelDirectoryService {
         }
 
         if (criteria.group() != null && !criteria.group().isBlank()) {
-            andFilter.and(new EqualsFilter("memberOf", criteria.group().trim()));
+            String group = criteria.group().trim().toLowerCase(Locale.ROOT);
+            validateGroupName(group);
+            // memberOf guarda DNs COMPLETOS (spec §2.7): filtrar por el nombre
+            // corto jamás matchea y devuelve listas vacías sin error. Se busca
+            // por el DN absoluto del grupo dentro del módulo consultado.
+            andFilter.and(new EqualsFilter("memberOf",
+                    "cn=" + group + ",ou=Groups,ou=" + capitalize(module) + ",dc=citypass,dc=local"));
         }
 
         LdapQuery query = query()
@@ -182,7 +190,7 @@ public class PanelDirectoryService {
             attrs.put("employeeNumber", employeeNumber);
             try {
                 ldap.bind(personDn(module, req.username()), null, attrs);
-            } catch (org.springframework.ldap.UncategorizedLdapException ex) {
+            } catch (AttributeInUseException | org.springframework.ldap.UncategorizedLdapException ex) {
                 // Carrera por el número: el overlay unique rechazó → reintento.
                 if (attempt == maxAttempts - 1) {
                     throw new IllegalStateException("No se pudo asignar identificador único, reintente", ex);
@@ -408,7 +416,7 @@ public class PanelDirectoryService {
         try {
             ldap.modifyAttributes(groupDn, new ModificationItem[]{
                     addValue("member", absPersonDn(module, memberUid))});
-        } catch (org.springframework.ldap.UncategorizedLdapException ex) {
+        } catch (AttributeInUseException | org.springframework.ldap.UncategorizedLdapException ex) {
             throw new IllegalStateException("No se pudo agregar: ¿ya es miembro del grupo?", ex);
         }
 
@@ -430,7 +438,7 @@ public class PanelDirectoryService {
         try {
             ldap.modifyAttributes(groupDn, new ModificationItem[]{
                     removeValue("member", absPersonDn(module, memberUid))});
-        } catch (org.springframework.ldap.UncategorizedLdapException ex) {
+        } catch (NoSuchAttributeException | org.springframework.ldap.UncategorizedLdapException ex) {
             throw new IllegalStateException("No se pudo quitar: ¿está realmente en ese grupo?", ex);
         }
         audit.record(actor, "MEMBER_REMOVED", groupDn.toString(), "uid=" + memberUid);

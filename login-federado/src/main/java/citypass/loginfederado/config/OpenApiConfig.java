@@ -8,6 +8,7 @@ import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.servers.Server;
+import io.swagger.v3.oas.models.tags.Tag;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -44,6 +45,17 @@ public class OpenApiConfig {
                         .license(new License().name("UADE")))
                 .servers(List.of(
                         new Server().url("http://localhost:8081").description("Desarrollo")))
+                .tags(List.of(
+                        new Tag().name("Autenticación")
+                                .description("Login, refresh y logout públicos (contrato §2)."),
+                        new Tag().name("Panel — Personas")
+                                .description("ABM de personas, exclusivo para delegados de módulo."),
+                        new Tag().name("Panel — Grupos")
+                                .description("ABM de grupos y membresías, exclusivo para delegados de módulo."),
+                        new Tag().name("OAuth")
+                                .description("Token de servicio backend-a-backend (client_credentials)."),
+                        new Tag().name("Infraestructura")
+                                .description("Descubrimiento de claves públicas y estado del servicio.")))
                 .addSecurityItem(new SecurityRequirement().addList("bearer-jwt"))
                 .components(new Components()
                         .addSecuritySchemes("bearer-jwt", bearerScheme));
