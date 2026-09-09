@@ -1,7 +1,6 @@
 package citypass.loginfederado.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
-
 import org.junit.jupiter.api.Test;
 
 class OpenApiConfigTest {
@@ -28,5 +27,9 @@ class OpenApiConfigTest {
         assertThat(bearerScheme.getScheme()).isEqualTo("bearer");
         assertThat(bearerScheme.getBearerFormat()).isEqualTo("JWT");
         assertThat(bearerScheme.getDescription()).contains("audience citypass-admin-api");
-    }
+        assertThat(bearerScheme.getDescription()).contains("admin-global");
+        assertThat(openApi.getTags())
+                .filteredOn(tag -> tag.getName().startsWith("Panel"))
+                .allSatisfy(tag -> assertThat(tag.getDescription()).contains("admin-global").contains("?module="));
+        }
 }
