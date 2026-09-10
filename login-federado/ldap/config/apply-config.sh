@@ -39,10 +39,26 @@ apply_cfg() {
   local file="$1" desc="$2"
   echo "--> ${desc}"
   if ! ldapmodify -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" -f "$file" >"$TMP/out.log" 2>&1; then
-    if grep -qiE "(already exists|Type or value exists|modifications require|no such attribute|Object class violation|No such object|Undefined attribute|undefined)" "$TMP/out.log"; then
+    if grep -qiE "(already exists|Type or value exists|already in list)" "$TMP/out.log"; then
       echo "    ya aplicado — se omite"
     else
-      echo "ERROR aplicando: ${desc}"; cat "$TMP/out.log"; exit 1
+      echo "ERROR aplicando: ${desc}"
+      cat "$TMP/out.log"
+      exit 1
+    fi
+  fi
+}
+
+apply_data() {
+  local file="$1" desc="$2"
+  echo "--> ${desc}"
+  if ! ldapadd -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" -f "$file" >"$TMP/data.log" 2>&1; then
+    if grep -qiE "(already exists|Type or value exists)" "$TMP/data.log"; then
+      echo "    ya aplicado — se omite"
+    else
+      echo "ERROR aplicando: ${desc}"
+      cat "$TMP/data.log"
+      exit 1
     fi
   fi
 }
@@ -56,6 +72,29 @@ DB_DN=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
 if [ -z "$DB_DN" ]; then echo "ERROR: no se encontró la base mdb"; exit 1; fi
 echo "==> Base de datos: ${DB_DN}"
 
+# La imagen osixia/openldap ya carga el esquema ppolicy del paquete slapd.
+# No se debe volver a agregar ppolicy.schema completo: sus OID chocan con la
+# definición existente y ldap_add termina con error 80. Algunas versiones,
+# sin embargo, omiten los atributos operacionales; agregamos solo el necesario
+# para la baja administrativa del panel a la entrada nativa existente.
+PP_SCHEMA_DN=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+  -b cn=schema,cn=config -s one \
+  '(&(objectClass=olcSchemaConfig)(olcObjectClasses=*pwdPolicy*))' \
+  dn 2>/dev/null | grep '^dn: ' | head -n1 | sed 's/^dn: //')
+if [ -z "$PP_SCHEMA_DN" ]; then
+  echo "ERROR: la imagen no tiene cargado el esquema ppolicy base"
+  exit 1
+fi
+
+if ! ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+  -b cn=schema,cn=config -s sub '(olcAttributeTypes=*pwdAccountLockedTime*)' olcAttributeTypes 2>/dev/null \
+    | grep -q 'pwdAccountLockedTime'; then
+  echo "ERROR: falta pwdAccountLockedTime en el esquema de arranque"
+  echo "       debe cargarse desde ldap/config/ppolicy-operational.ldif"
+  exit 1
+fi
+echo "==> Esquema ppolicy disponible (${PP_SCHEMA_DN})"
+
 # -----------------------------------------------------------------------------
 # 1) Módulos dinámicos
 # -----------------------------------------------------------------------------
@@ -67,11 +106,23 @@ cn: module
 olcModulePath: /usr/lib/ldap
 olcModuleLoad: memberof.la
 EOF
-apply_cfg "$TMP/modules.ldif" "Cargando entrada de módulos dinámicos"
+MODULE_DN=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+  -b cn=config -s one '(objectClass=olcModuleList)' dn olcModuleLoad 2>/dev/null \
+  | awk '/^dn: / { dn=$0; sub(/^dn: /, "", dn) } /olcModuleLoad: .*memberof/ { print dn; exit }')
+if [ -z "$MODULE_DN" ]; then
+  apply_cfg "$TMP/modules.ldif" "Cargando entrada de módulos dinámicos"
+  MODULE_DN=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+    -b cn=config -s one '(objectClass=olcModuleList)' dn olcModuleLoad 2>/dev/null \
+    | awk '/^dn: / { dn=$0; sub(/^dn: /, "", dn) } /olcModuleLoad: .*memberof/ { print dn; exit }')
+fi
+if [ -z "$MODULE_DN" ]; then
+  echo "ERROR: no se encontró la entrada de módulos dinámicos"
+  exit 1
+fi
 
 for mod in refint unique ppolicy constraint; do
   cat >"$TMP/mod-$mod.ldif" <<EOF
-dn: cn=module,cn=config
+dn: ${MODULE_DN}
 changetype: modify
 add: olcModuleLoad
 olcModuleLoad: ${mod}.la
@@ -113,6 +164,7 @@ cat >"$TMP/ov-unique.ldif" <<EOF
 dn: olcOverlay=unique,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcUniqueConfig
 olcOverlay: unique
 olcUniqueUri: ldap:///?uid?sub
 olcUniqueUri: ldap:///?mail?sub
@@ -126,6 +178,7 @@ cat >"$TMP/ov-constraint.ldif" <<EOF
 dn: olcOverlay=constraint,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcConstraintConfig
 olcOverlay: constraint
 olcConstraintAttribute: member regex ^(uid=[^,]+,ou=People,ou=[^,]+|cn=empty-group-placeholder,ou=ServiceAccounts),dc=citypass,dc=local$
 EOF
@@ -136,25 +189,18 @@ cat >"$TMP/ov-ppolicy.ldif" <<EOF
 dn: olcOverlay=ppolicy,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcPPolicyConfig
 olcOverlay: ppolicy
 olcPPolicyDefault: cn=default,ou=Policies,dc=citypass,dc=local
 olcPPolicyHashCleartext: TRUE
 EOF
 apply_cfg "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
 
+apply_data /config/02-ppolicy-policy.ldif "Política de contraseñas por defecto (cn=default)"
+
 # -----------------------------------------------------------------------------
 # 3) Hash de contraseñas, índices y ACLs
 # -----------------------------------------------------------------------------
-
-# Las contraseñas que lleguen sin esquema (ej. reset desde el panel) se guardan
-# hasheadas con SSHA a nivel servidor: el backend nunca manipula hashes.
-cat >"$TMP/hash.ldif" <<EOF
-dn: ${DB_DN}
-changetype: modify
-add: olcPasswordHash
-olcPasswordHash: {SSHA}
-EOF
-apply_cfg "$TMP/hash.ldif" "olcPasswordHash {SSHA}"
 
 for idx in uid mail employeeNumber member; do
   cat >"$TMP/idx-$idx.ldif" <<EOF

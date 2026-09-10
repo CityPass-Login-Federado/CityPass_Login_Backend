@@ -1,6 +1,9 @@
 services:
   openldap:
-    image: osixia/openldap:1.5.0
+    build:
+      context: ./ldap
+      dockerfile: Dockerfile
+    image: citypass-openldap:1.5.0-ppolicy
     container_name: citypass-ldap
     environment:
       LDAP_ORGANISATION: "CityPass"

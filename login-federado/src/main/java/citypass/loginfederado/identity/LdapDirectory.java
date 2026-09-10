@@ -11,6 +11,7 @@ import javax.naming.directory.SearchControls;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
 
 /**
  * Acceso de LECTURA al directorio con la cuenta readonly del IdP
@@ -51,32 +52,43 @@ public class LdapDirectory {
 
     /** Búsqueda global del uid en todo el árbol. Exactamente 1 o vacío. */
     public Optional<LdapDirectoryPerson> findByUid(String uid) {
-        ContextMapper<LdapDirectoryPerson> mapper = ctx -> mapPerson((DirContextOperations) ctx);
-        List<LdapDirectoryPerson> found = ldapTemplate.search(
-                LdapUtils.emptyLdapName(),
-                "(&(objectClass=inetOrgPerson)(uid=" + escapeFilterValue(uid) + "))",
-                personSearchControls(),
-                mapper
-        );
-        if (found.size() > 1) {
-            // Inalcanzable mientras el overlay unique viva; si pasa, es una
-            // corrupción grave y NO se revela cuál de los dos es válido.
-            return Optional.empty();
-        }
-        return found.stream().findFirst();
+    ContextMapper<LdapDirectoryPerson> mapper =
+            ctx -> mapPerson((DirContextOperations) ctx);
+
+    List<LdapDirectoryPerson> found = ldapTemplate.search(
+            LdapUtils.emptyLdapName(),
+            "(&(objectClass=inetOrgPerson)(uid="
+                    + escapeFilterValue(uid) + "))",
+            personSearchControls(),
+            mapper
+    ).stream()
+    .filter(Objects::nonNull)
+    .toList();
+
+    if (found.size() > 1) {
+        return Optional.empty();
     }
 
+    return found.stream().findFirst();
+}
+
     /** Relectura por employeeNumber (sub) para revalidar sesiones. */
-    public Optional<LdapDirectoryPerson> reloadBySub(String employeeNumber) {
-        ContextMapper<LdapDirectoryPerson> mapper = ctx -> mapPerson((DirContextOperations) ctx);
-        List<LdapDirectoryPerson> found = ldapTemplate.search(
-                LdapUtils.emptyLdapName(),
-                "(&(objectClass=inetOrgPerson)(employeeNumber=" + escapeFilterValue(employeeNumber) + "))",
-                personSearchControls(),
-                mapper
-        );
-        return found.stream().findFirst();
-    }
+public Optional<LdapDirectoryPerson> reloadBySub(String employeeNumber) {
+    ContextMapper<LdapDirectoryPerson> mapper =
+            ctx -> mapPerson((DirContextOperations) ctx);
+
+    List<LdapDirectoryPerson> found = ldapTemplate.search(
+            LdapUtils.emptyLdapName(),
+            "(&(objectClass=inetOrgPerson)(employeeNumber="
+                    + escapeFilterValue(employeeNumber) + "))",
+            personSearchControls(),
+            mapper
+    ).stream()
+    .filter(Objects::nonNull)
+    .toList();
+
+    return found.stream().findFirst();
+}
 
     /**
      * Bind con el DN encontrado y la contraseña presentada, sobre una conexión

@@ -1,0 +1,19 @@
+dn: ou=Policies,dc=citypass,dc=local
+changetype: add
+objectClass: organizationalUnit
+ou: Policies
+
+dn: cn=default,ou=Policies,dc=citypass,dc=local
+changetype: add
+objectClass: organizationalRole
+objectClass: pwdPolicy
+cn: default
+description: Politica de passwords por defecto de CityPass+
+pwdAttribute: userPassword
+pwdLockout: FALSE
+pwdMaxFailure: 5
+pwdFailureCountInterval: 900
+pwdLockoutDuration: 900
+pwdMinLength: 8
+pwdMustChange: FALSE
+pwdAllowUserChange: TRUE
