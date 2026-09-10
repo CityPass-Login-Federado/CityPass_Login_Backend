@@ -33,17 +33,34 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # apply_cfg <archivo> <descripcion> — ldapmodify contra cn=config, tolerando
-# cambios ya aplicados (OpenLDAP responde con errores distintos según el caso,
-# por eso la lista de patrones es amplia y explícita).
+# cambios ya aplicados SOLO cuando el error SEMÁNTICO indica eso (la entrada
+# o el valor ya existen). Cualquier "Object class violation", "no such object"
+# o "undefined attribute" es un fallo REAL del LDIF y debe abortar.
 apply_cfg() {
   local file="$1" desc="$2"
   echo "--> ${desc}"
   if ! ldapmodify -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" -f "$file" >"$TMP/out.log" 2>&1; then
-    if grep -qiE "(already exists|Type or value exists|modifications require|no such attribute|Object class violation|No such object|Undefined attribute|undefined)" "$TMP/out.log"; then
+    if grep -qiE "(already exists|Type or value exists|modifications require|no such attribute)" "$TMP/out.log"; then
       echo "    ya aplicado — se omite"
     else
       echo "ERROR aplicando: ${desc}"; cat "$TMP/out.log"; exit 1
     fi
+  fi
+}
+
+# apply_dit <archivo> <descripcion> — ldapadd contra el DIT (dc=citypass,dc=local),
+# usando la cuenta admin del DIT (no la de cn=config). Con -c salta las
+# entradas ya existentes y solo aborta si hay un error real.
+apply_dit() {
+  local file="$1" desc="$2"
+  echo "--> ${desc}"
+  if ! ldapadd -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" -c -f "$file" >"$TMP/out.log" 2>&1; then
+    local real
+    real=$(grep -iE "^ldap_add: " "$TMP/out.log" | grep -icvE "Already exists|Type or value exists")
+    if [ "$real" -gt 0 ]; then
+      echo "ERROR aplicando: ${desc}"; cat "$TMP/out.log"; exit 1
+    fi
+    echo "    ya aplicado — se omite"
   fi
 }
 
@@ -72,7 +89,7 @@ echo "==> Base de datos: ${DB_DN}"
 # -----------------------------------------------------------------------------
 PP_READY=0
 if ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
-    -b cn=config -s one '(olcObjectClasses=*pwdPolicy*)' dn 2>/dev/null | grep -q '^dn: olcSchemaConfig'; then
+    -b cn=schema,cn=config '(cn=*ppolicy*)' dn 2>/dev/null | grep -q '^dn:'; then
   PP_READY=1
 else
   if [ -f /config/ppolicy.schema ] && command -v slaptest >/dev/null 2>&1; then
@@ -99,25 +116,42 @@ fi
 
 # -----------------------------------------------------------------------------
 # 2) Módulos dinámicos
+#
+# osixia/openldap:1.5.0 ya crea cn=module{0} con back_mdb, memberof y refint.
+# Si existe, se le agregan los módulos que faltan; si no existe, se crea uno
+# nuevo. La clave es operar SIEMPRE sobre el DN real (cn=module{N}), porque
+# cn=module sin índice es ambiguo cuando hay más de una entrada cn=module*.
 # -----------------------------------------------------------------------------
-cat >"$TMP/modules.ldif" <<EOF
-dn: cn=module,cn=config
+MOD_DN=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+  -b cn=config -s one '(objectClass=olcModuleList)' dn 2>/dev/null \
+  | grep '^dn: cn=module{' | head -n1 | sed 's/^dn: //')
+if [ -z "$MOD_DN" ]; then
+  cat >"$TMP/modules.ldif" <<EOF
+dn: cn=module{0},cn=config
 changetype: add
 objectClass: olcModuleList
-cn: module
+cn: module{0}
 olcModulePath: /usr/lib/ldap
 olcModuleLoad: memberof.la
 EOF
-apply_cfg "$TMP/modules.ldif" "Cargando entrada de módulos dinámicos"
+  apply_cfg "$TMP/modules.ldif" "Creando entrada de módulos"
+  MOD_DN="cn=module{0},cn=config"
+fi
+echo "==> Módulos en: ${MOD_DN}"
 
 for mod in refint unique ppolicy constraint; do
-  cat >"$TMP/mod-$mod.ldif" <<EOF
-dn: cn=module,cn=config
+  if ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+      -b "$MOD_DN" -s base "(olcModuleLoad=*${mod}*)" dn 2>/dev/null | grep -q '^dn:'; then
+    echo "--> Módulo ${mod} ya cargado — se omite"
+  else
+    cat >"$TMP/mod-${mod}.ldif" <<EOF
+dn: ${MOD_DN}
 changetype: modify
 add: olcModuleLoad
 olcModuleLoad: ${mod}.la
 EOF
-  apply_cfg "$TMP/mod-$mod.ldif" "Cargando módulo ${mod}"
+    apply_cfg "$TMP/mod-${mod}.ldif" "Cargando módulo ${mod}"
+  fi
 done
 
 # -----------------------------------------------------------------------------
@@ -154,6 +188,7 @@ cat >"$TMP/ov-unique.ldif" <<EOF
 dn: olcOverlay=unique,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcUniqueConfig
 olcOverlay: unique
 olcUniqueUri: ldap:///?uid?sub
 olcUniqueUri: ldap:///?mail?sub
@@ -167,6 +202,7 @@ cat >"$TMP/ov-constraint.ldif" <<EOF
 dn: olcOverlay=constraint,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcConstraintConfig
 olcOverlay: constraint
 olcConstraintAttribute: member regex ^(uid=[^,]+,ou=People,ou=[^,]+|cn=empty-group-placeholder,ou=ServiceAccounts),dc=citypass,dc=local$
 EOF
@@ -177,6 +213,7 @@ cat >"$TMP/ov-ppolicy.ldif" <<EOF
 dn: olcOverlay=ppolicy,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcPPolicyConfig
 olcOverlay: ppolicy
 olcPPolicyDefault: cn=default,ou=Policies,dc=citypass,dc=local
 olcPPolicyHashCleartext: TRUE
@@ -187,7 +224,7 @@ apply_cfg "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
 # carga si el esquema quedó disponible (evita romper el bootstrap con
 # "undefined object class" si la imagen no pudo cargarlo).
 if [ "$PP_READY" -eq 1 ]; then
-  apply_cfg /config/02-ppolicy-policy.ldif "Política de contraseñas por defecto (cn=default)"
+  apply_dit /config/02-ppolicy-policy.ldif "Política de contraseñas por defecto (cn=default)"
 else
   echo "    ADVERTENCIA: sin esquema ppolicy no se aplica la política — solo aplica la capa de código"
 fi
@@ -198,8 +235,9 @@ fi
 
 # Las contraseñas que lleguen sin esquema (ej. reset desde el panel) se guardan
 # hasheadas con SSHA a nivel servidor: el backend nunca manipula hashes.
+# olcPasswordHash es un MAY de olcGlobal/olcFrontendConfig: va en cn=config.
 cat >"$TMP/hash.ldif" <<EOF
-dn: ${DB_DN}
+dn: cn=config
 changetype: modify
 add: olcPasswordHash
 olcPasswordHash: {SSHA}
@@ -255,6 +293,23 @@ olcAccess: {3}to *
   by * none
 EOF
 apply_cfg "$TMP/acls.ldif" "ACLs del directorio"
+
+# Si el esquema ppolicy está disponible, se agrega una ACL explícita para
+# pwdAccountLockedTime (atributo operacional que el panel escribe al
+# deshabilitar/habilitar personas). Sin el esquema cargado, el handler
+# de olcAccess rechaza la referencia al atributo.
+if [ "$PP_READY" -eq 1 ]; then
+  cat >"$TMP/acl-ppolicy.ldif" <<EOF
+dn: ${DB_DN}
+changetype: modify
+add: olcAccess
+olcAccess: {4}to attrs=pwdAccountLockedTime
+  by dn.exact="cn=panel-writer,ou=ServiceAccounts,dc=citypass,dc=local" write
+  by self read
+  by * none
+EOF
+  apply_cfg "$TMP/acl-ppolicy.ldif" "ACL pwdAccountLockedTime (panel-writer escribe)"
+fi
 
 # -----------------------------------------------------------------------------
 # 5) Seed de datos — DESPUÉS de los overlays (ver comentario del encabezado)
