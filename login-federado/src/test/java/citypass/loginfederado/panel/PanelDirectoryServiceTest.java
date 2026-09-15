@@ -228,6 +228,26 @@ class PanelDirectoryServiceTest {
     }
 
     @Test
+    void disableTranslatesLdapError() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        doThrow(new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("no se pudo escribir")))
+                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        assertThatThrownBy(() -> service.disablePerson(actor, "reclamos", "jperez"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No se pudo deshabilitar");
+    }
+
+    @Test
+    void enableTranslatesLdapError() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        doThrow(new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("no se pudo escribir")))
+                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        assertThatThrownBy(() -> service.enablePerson(actor, "reclamos", "jperez"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No se pudo rehabilitar");
+    }
+
+    @Test
     void resetPasswordRejectsShortPassword() {
         assertThatThrownBy(() -> service.resetPassword(actor, "reclamos", "jperez", "123"))
                 .isInstanceOf(IllegalArgumentException.class);

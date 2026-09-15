@@ -282,8 +282,12 @@ public class PanelDirectoryService {
     public void disablePerson(PanelAuthorization.Delegate actor, String module, String uid) {
         assertModule(module);
         requireContext(personDn(module, uid)); // debe existir
-        ldap.modifyAttributes(personDn(module, uid), new ModificationItem[]{
-                replace("pwdAccountLockedTime", LOCKED_FOREVER)});
+        try {
+            ldap.modifyAttributes(personDn(module, uid), new ModificationItem[]{
+                    replace("pwdAccountLockedTime", LOCKED_FOREVER)});
+        } catch (org.springframework.ldap.UncategorizedLdapException ex) {
+            throw new IllegalStateException("No se pudo deshabilitar la cuenta", ex);
+        }
         audit.record(actor, "PERSON_DISABLED", absPersonDn(module, uid), null);
     }
 
@@ -291,9 +295,13 @@ public class PanelDirectoryService {
     public void enablePerson(PanelAuthorization.Delegate actor, String module, String uid) {
         assertModule(module);
         requireContext(personDn(module, uid));
-        ldap.modifyAttributes(personDn(module, uid), new ModificationItem[]{
-                new ModificationItem(DirContext.REMOVE_ATTRIBUTE,
-                        new BasicAttribute("pwdAccountLockedTime"))});
+        try {
+            ldap.modifyAttributes(personDn(module, uid), new ModificationItem[]{
+                    new ModificationItem(DirContext.REMOVE_ATTRIBUTE,
+                            new BasicAttribute("pwdAccountLockedTime"))});
+        } catch (org.springframework.ldap.UncategorizedLdapException ex) {
+            throw new IllegalStateException("No se pudo rehabilitar la cuenta", ex);
+        }
         audit.record(actor, "PERSON_ENABLED", absPersonDn(module, uid), null);
     }
 
