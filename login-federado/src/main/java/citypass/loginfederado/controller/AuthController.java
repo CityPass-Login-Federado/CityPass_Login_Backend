@@ -49,8 +49,10 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(authService.refresh(request));
+    public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshRequest request,
+                                                 HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.refresh(
+                request, resolveClientIp(httpRequest), httpRequest.getHeader("User-Agent")));
     }
 
     /**
@@ -59,8 +61,10 @@ public class AuthController {
      * Token desconocido → 204 igual: no se revela si alguna vez existió.
      */
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request) {
-        authService.logout(request.refreshToken());
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request,
+                                       HttpServletRequest httpRequest) {
+        authService.logout(request.refreshToken(), resolveClientIp(httpRequest),
+                httpRequest.getHeader("User-Agent"));
         return ResponseEntity.noContent().build();
     }
 }

@@ -6,11 +6,11 @@ import citypass.loginfederado.dto.LoginRequest;
 import citypass.loginfederado.dto.LoginResponse;
 import citypass.loginfederado.dto.RefreshRequest;
 import citypass.loginfederado.event.EventPublisher;
-import citypass.loginfederado.event.UsuarioAutenticadoEvent;
 import citypass.loginfederado.exception.AccountLockedException;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
+import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import citypass.loginfederado.security.AnomalyRiskClient;
 import citypass.loginfederado.token.AccessTokenIssuer;
 import org.slf4j.Logger;
@@ -157,8 +157,10 @@ public class AuthService {
         String refreshToken = refreshTokenService.issueInitial(person, client);
 
         eventPublisher.publish(
-                "usuario.autenticado",
-                UsuarioAutenticadoEvent.of(person.sub(), person.uid(), person.module(), person.groups())
+            "identidad.login",
+            RawAuthenticationEvent.login(
+                person.sub(), person.uid(), person.module(), client.clientId(),
+                ipAddress, userAgent)
         );
 
         return response(accessToken, refreshToken);
@@ -171,7 +173,7 @@ public class AuthService {
      * se copiaran, alguien deshabilitado o degradado seguiría recibiendo
      * tokens frescos con permisos viejos durante horas, sin que nada falle.
      */
-    public LoginResponse refresh(RefreshRequest request) {
+    public LoginResponse refresh(RefreshRequest request, String ipAddress, String userAgent) {
         RefreshTokenService.ChainContinuation continuation =
                 refreshTokenService.continueChain(request.refreshToken());
 
@@ -179,10 +181,26 @@ public class AuthService {
         String newRefreshToken = refreshTokenService.issueNext(
                 continuation.person(), continuation.chainId(), continuation.client());
 
+        eventPublisher.publish(
+            "identidad.refresh",
+            RawAuthenticationEvent.refresh(
+                continuation.person().sub(), continuation.person().uid(),
+                continuation.person().module(), continuation.client().clientId(),
+                continuation.chainId(), ipAddress, userAgent)
+        );
+
         return response(accessToken, newRefreshToken);
     }
 
+    public LoginResponse refresh(RefreshRequest request) {
+        return refresh(request, null, null);
+    }
+
     /** Logout por refresh_token (contrato público): persiste la revocación. */
+    public void logout(String refreshToken, String ipAddress, String userAgent) {
+        refreshTokenService.revokeSingle(refreshToken, ipAddress, userAgent);
+    }
+
     public void logout(String refreshToken) {
         refreshTokenService.revokeSingle(refreshToken);
     }

@@ -95,7 +95,7 @@ public class PanelController {
         PersonView person = directory.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
         directory.disablePerson(delegate, delegate.module(), uid);
-        refreshTokens.revokeAllForSub(person.employeeNumber());
+        refreshTokens.revokeAllForSub(person.employeeNumber(), delegate.module());
         audit.record(delegate, "SESSIONS_REVOKED", person.uid(), "baja de persona");
         return ResponseEntity.noContent().build();
     }

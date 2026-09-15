@@ -1,7 +1,7 @@
 # Guía de Testing — Login Federado (CityPass+)
 
 Guía práctica para probar de punta a punta: login completo, detección de
-anomalías (IA) y métricas diarias. Todos los comandos asumen Windows/CMD
+anomalías (IA) y eventos crudos de métricas. Todos los comandos asumen Windows/CMD
 parado en `login-federado/` (donde vive `docker-compose.yml`).
 
 ---
@@ -205,59 +205,58 @@ docker compose start anomaly-detection
 
 ---
 
-## 3. Métricas diarias (evento al bus)
+## 3. Eventos de métricas
 
-No hay endpoints HTTP para Analítica — el equipo de Login **publica** un
-evento (`identidad.metricas.diarias`) una vez por día vía `EventPublisher`,
-igual que `usuario.autenticado`. Hoy `LoggingEventPublisher` solo lo loguea
-(placeholder hasta que el Grupo 1 defina el broker real).
+No hay endpoints HTTP para Analítica ni un cálculo diario dentro de Login.
+El backend publica hechos crudos mediante `EventPublisher`; en desarrollo,
+`LoggingEventPublisher` los serializa y los escribe en los logs. En producción,
+este publisher debe conectarse al bus definido por el Grupo 1.
 
-Job: `login-federado/src/main/java/citypass/loginfederado/metrics/MetricsPublisher.java`
-Cron real: `0 5 0 * * *` (00:05 UTC, calcula el día que acaba de cerrar).
+Se publica un evento por cada operación exitosa:
 
-### 3.1 Probar sin esperar a medianoche
+- `identidad.login`: login LDAP exitoso.
+- `identidad.refresh`: refresh token validado y rotado.
+- `identidad.logout`: logout por refresh token o revocación masiva por baja.
 
-**a) Acelerar el cron temporalmente** en `MetricsPublisher.java`:
-```java
-@Scheduled(cron = "*/30 * * * * *", zone = "UTC")  // TEMPORAL: cada 30 seg
+El campo `occurredAt` está en GMT 0/UTC y debe terminar en `Z`. El payload
+incluye identificación estable (`userSub`), usuario cuando está disponible,
+departamento/módulo, `clientId`, `chainId`, IP y User-Agent. Nunca incluye el
+refresh token ni su hash.
+
+### 3.1 Probar los eventos
+
+Primero observa los logs en una terminal:
 ```
-
-**b) (Opcional, para ver datos reales en vez de ceros) apuntar a hoy** en vez de ayer:
-```java
-LocalDate ayer = LocalDate.now(ZoneOffset.UTC); // TEMPORAL: hoy, no ayer
-```
-
-**c) Reconstruir:**
-```
-docker compose up --build -d app
+docker compose logs -f app | findstr /i "EVENTO PUBLICADO"
 ```
 
-**d) Generar actividad** (login + refresh + logout) para tener datos que ver:
+En otra terminal, realiza un login y guarda el `refresh_token` de la respuesta:
 ```
-curl -X POST http://localhost:8081/auth/login -H "Content-Type: application/json" -d "{\"username\": \"delegado-rec\", \"password\": \"changeit123\", \"clientId\": \"citypass-reclamos-web\"}"
-curl -X POST http://localhost:8081/auth/refresh -H "Content-Type: application/json" -d "{\"refreshToken\": \"...\"}"
-curl -X POST http://localhost:8081/auth/logout -H "Content-Type: application/json" -d "{\"refreshToken\": \"...\"}"
+curl -i -X POST http://localhost:8081/auth/login -H "Content-Type: application/json" -H "X-Forwarded-For: 181.30.10.20" -A "CMD-Metricas-Test/1.0" -d "{\"username\":\"jperez\",\"password\":\"changeit123\",\"clientId\":\"citypass-reclamos-web\"}"
 ```
+Esperado: `200` y una línea con `tipo=identidad.login`.
 
-**e) Ver el evento publicado en el log:**
+Luego rota el refresh:
 ```
-docker compose logs app -f | findstr /i "metricas"
+curl -i -X POST http://localhost:8081/auth/refresh -H "Content-Type: application/json" -H "X-Forwarded-For: 181.30.10.21" -A "CMD-Metricas-Test/1.0" -d "{\"refreshToken\":\"TU_REFRESH_TOKEN\"}"
 ```
-Esperado: una línea `[EVENTO PUBLICADO] tipo=identidad.metricas.diarias payload={...}`
-con `usuariosActivosDiarios`, `usuariosActivosMensuales`, `horariosLogin`,
-`sesionesFinalizadas` y las duraciones reflejando la actividad generada.
-Para cortar el log en vivo: `Ctrl+C` (no afecta al contenedor).
+Esperado: `200`, un refresh nuevo y una línea con `tipo=identidad.refresh`.
 
-**f) Revertir los cambios temporales** antes de dar por cerrado el testing:
-```java
-LocalDate ayer = LocalDate.now(ZoneOffset.UTC).minusDays(1);
+Finalmente revoca el refresh nuevo:
 ```
-```java
-@Scheduled(cron = "0 5 0 * * *", zone = "UTC")
+curl -i -X POST http://localhost:8081/auth/logout -H "Content-Type: application/json" -H "X-Forwarded-For: 181.30.10.22" -A "CMD-Metricas-Test/1.0" -d "{\"refreshToken\":\"NUEVO_REFRESH_TOKEN\"}"
 ```
+Esperado: `204` y una línea con `tipo=identidad.logout`.
+
+Verifica el formato UTC directamente:
 ```
-docker compose up --build -d app
+docker compose logs app --since=10m | findstr /i "identidad.login identidad.refresh identidad.logout"
 ```
+El valor de `occurredAt` debe terminar en `Z`, por ejemplo:
+`2026-09-15T13:56:51.853Z`.
+
+Un login rechazado, un refresh inválido o un logout de un token desconocido no
+generan un evento.
 
 ---
 
