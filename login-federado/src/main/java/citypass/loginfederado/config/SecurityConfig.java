@@ -43,7 +43,8 @@ public class SecurityConfig {
             "/.well-known/jwks.json",
             "/docs/**",
             "/v3/api-docs/**",
-            "/actuator/health"
+            "/actuator/health",
+            "/health"
     };
 
     @Bean

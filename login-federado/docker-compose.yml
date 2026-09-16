@@ -63,6 +63,7 @@ services:
       PANEL_LDAP_PASSWORD: "panel-writer-secret"
       SVC_GROUP1_SECRET: "group1-secret-dev"
       SVC_GROUP2_SECRET: "group2-secret-dev"
+      SVC_GRUPO2_SECRET: "grupo2-secret-dev"
       ANOMALY_SERVICE_URL: "http://anomaly-detection:8000"
     depends_on:
       openldap:

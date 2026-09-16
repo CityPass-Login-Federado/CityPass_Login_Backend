@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import citypass.loginfederado.event.EdaOAuthException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -59,6 +60,14 @@ public class GlobalExceptionHandler {
         body.put("error", GENERIC_ERROR);
         body.put("message", GENERIC_MESSAGE);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+    }
+
+    @ExceptionHandler(EdaOAuthException.class)
+    public ResponseEntity<Map<String, String>> handleEdaOAuth(EdaOAuthException ex) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("error", ex.error());
+        body.put("error_description", ex.getMessage());
+        return ResponseEntity.status(ex.status()).body(body);
     }
 
     /** El panel negó el acceso por claims (audience/grupo/module). */
