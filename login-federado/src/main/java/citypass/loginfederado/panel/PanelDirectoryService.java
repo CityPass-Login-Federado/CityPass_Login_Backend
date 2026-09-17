@@ -321,6 +321,23 @@ public class PanelDirectoryService {
         audit.record(actor, "PASSWORD_RESET", absPersonDn(module, uid), null);
     }
 
+    /**
+     * Escritura de contraseña del flujo SELF-SERVICE (olvidé mi clave / cambio
+     * desde el perfil). No audita ni exige delegado: la identidad ya fue
+     * validada antes — por búsqueda global (contraseña temporal) o por bind
+     * con la clave actual (cambio desde perfil). Usa la misma cuenta
+     * panel-writer; ppolicy hashea antes de guardar.
+     */
+    public void setPassword(String module, String uid, String newPassword) {
+        assertModule(module);
+        if (newPassword == null || newPassword.length() < 8) {
+            throw new IllegalArgumentException("La contraseña debe tener al menos 8 caracteres");
+        }
+        requireContext(personDn(module, uid));
+        ldap.modifyAttributes(personDn(module, uid), new ModificationItem[]{
+                replace("userPassword", newPassword)});
+    }
+
     // ------------------------------------------------------------------
     // Grupos
     // ------------------------------------------------------------------

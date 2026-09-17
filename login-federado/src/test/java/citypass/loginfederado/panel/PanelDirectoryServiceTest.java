@@ -255,6 +255,16 @@ class PanelDirectoryServiceTest {
     }
 
     @Test
+    void setPasswordWritesUserPasswordAndRejectsShortValues() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        service.setPassword("reclamos", "jperez", "12345678");
+        assertThatThrownBy(() -> service.setPassword("reclamos", "jperez", "123"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(ldap).lookupContext(any(LdapName.class));
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+    }
+
+    @Test
     void createGroupUsesPlaceholderAndReturnsSortedMembers() {
         DirContextOperations group = mock(DirContextOperations.class);
         when(group.getStringAttributes("member")).thenReturn(new String[]{

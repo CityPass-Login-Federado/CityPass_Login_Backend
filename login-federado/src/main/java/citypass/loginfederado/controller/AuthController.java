@@ -1,9 +1,11 @@
 package citypass.loginfederado.controller;
 
+import citypass.loginfederado.dto.ForgotPasswordRequest;
 import citypass.loginfederado.dto.LoginRequest;
 import citypass.loginfederado.dto.LoginResponse;
 import citypass.loginfederado.dto.RefreshRequest;
 import citypass.loginfederado.service.AuthService;
+import citypass.loginfederado.service.PasswordService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -28,9 +30,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final PasswordService passwordService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, PasswordService passwordService) {
         this.authService = authService;
+        this.passwordService = passwordService;
     }
 
     @Operation(summary = "Login de usuario",
@@ -86,6 +90,20 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request) {
         authService.logout(request.refreshToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Solicitar contraseña temporal",
+            description = "Genera una contraseña aleatoria, la fija en LDAP y la manda por mail. "
+                    + "Responde SIEMPRE 204 (usuario existente o no): no se puede enumerar el directorio. "
+                    + "Con el mail en mano el usuario entra con esa clave y la cambia en /me/change-password.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Procesado (el mail llega solo si el usuario existe y tiene email)"),
+            @ApiResponse(responseCode = "400", description = "Validación de campos fallida")
+    })
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        passwordService.requestTemporaryPassword(request.uid());
         return ResponseEntity.noContent().build();
     }
 }

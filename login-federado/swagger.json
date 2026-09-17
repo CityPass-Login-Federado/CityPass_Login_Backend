@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "CityPass+ Login Federado — API",
-    "description": "Proveedor de identidad (IdP) de CityPass+.\n\n**Autenticación** (`/auth`): login, refresh y logout con LDAP + JWT (RS256).\n**Panel de administración** (`/panel`): ABM de personas y grupos, exclusivo para delegados de módulo.\n**OAuth** (`/oauth/token`): tokens de servicio backend-a-backend (client_credentials).\n**JWKS** (`/.well-known/jwks.json`): clave pública para que otros módulos validen tokens sin llamarnos.\n\nSwagger UI disponible en `/docs`.",
+    "description": "Proveedor de identidad (IdP) de CityPass+.\n\n**Autenticación** (`/auth`): login, refresh y logout con LDAP + JWT (RS256).\n**Perfil** (`/me`): acciones autenticadas del usuario sobre su propia cuenta (requiere access token humano).\n**Panel de administración** (`/panel`): ABM de personas y grupos, exclusivo para delegados de módulo (o admin-global con `?module=`).\n**OAuth** (`/oauth/token`): tokens de servicio backend-a-backend (client_credentials).\n**JWKS** (`/.well-known/jwks.json`): clave pública para que otros módulos validen tokens sin llamarnos.\n**Salud** (`/actuator/health`): estado del servicio.\n\nSwagger UI disponible en `/docs`. OpenAPI JSON en `/v3/api-docs`. Puertos: API `8081`, anomaly-detection `8000`, LDAP `389`, Postgres `5432`.",
     "version": "0.1.0-SNAPSHOT",
     "contact": {
       "name": "Grupo 2",
@@ -13,24 +13,26 @@
     }
   },
   "servers": [
-    { "url": "http://localhost:8081", "description": "Desarrollo" }
+    { "url": "http://localhost:8081", "description": "Desarrollo (API Java)" },
+    { "url": "http://localhost:8000", "description": "Anomaly-detection (FastAPI: GET /health, POST /score)" }
   ],
   "security": [
     { "bearer-jwt": [] }
   ],
   "tags": [
-    { "name": "Autenticación", "description": "Login, refresh y logout públicos (contrato §2)." },
-    { "name": "Panel — Personas", "description": "ABM de personas, exclusivo para delegados de módulo." },
-    { "name": "Panel — Grupos", "description": "ABM de grupos y membresías, exclusivo para delegados de módulo." },
-    { "name": "OAuth", "description": "Token de servicio backend-a-backend (client_credentials)." },
-    { "name": "Infraestructura", "description": "Descubrimiento de claves públicas y estado del servicio." }
+    { "name": "Autenticación", "description": "Login, refresh, logout y recupero públicos (contrato §2). Todo fallo de login devuelve el mismo 401 genérico (anti-enumeración); el recupero siempre 204." },
+    { "name": "Perfil", "description": "Acciones autenticadas del usuario sobre su propia cuenta. Requiere access token humano (token_use=human); el servicio rechaza con 403." },
+    { "name": "Panel — Personas", "description": "ABM de personas, exclusivo para delegados de módulo o admin-global (con ?module=)." },
+    { "name": "Panel — Grupos", "description": "ABM de grupos y membresías, exclusivo para delegados de módulo o admin-global (con ?module=). Incluye GET /panel/modules." },
+    { "name": "OAuth", "description": "Token de servicio backend-a-backend (client_credentials, contrato §7)." },
+    { "name": "Infraestructura", "description": "Descubrimiento de claves públicas (JWKS) y estado del servicio (actuator/health)." }
   ],
   "paths": {
     "/auth/login": {
       "post": {
         "tags": ["Autenticación"],
         "summary": "Login de usuario",
-        "description": "Autentica contra LDAP y emite access + refresh token. Los errores de credencial, usuario inexistente, cliente desconocido y lockout devuelven exactamente la misma respuesta 401 (anti-enumeración).",
+        "description": "Autentica contra LDAP y emite access + refresh token. Los errores de credencial, usuario inexistente, cliente desconocido, módulo cruzado, cuenta deshabilitada, lockout (5 fallos/15 min), bloqueo por anomalías (IA) y anomaly-service caído (fail-closed) devuelven exactamente la misma respuesta 401 (anti-enumeración). El clientId debe corresponder al módulo LDAP del usuario, salvo citypass-admin-web (transversal, emite aud citypass-admin-api).",
         "operationId": "login",
         "security": [],
         "requestBody": {
@@ -132,6 +134,78 @@
         }
       }
     },
+    "/auth/forgot-password": {
+      "post": {
+        "tags": ["Autenticación"],
+        "summary": "Solicitar contraseña temporal",
+        "description": "Genera una contraseña aleatoria, la fija en LDAP y la manda por mail. Responde SIEMPRE 204 (usuario existente o no): no se puede enumerar el directorio. Con el mail en mano el usuario entra con esa clave y la cambia en /me/change-password.",
+        "operationId": "forgotPassword",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ForgotPasswordRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Procesado (el mail llega solo si el usuario existe y tiene email)" },
+          "400": {
+            "description": "Validación de campos fallida",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/change-password": {
+      "post": {
+        "tags": ["Perfil"],
+        "summary": "Cambiar mi contraseña",
+        "description": "Cambia la contraseña de la persona autenticada. Valida la contraseña actual contra LDAP (segundo factor: un JWT robado sin la clave vigente no alcanza) y revoca todas sus sesiones (refresh tokens). Requiere token_use=human (un token de servicio devuelve 403). Errores de negocio (clave actual mala, nueva < 8 chars, cuenta inexistente) devuelven 422.",
+        "operationId": "changePassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChangePasswordRequest" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Contraseña cambiada y sesiones revocadas" },
+          "400": {
+            "description": "Validación de campos fallida",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "422": {
+            "description": "Contraseña actual incorrecta o nueva muy corta",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/oauth/token": {
       "post": {
         "tags": ["OAuth"],
@@ -199,6 +273,30 @@
         }
       }
     },
+    "/actuator/health": {
+      "get": {
+        "tags": ["Infraestructura"],
+        "summary": "Estado del servicio",
+        "description": "Health check de Spring Actuator. Debe responder {\"status\":\"UP\"} antes de correr cualquier prueba.",
+        "operationId": "health",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Servicio arriba",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "UP" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/people": {
       "get": {
         "tags": ["Panel — Personas"],
@@ -222,7 +320,22 @@
               }
             }
           },
-          "401": { "description": "Token ausente o inválido" },
+          "400": {
+            "description": "Admin global sin ?module= o módulo inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" }
         }
       },
@@ -251,7 +364,22 @@
               }
             }
           },
-          "400": { "description": "Validación de campos fallida" },
+          "400": {
+            "description": "Validación de campos fallida (@NotBlank en givenName/sn/username/email/temporaryPassword)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" },
           "422": {
             "description": "Regla de negocio incumplida (ej: username duplicado)",
@@ -280,6 +408,14 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/PersonView" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
               }
             }
           },
@@ -320,6 +456,22 @@
               }
             }
           },
+          "400": {
+            "description": "Admin global sin ?module= o módulo inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" },
           "404": {
             "description": "Persona inexistente en el módulo",
@@ -352,6 +504,14 @@
         ],
         "responses": {
           "204": { "description": "Persona deshabilitada y sesiones revocadas" },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" },
           "404": {
             "description": "Persona inexistente en el módulo",
@@ -376,6 +536,14 @@
         ],
         "responses": {
           "204": { "description": "Persona rehabilitada" },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" },
           "404": {
             "description": "Persona inexistente en el módulo",
@@ -408,6 +576,22 @@
         },
         "responses": {
           "204": { "description": "Contraseña reiniciada" },
+          "400": {
+            "description": "temporaryPassword ausente (validación @NotBlank)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" },
           "404": {
             "description": "Persona inexistente en el módulo",
@@ -442,7 +626,22 @@
               }
             }
           },
-          "401": { "description": "Token ausente o inválido" },
+          "400": {
+            "description": "Admin global sin ?module= o módulo inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" }
         }
       },
@@ -468,6 +667,22 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/GroupView" }
+              }
+            }
+          },
+          "400": {
+            "description": "Nombre ausente (validación @NotBlank)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
               }
             }
           },
@@ -503,6 +718,14 @@
         ],
         "responses": {
           "204": { "description": "Grupo eliminado" },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" },
           "409": {
             "description": "Conflicto: es el grupo reservado 'delegados'",
@@ -542,6 +765,22 @@
               }
             }
           },
+          "400": {
+            "description": "memberUid ausente (validación)",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" },
           "422": {
             "description": "Regla de negocio incumplida (ej: tope D5)",
@@ -571,6 +810,14 @@
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/MembershipChangeResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
               }
             }
           },
@@ -604,7 +851,14 @@
               }
             }
           },
-          "401": { "description": "Token ausente o inválido" },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
           "403": { "$ref": "#/components/responses/AccessDenied" }
         }
       }
@@ -616,7 +870,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "JWT emitido por el IdP. Panel requiere: aud=citypass-admin-api, token_use=human y grupo delegados (claim module) O grupo admin-global (módulo vía ?module= en cada request)."
+        "description": "JWT emitido por el IdP. Panel requiere: aud=citypass-admin-api, token_use=human, ver=1, claim module y grupo delegados (claim module) O grupo admin-global (módulo vía ?module= en cada request, obligatorio). Sin token → 401; sin claims → 403."
       }
     },
     "parameters": {
@@ -686,6 +940,21 @@
           "status": { "type": "integer", "example": 401 },
           "error": { "type": "string", "example": "Credenciales inválidas" },
           "message": { "type": "string", "example": "Usuario o contraseña inválidos" }
+        }
+      },
+      "ForgotPasswordRequest": {
+        "type": "object",
+        "required": ["uid"],
+        "properties": {
+          "uid": { "type": "string", "description": "UID del usuario (uid en LDAP). Se acepta 'username' como alias legacy.", "example": "jperez" }
+        }
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "required": ["currentPassword", "newPassword"],
+        "properties": {
+          "currentPassword": { "type": "string", "description": "Contraseña vigente (se valida contra LDAP)", "example": "changeit123" },
+          "newPassword": { "type": "string", "minLength": 8, "description": "Nueva contraseña (mín 8 chars)", "example": "nuevaClaveFu553" }
         }
       },
       "AccessDeniedError": {
