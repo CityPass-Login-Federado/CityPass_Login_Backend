@@ -1,5 +1,6 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupView;
 import citypass.loginfederado.panel.dto.MemberRequest;
@@ -8,6 +9,7 @@ import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PasswordResetRequest;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.service.RefreshTokenService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 
@@ -57,8 +60,13 @@ public class PanelController {
     // ------------------------------------------------------------------
 
     @GetMapping("/people")
-    public List<PersonView> listPeople(@AuthenticationPrincipal Jwt jwt) {
-        return directory.listPeople(module(jwt));
+    public List<PersonView> listPeople(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) String module) {
+            
+        PanelAuthorization.Delegate delegate = delegate(jwt, module);
+            
+        return directory.listPeople(delegate.module());
     }
 
     @GetMapping("/people/{uid}")
@@ -82,6 +90,38 @@ public class PanelController {
                                 @RequestBody UpdatePersonRequest request) {
         PanelAuthorization.Delegate delegate = delegate(jwt);
         return directory.updatePerson(delegate, delegate.module(), uid, request);
+    }
+
+    //Lista a toda las personas
+    @GetMapping("/people/all")
+        public List<GlobalPersonView> listAllPeople(
+                @AuthenticationPrincipal Jwt jwt,
+                @RequestParam(required = false) String module) {
+                
+            PanelAuthorization.Delegate delegate =
+                    authorization.requireDelegate(jwt);
+                
+            if (!delegate.global()) {
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "Solo un admin global puede listar todos los módulos");
+            }
+        
+            if (module == null || module.isBlank()) {
+                return directory.listAllPeopleGlobal();
+            }
+        
+            return directory.listPeople(module).stream()
+                    .map(person -> new GlobalPersonView(
+                            module.toLowerCase(),
+                            person.employeeNumber(),
+                            person.uid(),
+                            person.givenName(),
+                            person.sn(),
+                            person.email(),
+                            person.disabled()
+                    ))
+                    .sorted(java.util.Comparator.comparing(GlobalPersonView::uid))
+                    .toList();
     }
 
     /**
@@ -163,6 +203,29 @@ public class PanelController {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
+    private PanelAuthorization.Delegate delegate(Jwt jwt, String requestedModule) {
+        PanelAuthorization.Delegate delegate = authorization.requireDelegate(jwt);
+
+        if (delegate.global()) {
+            if (requestedModule == null || requestedModule.isBlank()) {
+                return delegate;
+            }
+
+        return new PanelAuthorization.Delegate(
+            delegate.sub(),
+            delegate.uid(),                
+            requestedModule.toLowerCase()
+        );
+        }
+
+        if (requestedModule != null && !requestedModule.isBlank()) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Un delegado no puede seleccionar otro módulo");
+        }
+
+        return delegate;
+    }
 
     private PanelAuthorization.Delegate delegate(Jwt jwt) {
         return authorization.requireDelegate(jwt);

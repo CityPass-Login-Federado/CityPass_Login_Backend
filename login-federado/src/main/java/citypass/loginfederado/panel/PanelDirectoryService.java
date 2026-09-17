@@ -5,6 +5,7 @@ import citypass.loginfederado.panel.dto.MembershipChangeResponse;
 import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import org.springframework.ldap.NameAlreadyBoundException;
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.ContextMapper;
@@ -13,7 +14,6 @@ import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.support.LdapUtils;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
-
 import javax.naming.directory.Attribute;
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
@@ -29,6 +29,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+
 
 /**
  * Toda la ESCRITURA al directorio del backend del panel, con la cuenta
@@ -76,6 +77,30 @@ public class PanelDirectoryService {
                 "(objectClass=inetOrgPerson)",
                 (AttributesMapper<PersonView>) PanelDirectoryService::toView
         ).stream().sorted(java.util.Comparator.comparing(PersonView::uid)).toList();
+    }
+    public List<PersonView> listAllPeople() {
+        return MODULES.stream()
+            .flatMap(module -> listPeople(module).stream())
+            .sorted(java.util.Comparator.comparing(PersonView::uid))
+            .toList();
+    }
+
+    public List<GlobalPersonView> listAllPeopleGlobal() {
+        return MODULES.stream()
+            .flatMap(module -> listPeople(module).stream()
+                    .map(person -> new GlobalPersonView(
+                            module,
+                            person.employeeNumber(),
+                            person.uid(),
+                            person.givenName(),
+                            person.sn(),
+                            person.email(),
+                            person.disabled()
+                    )))
+            .sorted(java.util.Comparator
+                    .comparing(GlobalPersonView::module)
+                    .thenComparing(GlobalPersonView::uid))
+            .toList();
     }
 
     public Optional<PersonView> findPerson(String module, String uid) {
