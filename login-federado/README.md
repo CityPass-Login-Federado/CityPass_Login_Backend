@@ -133,10 +133,11 @@ persona; el access token vigente sigue vivo hasta su expiración (igual que en
 la baja del panel).
 
 **SMTP:** sin `spring.mail.host` el envío cae en modo dev: la clave temporal se
-imprime en consola (`app.password-reset.debug-log: true`, default). En
-producción configurar SMTP (`SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`,
-`SPRING_MAIL_PASSWORD`) y poner `PASSWORD_RESET_DEBUG_LOG=false`. Ninguna falla
-de envío se propaga al cliente: la respuesta es 204 y el detalle va al log.
+imprime en consola (`app.password-reset.debug-log: true`, default). Para
+enviar de verdad copiar `.env.example` como `.env` y completar las variables
+`SPRING_MAIL_*` (guía de Gmail adentro); en producción además poner
+`PASSWORD_RESET_DEBUG_LOG=false`. Ninguna falla de envío se propaga al cliente:
+la respuesta es 204 y el detalle va al log.
 
 Token de servicio:
 
