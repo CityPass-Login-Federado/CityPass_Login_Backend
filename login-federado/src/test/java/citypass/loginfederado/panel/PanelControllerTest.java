@@ -104,6 +104,29 @@ class PanelControllerTest {
     }
 
     @Test
+    void getPersonMissingReturns404() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        when(persons.findPerson("movilidad", "nobody")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> controller.getPerson(jwt, "movilidad", "nobody"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    void disablePersonMissingReturns404() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        when(persons.findPerson("movilidad", "nobody")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> controller.disablePerson(jwt, "movilidad", "nobody"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+        verify(accounts, never()).disablePerson(any(), any(), any());
+    }
+
+    @Test
     void globalAdminMustProvideKnownModule() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
 

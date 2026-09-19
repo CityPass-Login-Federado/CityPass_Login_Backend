@@ -144,6 +144,28 @@ class PanelGroupServiceTest {
     }
 
     @Test
+    void removeMemberFromDelegadosWithSurvivorsSucceeds() {
+        DirContextOperations group = mock(DirContextOperations.class);
+        when(group.getStringAttributes("member")).thenReturn(new String[]{
+                "uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local",
+                "uid=other,ou=People,ou=Reclamos,dc=citypass,dc=local"});
+        when(ldap.lookupContext(any(LdapName.class))).thenReturn(group);
+        var result = service.removeMember(actor, "reclamos", "delegados", "jperez");
+        assertThat(result.warnings()).isEmpty();
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verify(audit).record(eq(actor), eq("MEMBER_REMOVED"), anyString(), eq("uid=jperez"));
+    }
+
+    @Test
+    void deleteGroupMissingGroupFails() {
+        when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
+        assertThatThrownBy(() -> service.deleteGroup(actor, "reclamos", "ops"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No existe en su módulo");
+        verify(ldap, never()).unbind(any(LdapName.class));
+    }
+
+    @Test
     void globalAdminCanRemoveLastHumanFromDelegados() {
         DirContextOperations group = mock(DirContextOperations.class);
         when(group.getStringAttributes("member")).thenReturn(new String[]{"uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local"});
@@ -269,6 +291,22 @@ class PanelGroupServiceTest {
                 .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
         assertThatThrownBy(() -> service.addMember(actor, "reclamos", "ops", "jperez"))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void addMemberSuccessWithoutWarnings() {
+        DirContextOperations group = mock(DirContextOperations.class);
+        when(group.getStringAttributes("member")).thenReturn(new String[]{"uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local"});
+        when(ldap.lookupContext(any(LdapName.class))).thenReturn(group);
+        when(ldap.search(any(LdapName.class), contains("uid=jperez"), any(javax.naming.directory.SearchControls.class), ArgumentMatchers.<org.springframework.ldap.core.ContextMapper<Integer>>any()))
+                .thenReturn(List.of(5))
+                .thenReturn(List.of(6));
+
+        var result = service.addMember(actor, "reclamos", "ops", "jperez");
+
+        assertThat(result.warnings()).isEmpty();
+        assertThat(result.group().members()).containsExactly("jperez");
+        verify(audit).record(eq(actor), eq("MEMBER_ADDED"), anyString(), eq("uid=jperez"));
     }
 
     @Test

@@ -1,5 +1,6 @@
 package citypass.loginfederado.panel;
 
+import java.util.Arrays;
 import java.util.List;
 
 import javax.naming.directory.Attributes;
@@ -19,7 +20,10 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -134,6 +138,85 @@ class PanelPersonServiceTest {
     }
 
     @Test
+    void updatePersonRenamesAndRepairsMemberships() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        when(ldap.search(any(LdapName.class), contains("uid=juan.perez"), ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenReturn(List.of());
+        when(ldap.search(any(LdapName.class), contains("(member="), ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<String> mapper = invocation.getArgument(2);
+                    return List.of(mapper.mapFromAttributes(cnAttrs("ops")));
+                });
+
+        var result = service.updatePerson(actor, "reclamos", "jperez",
+                new UpdatePersonRequest(null, null, null, "juan.perez"));
+
+        verify(ldap).rename(any(LdapName.class), any(LdapName.class));
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verify(audit).record(eq(actor), eq("PERSON_RENAMED"), anyString(), eq("antes=jperez"));
+        assertThat(result.uid()).isEqualTo("jperez");
+    }
+
+    @Test
+    void updatePersonRenameCollisionFails() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        when(ldap.search(any(LdapName.class), contains("uid=juan.perez"), ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<String> mapper = invocation.getArgument(2);
+                    // Arrays.asList (no List.of): el primer mapeo da null a
+                    // propósito (ficha sin uid) y List.of lo rechaza.
+                    return Arrays.asList(
+                            mapper.mapFromAttributes(new BasicAttributes(true)),
+                            mapper.mapFromAttributes(uidAttrs("other")),
+                            mapper.mapFromAttributes(uidAttrs("jperez")));
+                });
+
+        assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "jperez",
+                new UpdatePersonRequest(null, null, null, "juan.perez")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("ya existe");
+        verify(ldap, never()).rename(any(LdapName.class), any(LdapName.class));
+    }
+
+    @Test
+    void createPersonRetriesEmployeeNumberOnCollision() {
+        when(ldap.search(any(LdapName.class), contains("employeeNumber=U*"), ArgumentMatchers.<AttributesMapper<Integer>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<Integer> mapper = invocation.getArgument(2);
+                    return List.of(
+                            mapper.mapFromAttributes(empAttrs("U000041")),
+                            mapper.mapFromAttributes(empAttrs("XYZ")));
+                });
+        when(ldap.search(any(LdapName.class), contains("uid=jperez"), ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenReturn(List.of());
+        doThrow(new org.springframework.ldap.AttributeInUseException(new javax.naming.directory.AttributeInUseException("collision")))
+                .doNothing().when(ldap).bind(any(LdapName.class), isNull(), any(Attributes.class));
+
+        var result = service.createPerson(actor, "reclamos",
+                new NewPersonRequest("Juan", "Perez", "jperez", "j@x.com", "12345678"));
+
+        assertThat(result.employeeNumber()).isEqualTo("U000043");
+        verify(ldap, times(2)).bind(any(LdapName.class), isNull(), any(Attributes.class));
+        verify(audit).record(eq(actor), eq("PERSON_CREATED"), anyString(), contains("employeeNumber=U000043"));
+    }
+
+    @Test
+    void createPersonGivesUpAfterRepeatedCollisions() {
+        when(ldap.search(any(LdapName.class), contains("employeeNumber=U*"), ArgumentMatchers.<AttributesMapper<Integer>>any()))
+                .thenReturn(List.of(41));
+        when(ldap.search(any(LdapName.class), contains("uid=jperez"), ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenReturn(List.of());
+        doThrow(new org.springframework.ldap.AttributeInUseException(new javax.naming.directory.AttributeInUseException("collision")))
+                .when(ldap).bind(any(LdapName.class), isNull(), any(Attributes.class));
+
+        assertThatThrownBy(() -> service.createPerson(actor, "reclamos",
+                new NewPersonRequest("Juan", "Perez", "jperez", "j@x.com", "12345678")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("identificador único");
+        verify(ldap, times(5)).bind(any(LdapName.class), isNull(), any(Attributes.class));
+    }
+
+    @Test
     void findPersonEscapesDnSpecialChars() {
         // Inyección LDAP por DN: una coma sin escapar rompería el RDN
         // (uid=a,b,... apuntaría a otra entrada). El support la escapa RFC 4514.
@@ -220,6 +303,42 @@ class PanelPersonServiceTest {
     }
 
     @Test
+    void updatePersonChangesSnOnly() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        var result = service.updatePerson(actor, "reclamos", "jperez",
+                new UpdatePersonRequest(null, "Pereyra", null, null));
+        assertThat(result.uid()).isEqualTo("jperez");
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verify(audit).record(eq(actor), eq("PERSON_UPDATED"), anyString(), anyString());
+    }
+
+    @Test
+    void updatePersonChangesEmailSuccessfully() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        when(ldap.search(any(LdapName.class), contains("mail=nuevo@x.com"), ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenReturn(List.of());
+        var result = service.updatePerson(actor, "reclamos", "jperez",
+                new UpdatePersonRequest(null, null, "nuevo@x.com", null));
+        assertThat(result.uid()).isEqualTo("jperez");
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verify(audit).record(eq(actor), eq("PERSON_UPDATED"), anyString(), anyString());
+    }
+
+    @Test
+    void updatePersonReportsDisappearance() {
+        // doReturn(varargs)+doThrow (no when/thenReturn ni doReturn en cadena:
+        // personContext() arma stubs internos y cada doX() exige su when();
+        // un segundo doX() antes del when() rompe el stubbeo anterior).
+        doReturn(personContext("jperez"), personContext("jperez"))
+                .doThrow(new NameNotFoundException("gone"))
+                .when(ldap).lookupContext(any(LdapName.class));
+        assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "jperez",
+                new UpdatePersonRequest("Juan Carlos", null, null, null)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("desapareció");
+    }
+
+    @Test
     void invalidUsernameIsRejectedBeforeLdap() {
         var req = new NewPersonRequest("Juan", "Perez", "Bad Name", "j@x.com", "12345678");
         assertThatThrownBy(() -> service.createPerson(actor, "reclamos", req))
@@ -241,6 +360,24 @@ class PanelPersonServiceTest {
                 new PeopleSearchCriteria(0, 10, null, "Bad Name", null)))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(ldap);
+    }
+
+    private Attributes uidAttrs(String uid) {
+        BasicAttributes a = new BasicAttributes(true);
+        a.put(new BasicAttribute("uid", uid));
+        return a;
+    }
+
+    private Attributes cnAttrs(String cn) {
+        BasicAttributes a = new BasicAttributes(true);
+        a.put(new BasicAttribute("cn", cn));
+        return a;
+    }
+
+    private Attributes empAttrs(String employeeNumber) {
+        BasicAttributes a = new BasicAttributes(true);
+        a.put(new BasicAttribute("employeeNumber", employeeNumber));
+        return a;
     }
 
     private Attributes person(String uid) {

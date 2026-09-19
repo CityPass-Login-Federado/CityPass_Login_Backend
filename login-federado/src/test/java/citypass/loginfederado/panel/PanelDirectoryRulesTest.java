@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Reglas de datos del panel (manual §5.2 / decisiones D3, D5, D6): validadas
@@ -100,7 +101,23 @@ class PanelDirectoryRulesTest {
         }
     }
 
+    // ---- Largo máximo de grupo ----
+
+    @Test
+    void tooLongGroupNameIsRejected() {
+        assertThatThrownBy(() -> PanelDirectoryRules.validateGroupName("a".repeat(65)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("demasiado largo");
+        PanelDirectoryRules.validateGroupName("a".repeat(64));
+    }
+
     // ---- Escapado RFC 4515 de filtros (inyección LDAP) ----
+
+    @Test
+    void nulByteIsEscaped() {
+        assertThat(PanelDirectoryRules.escapeFilter("a\u0000b"))
+                .isEqualTo("a\\00b");
+    }
 
     @Test
     void filterValuesAreEscaped() {
