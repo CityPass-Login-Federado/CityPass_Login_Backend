@@ -17,8 +17,9 @@ import org.springframework.ldap.core.support.LdapContextSource;
  *   modificar el árbol.
  *
  * - panelWriterContextSource (cn=panel-writer): ESCRITURA en People/Groups.
- *   Exclusiva del backend del panel (PanelDirectoryService). Nunca se usa
- *   en el flujo de login.
+ *   Exclusiva del backend del panel (PanelPersonService, PanelGroupService,
+ *   PanelAccountService vía PanelLdapSupport). Nunca se usa en el flujo
+ *   de login.
  *
  * Ambas cuentas viven fuera de las OUs de módulo: la búsqueda de personas
  * es por atributo sobre todo el árbol, pero las fichas de servicio no
