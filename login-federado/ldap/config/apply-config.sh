@@ -40,27 +40,11 @@ apply_cfg() {
   local file="$1" desc="$2"
   echo "--> ${desc}"
   if ! ldapmodify -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" -f "$file" >"$TMP/out.log" 2>&1; then
-    if grep -qiE "(already exists|already in list|Type or value exists|modifications require|no such attribute)" "$TMP/out.log"; then
+    if grep -qiE "(already exists|Type or value exists|modifications require|no such attribute)" "$TMP/out.log"; then
       echo "    ya aplicado — se omite"
     else
       echo "ERROR aplicando: ${desc}"; cat "$TMP/out.log"; exit 1
     fi
-  fi
-}
-
-# apply_overlay <nombre> <archivo> <descripcion> — idempotente de verdad:
-# si ya hay un overlay con ese nombre en cn=config se omite ANTES de
-# intentar el add. Imprescindible porque re-agregar overlays apilables
-# (memberof/refint/unique/constraint) DUPLICA su efecto en silencio, y el
-# singleton ppolicy aborta con error 80 ("already in list").
-apply_overlay() {
-  local name="$1" file="$2" desc="$3"
-  echo "--> ${desc}"
-  if ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
-      -b cn=config "(olcOverlay=${name})" dn 2>/dev/null | grep -qi "^dn: "; then
-    echo "    ya aplicado — se omite"
-  else
-    apply_cfg "$file" "${desc}"
   fi
 }
 
@@ -186,7 +170,7 @@ olcMemberOfMemberAD: member
 olcMemberOfMemberofAD: memberOf
 olcMemberOfRefInt: TRUE
 EOF
-apply_overlay "memberof" "$TMP/ov-memberof.ldif" "Overlay memberof"
+apply_cfg "$TMP/ov-memberof.ldif" "Overlay memberof"
 
 # --- refint: integridad referencial del atributo member ---
 cat >"$TMP/ov-refint.ldif" <<EOF
@@ -197,7 +181,7 @@ objectClass: olcRefintConfig
 olcOverlay: refint
 olcRefintAttribute: member
 EOF
-apply_overlay "refint" "$TMP/ov-refint.ldif" "Overlay refint"
+apply_cfg "$TMP/ov-refint.ldif" "Overlay refint"
 
 # --- unique: unicidad GLOBAL de uid, mail y employeeNumber (D3/D5 del diseño) ---
 cat >"$TMP/ov-unique.ldif" <<EOF
@@ -210,7 +194,7 @@ olcUniqueUri: ldap:///?uid?sub
 olcUniqueUri: ldap:///?mail?sub
 olcUniqueUri: ldap:///?employeeNumber?sub
 EOF
-apply_overlay "unique" "$TMP/ov-unique.ldif" "Overlay unique (uid/mail/employeeNumber globales)"
+apply_cfg "$TMP/ov-unique.ldif" "Overlay unique (uid/mail/employeeNumber globales)"
 
 # --- constraint: anti-anidamiento (D4). Un `member` solo puede ser una
 #     persona bajo algún ou=People o el placeholder técnico ---
@@ -222,7 +206,7 @@ objectClass: olcConstraintConfig
 olcOverlay: constraint
 olcConstraintAttribute: member regex ^(uid=[^,]+,ou=People,ou=[^,]+|cn=empty-group-placeholder,ou=ServiceAccounts),dc=citypass,dc=local$
 EOF
-apply_overlay "constraint" "$TMP/ov-constraint.ldif" "Overlay constraint (anti-anidamiento de grupos)"
+apply_cfg "$TMP/ov-constraint.ldif" "Overlay constraint (anti-anidamiento de grupos)"
 
 # --- ppolicy: habilita pwdAccountLockedTime (baja = bloqueo permanente, D7) ---
 cat >"$TMP/ov-ppolicy.ldif" <<EOF
@@ -234,7 +218,7 @@ olcOverlay: ppolicy
 olcPPolicyDefault: cn=default,ou=Policies,dc=citypass,dc=local
 olcPPolicyHashCleartext: TRUE
 EOF
-apply_overlay "ppolicy" "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
+apply_cfg "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
 
 # La entrada que referencian olcPPolicyDefault/olcPPolicyUseLockout solo se
 # carga si el esquema quedó disponible (evita romper el bootstrap con

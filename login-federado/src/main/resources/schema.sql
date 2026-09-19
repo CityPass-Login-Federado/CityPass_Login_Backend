@@ -11,8 +11,6 @@
 DROP TABLE IF EXISTS panel_audit;
 DROP TABLE IF EXISTS refresh_tokens;
 DROP TABLE IF EXISTS login_attempts;
-DROP TABLE IF EXISTS password_reset_tokens;
-DROP TABLE IF EXISTS password_reset_requests;
 
 -- Refresh tokens OPACOS con rotación y cadena (spec §4.2 / D9).
 CREATE TABLE refresh_tokens (
@@ -58,31 +56,3 @@ CREATE TABLE panel_audit (
 
 CREATE INDEX idx_panel_audit_module ON panel_audit (module);
 CREATE INDEX idx_panel_audit_occurred_at ON panel_audit (occurred_at);
-
--- Recupero por token de un solo uso: se persiste SOLO el hash SHA-256, jamás
--- el valor crudo. Una sola fila activa por cuenta (al pedir otro se borra el
--- anterior en la misma transacción). LDAP se escribe recién al canjear.
-CREATE TABLE password_reset_tokens (
-    id UUID PRIMARY KEY,
-    sub VARCHAR(16) NOT NULL,                  -- employeeNumber dueño del token
-    uid VARCHAR(255) NOT NULL,
-    token_hash VARCHAR(64) NOT NULL UNIQUE,    -- SHA-256; nunca el valor crudo
-    requested_at TIMESTAMP NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    used_at TIMESTAMP NULL                     -- NULL = activo
-);
-
-CREATE INDEX idx_password_reset_tokens_sub ON password_reset_tokens (sub);
-
--- Registro de solicitudes ACEPTADAS para el limitador (cooldown por cuenta,
--- topes por cuenta e IP). Las rechazadas no se guardan: responder 204 igual.
-CREATE TABLE password_reset_requests (
-    id UUID PRIMARY KEY,
-    uid VARCHAR(255) NOT NULL,                 -- normalizado (trim + minúsculas)
-    ip_address VARCHAR(45),
-    requested_at TIMESTAMP NOT NULL
-);
-
-CREATE INDEX idx_password_reset_requests_uid ON password_reset_requests (uid);
-CREATE INDEX idx_password_reset_requests_ip ON password_reset_requests (ip_address);
-CREATE INDEX idx_password_reset_requests_at ON password_reset_requests (requested_at);

@@ -72,16 +72,6 @@ class PanelAccountServiceTest {
         verifyNoInteractions(ldap);
     }
 
-    @Test
-    void setPasswordWritesUserPasswordAndRejectsShortValues() {
-        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        service.setPassword("reclamos", "jperez", "12345678");
-        assertThatThrownBy(() -> service.setPassword("reclamos", "jperez", "123"))
-                .isInstanceOf(IllegalArgumentException.class);
-        verify(ldap).lookupContext(any(LdapName.class));
-        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
-    }
-
     private DirContextOperations personContext(String uid) {
         DirContextOperations ctx = mock(DirContextOperations.class);
         when(ctx.getStringAttribute("employeeNumber")).thenReturn("U000042");
