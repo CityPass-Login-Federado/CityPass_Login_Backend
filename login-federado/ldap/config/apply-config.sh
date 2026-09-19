@@ -175,7 +175,19 @@ done
 # -----------------------------------------------------------------------------
 
 # --- memberof: referencia inversa persona→grupos (spec §2.7) ---
-cat >"$TMP/ov-memberof.ldif" <<EOF
+# OJO: la imagen trae SU PROPIO memberof ({0}, para groupOfUniqueNames/
+# uniqueMember) y el chequeo de "ya existe" NO alcanza: hay que verificar la
+# CONFIGURACIÓN. Con el memberof de la imagen, memberOf siempre viene vacío,
+# los tokens salen sin grupos y el panel devuelve 403 a todos los delegados.
+# Si existe pero con otra config, se corrige in place (replace); si no
+# existe, se crea el nuestro. Ambas operaciones son idempotentes.
+ensure_memberof() {
+  echo "--> Overlay memberof"
+  local existing
+  existing=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+    -b cn=config '(olcOverlay=memberof)' dn 2>/dev/null | grep '^dn: ' | head -n1 | sed 's/^dn: //')
+  if [ -z "$existing" ]; then
+    cat >"$TMP/ov-memberof.ldif" <<EOF
 dn: olcOverlay=memberof,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
@@ -186,7 +198,35 @@ olcMemberOfMemberAD: member
 olcMemberOfMemberofAD: memberOf
 olcMemberOfRefInt: TRUE
 EOF
-apply_overlay "memberof" "$TMP/ov-memberof.ldif" "Overlay memberof"
+    apply_cfg "$TMP/ov-memberof.ldif" "Overlay memberof"
+    return
+  fi
+  local groupoc
+  groupoc=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+    -b "$existing" -s base '(objectClass=*)' olcMemberOfGroupOC 2>/dev/null \
+    | grep -i '^olcMemberOfGroupOC:' | head -n1 | sed 's/^[^:]*:[[:space:]]*//')
+  if [ "$groupoc" = "groupOfNames" ]; then
+    echo "    ya aplicado — se omite"
+    return
+  fi
+  cat >"$TMP/ov-memberof-fix.ldif" <<EOF
+dn: ${existing}
+changetype: modify
+replace: olcMemberOfGroupOC
+olcMemberOfGroupOC: groupOfNames
+-
+replace: olcMemberOfMemberAD
+olcMemberOfMemberAD: member
+-
+replace: olcMemberOfMemberofAD
+olcMemberOfMemberofAD: memberOf
+-
+replace: olcMemberOfRefInt
+olcMemberOfRefInt: TRUE
+EOF
+  apply_cfg "$TMP/ov-memberof-fix.ldif" "Overlay memberof (corregido a groupOfNames/member)"
+}
+ensure_memberof
 
 # --- refint: integridad referencial del atributo member ---
 cat >"$TMP/ov-refint.ldif" <<EOF
