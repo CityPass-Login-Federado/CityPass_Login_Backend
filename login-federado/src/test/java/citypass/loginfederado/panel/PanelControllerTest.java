@@ -38,7 +38,6 @@ class PanelControllerTest {
     private final PanelAuthorization.Delegate globalDelegate =
             new PanelAuthorization.Delegate("U000007", "admin-global", "", true);
 
-    private PanelDirectoryService directory;
     private PanelPersonService persons;
     private PanelGroupService groups;
     private PanelAccountService accounts;
@@ -47,12 +46,11 @@ class PanelControllerTest {
 
     @BeforeEach
     void setUp() {
-        directory = mock(PanelDirectoryService.class);
         persons = mock(PanelPersonService.class);
         groups = mock(PanelGroupService.class);
         accounts = mock(PanelAccountService.class);
         authorization = mock(PanelAuthorization.class);
-        controller = new PanelController(directory, persons, groups, accounts, authorization, mock(PanelAuditService.class),
+        controller = new PanelController(persons, groups, accounts, authorization, mock(PanelAuditService.class),
                 mock(RefreshTokenService.class));
     }
 
@@ -120,7 +118,7 @@ class PanelControllerTest {
     void modulesEndpointRequiresAuthorizationAndReturnsDirectoryModules() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
 
-        assertThat(controller.listModules(jwt)).containsExactlyElementsOf(PanelDirectoryService.MODULES);
+        assertThat(controller.listModules(jwt)).containsExactlyElementsOf(PanelDirectoryRules.MODULES);
 
         verify(authorization).requireDelegate(jwt);
     }

@@ -49,7 +49,6 @@ import java.util.Locale;
 @RequestMapping("/panel")
 public class PanelController {
 
-    private final PanelDirectoryService directory;
     private final PanelPersonService persons;
     private final PanelGroupService groups;
     private final PanelAccountService accounts;
@@ -57,14 +56,12 @@ public class PanelController {
     private final PanelAuditService audit;
     private final RefreshTokenService refreshTokens;
 
-    public PanelController(PanelDirectoryService directory,
-                        PanelPersonService persons,
+    public PanelController(PanelPersonService persons,
                         PanelGroupService groups,
                         PanelAccountService accounts,
                         PanelAuthorization authorization,
                         PanelAuditService audit,
                         RefreshTokenService refreshTokens) {
-        this.directory = directory;
         this.persons = persons;
         this.groups = groups;
         this.accounts = accounts;
@@ -331,7 +328,7 @@ public class PanelController {
     @GetMapping("/modules")
     public List<String> listModules(@AuthenticationPrincipal Jwt jwt) {
         authorization.requireDelegate(jwt);
-        return PanelDirectoryService.MODULES;
+        return PanelDirectoryRules.MODULES;
     }
 
     // ------------------------------------------------------------------
@@ -352,7 +349,7 @@ public class PanelController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo requerido para admin global");
         }
         String module = moduleParam.trim().toLowerCase(Locale.ROOT);
-        if (!PanelDirectoryService.MODULES.contains(module)) {
+        if (!PanelDirectoryRules.MODULES.contains(module)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo inválido: " + moduleParam);
         }
         return new PanelAuthorization.Delegate(base.sub(), base.uid(), module, true);

@@ -30,9 +30,11 @@ import org.springframework.web.bind.annotation.RestController;
 import com.nimbusds.jose.jwk.RSAKey;
 
 import citypass.loginfederado.identity.ClientRegistry;
+import citypass.loginfederado.panel.PanelAccountService;
 import citypass.loginfederado.panel.PanelAuditService;
 import citypass.loginfederado.panel.PanelAuthorization;
-import citypass.loginfederado.panel.PanelDirectoryService;
+import citypass.loginfederado.panel.PanelGroupService;
+import citypass.loginfederado.panel.PanelPersonService;
 import citypass.loginfederado.service.AuthService;
 import citypass.loginfederado.service.RefreshTokenService;
 import citypass.loginfederado.token.AccessTokenIssuer;
@@ -52,7 +54,9 @@ class SecurityConfigTest {
     @MockBean ClientRegistry clientRegistry;
     @MockBean AccessTokenIssuer accessTokenIssuer;
     @MockBean JwtProperties jwtProperties;
-    @MockBean PanelDirectoryService panelDirectoryService;
+    @MockBean PanelPersonService panelPersonService;
+    @MockBean PanelGroupService panelGroupService;
+    @MockBean PanelAccountService panelAccountService;
     @MockBean PanelAuthorization panelAuthorization;
     @MockBean PanelAuditService panelAuditService;
     @MockBean RefreshTokenService refreshTokenService;

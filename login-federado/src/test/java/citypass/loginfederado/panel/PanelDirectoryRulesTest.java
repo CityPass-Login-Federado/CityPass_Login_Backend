@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Reglas de datos del panel (manual §5.2 / decisiones D3, D5, D6): validadas
  * acá ANTES de tocar LDAP, con el directorio como última línea de defensa.
  */
-class PanelDirectoryServiceRulesTest {
+class PanelDirectoryRulesTest {
 
     // ---- D6: nombres de grupo ----
 
