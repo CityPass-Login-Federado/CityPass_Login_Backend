@@ -4,7 +4,7 @@ import citypass.loginfederado.config.PasswordResetProperties;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
 import citypass.loginfederado.model.PasswordResetToken;
-import citypass.loginfederado.panel.PanelDirectoryService;
+import citypass.loginfederado.panel.PanelAccountService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -54,7 +54,7 @@ public class PasswordService {
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final LdapDirectory ldapDirectory;
-    private final PanelDirectoryService directory;
+    private final PanelAccountService directory;
     private final PasswordEmailService emailSender;
     private final RefreshTokenService refreshTokenService;
     private final PasswordResetLimiter limiter;
@@ -63,7 +63,7 @@ public class PasswordService {
     private final Executor resetExecutor;
 
     public PasswordService(LdapDirectory ldapDirectory,
-                           PanelDirectoryService directory,
+                           PanelAccountService directory,
                            PasswordEmailService emailSender,
                            RefreshTokenService refreshTokenService,
                            PasswordResetLimiter limiter,

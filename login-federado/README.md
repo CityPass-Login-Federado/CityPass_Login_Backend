@@ -94,6 +94,8 @@ Los scripts capturan los tokens automáticamente entre requests.
 |---|---|---|
 | POST | `/auth/login` | Autentica y emite access + refresh token |
 | POST | `/auth/refresh` | Canjea refresh por nuevo par (rotación; reuso ⇒ cadena revocada) |
+| POST | `/auth/forgot-password` | Genera contraseña temporal, la fija en LDAP y la manda por mail |
+| POST | `/me/change-password` | Cambia la propia contraseña (requiere la actual + JWT); revoca sesiones |
 | GET | `/.well-known/jwks.json` | Clave pública para validar firmas |
 | POST | `/oauth/token` | `client_credentials` para servicios (Basic auth) |
 | GET/POST/PUT/DELETE | `/panel/**` | Backend del panel (requiere token delegado) |
@@ -105,6 +107,37 @@ curl -X POST http://localhost:8081/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"jperez","password":"changeit123","clientId":"citypass-reclamos-web"}'
 ```
+
+### Recupero y cambio de contraseña (self-service)
+
+El flujo: el usuario pide la clave temporal, llega un mail con una contraseña
+aleatoria, entra con esa contraseña y la cambia desde su perfil.
+
+```bash
+# 1) Pide la clave temporal (SIEMPRE 204, exista o no el usuario: anti-enumeración)
+curl -X POST http://localhost:8081/auth/forgot-password \
+  -H "Content-Type: application/json" \
+  -d '{"username":"jperez"}'
+
+# 2) Login con la clave temporal recibida por mail (endpoint de login normal)
+
+# 3) Cambio desde el perfil (requiere access token Bearer)
+curl -X POST http://localhost:8081/me/change-password \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"currentPassword":"temporal123","newPassword":"nuevaClaveFu553"}'
+```
+
+Al cambiar la contraseña se revocan todas las sesiones (refresh tokens) de la
+persona; el access token vigente sigue vivo hasta su expiración (igual que en
+la baja del panel).
+
+**SMTP:** sin `spring.mail.host` el envío cae en modo dev: la clave temporal se
+imprime en consola (`app.password-reset.debug-log: true`, default). Para
+enviar de verdad copiar `.env.example` como `.env` y completar las variables
+`SPRING_MAIL_*` (guía de Gmail adentro); en producción además poner
+`PASSWORD_RESET_DEBUG_LOG=false`. Ninguna falla de envío se propaga al cliente:
+la respuesta es 204 y el detalle va al log.
 
 Token de servicio:
 

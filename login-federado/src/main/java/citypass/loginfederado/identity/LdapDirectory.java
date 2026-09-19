@@ -10,6 +10,7 @@ import javax.naming.NamingException;
 import javax.naming.directory.SearchControls;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -58,12 +59,16 @@ public class LdapDirectory {
                 personSearchControls(),
                 mapper
         );
-        if (found.size() > 1) {
+        // El mapper devuelve null para fichas deshabilitadas o corruptas: se
+        // descartan ANTES de elegir. Sin este filtro, un único resultado null
+        // llega a findFirst() → Optional.of(null) → NullPointerException.
+        List<LdapDirectoryPerson> valid = found.stream().filter(Objects::nonNull).toList();
+        if (valid.size() > 1) {
             // Inalcanzable mientras el overlay unique viva; si pasa, es una
             // corrupción grave y NO se revela cuál de los dos es válido.
             return Optional.empty();
         }
-        return found.stream().findFirst();
+        return valid.stream().findFirst();
     }
 
     /** Relectura por employeeNumber (sub) para revalidar sesiones. */
@@ -75,7 +80,10 @@ public class LdapDirectory {
                 personSearchControls(),
                 mapper
         );
-        return found.stream().findFirst();
+        // Igual que findByUid: una ficha deshabilitada mapea a null y debe
+        // leerse como Optional.empty() (el servicio lo convierte en su error
+        // de negocio), nunca como NPE.
+        return found.stream().filter(Objects::nonNull).findFirst();
     }
 
     /**

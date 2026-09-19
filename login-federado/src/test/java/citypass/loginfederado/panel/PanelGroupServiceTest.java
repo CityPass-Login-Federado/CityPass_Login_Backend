@@ -22,7 +22,6 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -35,15 +34,11 @@ import org.springframework.security.access.AccessDeniedException;
 
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupView;
-import citypass.loginfederado.panel.dto.NewPersonRequest;
-import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
-import citypass.loginfederado.panel.dto.PersonView;
-import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 
-class PanelDirectoryServiceTest {
+class PanelGroupServiceTest {
     private LdapTemplate ldap;
     private PanelAuditService audit;
-    private PanelDirectoryService service;
+    private PanelGroupService service;
     private final PanelAuthorization.Delegate actor = new PanelAuthorization.Delegate("U000001", "admin", "reclamos");
     private final PanelAuthorization.Delegate globalActor = new PanelAuthorization.Delegate("U000007", "admin-global", "analitica", true);
 
@@ -51,217 +46,7 @@ class PanelDirectoryServiceTest {
     void setUp() {
         ldap = mock(LdapTemplate.class);
         audit = mock(PanelAuditService.class);
-        service = new PanelDirectoryService(ldap, audit);
-    }
-
-    @Test
-    void rejectsUnknownModule() {
-        assertThatThrownBy(() -> service.listPeople("desconocido", new PeopleSearchCriteria(0, 10, null, null, null)))
-                .isInstanceOf(AccessDeniedException.class);
-    }
-
-    @Test
-        void listPeopleSortsByUid() throws Exception {
-        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class), ArgumentMatchers.<AttributesMapper<PersonView>>any()))
-                                .thenAnswer(invocation -> {
-                                        AttributesMapper<PersonView> mapper = invocation.getArgument(1);
-                                            return List.of(mapper.mapFromAttributes(person("zeta")), mapper.mapFromAttributes(person("alpha")));
-                                });
-        assertThat(service.listPeople("reclamos", new PeopleSearchCriteria(0, 10, null, null, null)).content()).extracting(PersonView::uid)
-                .containsExactly("alpha", "zeta");
-    }
-
-    @Test
-    void listPeopleFiltersDisabledUsersSortsAndPaginates() {
-        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
-                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
-                .thenAnswer(invocation -> {
-                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
-                    Attributes disabled = person("bravo");
-                    disabled.put("pwdAccountLockedTime", "000001010000Z");
-                    return List.of(
-                            mapper.mapFromAttributes(person("zeta")),
-                            mapper.mapFromAttributes(disabled),
-                            mapper.mapFromAttributes(person("alpha")));
-                });
-
-        var result = service.listPeople("reclamos",
-                new PeopleSearchCriteria(1, 1, " jperez ", "ops", false));
-
-        assertThat(result.content()).extracting(PersonView::uid).containsExactly("zeta");
-        assertThat(result.totalElements()).isEqualTo(2);
-        assertThat(result.totalPages()).isEqualTo(2);
-        assertThat(result.currentPage()).isEqualTo(1);
-        assertThat(result.size()).isEqualTo(1);
-    }
-
-    @Test
-    void listPeopleUsesDefaultsForNonPositivePaginationAndReturnsEmptyOutOfRange() {
-        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
-                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
-                .thenAnswer(invocation -> {
-                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
-                    return List.of(mapper.mapFromAttributes(person("alpha")));
-                });
-
-        var result = service.listPeople("reclamos",
-                new PeopleSearchCriteria(-1, 0, " ", " ", null));
-        var emptyPage = service.listPeople("reclamos",
-                new PeopleSearchCriteria(2, 1, null, null, null));
-
-        assertThat(result.content()).extracting(PersonView::uid).containsExactly("alpha");
-        assertThat(result.currentPage()).isZero();
-        assertThat(result.size()).isEqualTo(10);
-        assertThat(result.totalPages()).isEqualTo(1);
-        assertThat(emptyPage.content()).isEmpty();
-    }
-
-        @Test
-        void listPeopleCanSelectDisabledUsers() {
-                when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
-                                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
-                                .thenAnswer(invocation -> {
-                                        AttributesMapper<PersonView> mapper = invocation.getArgument(1);
-                                        Attributes disabled = person("locked");
-                                        disabled.put("pwdAccountLockedTime", "000001010000Z");
-                                        return List.of(mapper.mapFromAttributes(disabled),
-                                                        mapper.mapFromAttributes(person("active")));
-                                });
-
-                var result = service.listPeople("reclamos",
-                                new PeopleSearchCriteria(0, 10, null, null, true));
-
-                assertThat(result.content()).extracting(PersonView::uid).containsExactly("locked");
-        }
-
-    @Test
-    void findPersonReturnsEmptyWhenMissing() {
-        when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
-        assertThat(service.findPerson("reclamos", "nobody")).isEmpty();
-    }
-
-    @Test
-    void findPersonMapsDisabledFlag() {
-        DirContextOperations ctx = mock(DirContextOperations.class);
-        when(ctx.getStringAttribute("employeeNumber")).thenReturn("U000042");
-        when(ctx.getStringAttribute("uid")).thenReturn("jperez");
-        when(ctx.getStringAttribute("givenName")).thenReturn("Juan");
-        when(ctx.getStringAttribute("sn")).thenReturn("Perez");
-        when(ctx.getStringAttribute("mail")).thenReturn("j@x.com");
-        when(ctx.getStringAttribute("pwdAccountLockedTime")).thenReturn("000001010000Z");
-        when(ldap.lookupContext(any(LdapName.class))).thenReturn(ctx);
-        assertThat(service.findPerson("reclamos", "jperez").orElseThrow().disabled()).isTrue();
-    }
-
-    @Test
-    void createPersonRejectsInvalidEmailAndPassword() {
-        var badEmail = new NewPersonRequest("Juan", "Perez", "jperez", "not-an-email", "12345678");
-        assertThatThrownBy(() -> service.createPerson(actor, "reclamos", badEmail))
-                .isInstanceOf(IllegalArgumentException.class);
-        var badPassword = new NewPersonRequest("Juan", "Perez", "jperez", "j@x.com", "short");
-        assertThatThrownBy(() -> service.createPerson(actor, "reclamos", badPassword))
-                .isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(ldap);
-    }
-
-    @Test
-    void createPersonRejectsDuplicateUsernameOrEmail() {
-                when(ldap.search(any(LdapName.class), contains("objectClass=inetOrgPerson"), ArgumentMatchers.<AttributesMapper<String>>any()))
-                .thenReturn(List.of("existing"));
-        var req = new NewPersonRequest("Juan", "Perez", "jperez", "j@x.com", "12345678");
-        assertThatThrownBy(() -> service.createPerson(actor, "reclamos", req))
-                .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void createPersonAssignsNextEmployeeNumberAndAudits() {
-                when(ldap.search(any(LdapName.class), eq("(&(objectClass=inetOrgPerson)(employeeNumber=U*))"), ArgumentMatchers.<AttributesMapper<Integer>>any()))
-                .thenReturn(List.of(41));
-        when(ldap.search(any(LdapName.class), eq("(&(objectClass=inetOrgPerson)(|(uid=jperez)(mail=j@x.com)))"), ArgumentMatchers.<AttributesMapper<String>>any()))
-                .thenReturn(List.of());
-        DirContextOperations ctx = mock(DirContextOperations.class);
-        when(ctx.getStringAttribute("employeeNumber")).thenReturn("U000042");
-        when(ctx.getStringAttribute("uid")).thenReturn("jperez");
-        when(ctx.getStringAttribute("givenName")).thenReturn("Juan");
-        when(ctx.getStringAttribute("sn")).thenReturn("Perez");
-        when(ctx.getStringAttribute("mail")).thenReturn("j@x.com");
-        when(ctx.getStringAttribute("pwdAccountLockedTime")).thenReturn(null);
-        when(ldap.lookupContext(any(LdapName.class))).thenReturn(ctx);
-
-        var result = service.createPerson(actor, "reclamos",
-                new NewPersonRequest("Juan", "Perez", "jperez", "j@x.com", "12345678"));
-        assertThat(result.employeeNumber()).isEqualTo("U000042");
-        verify(ldap).bind(any(LdapName.class), isNull(), any(Attributes.class));
-        verify(audit).record(eq(actor), eq("PERSON_CREATED"), anyString(), contains("employeeNumber=U000042"));
-    }
-
-    @Test
-    void updatePersonChangesFieldsAndAudits() {
-                doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        var result = service.updatePerson(actor, "reclamos", "jperez",
-                new UpdatePersonRequest("Juan Carlos", null, null, null));
-        assertThat(result.uid()).isEqualTo("jperez");
-        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
-        verify(audit).record(eq(actor), eq("PERSON_UPDATED"), anyString(), anyString());
-    }
-
-    @Test
-    void updatePersonRejectsDuplicateEmail() {
-                doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-                when(ldap.search(any(LdapName.class), contains("mail="), ArgumentMatchers.<AttributesMapper<String>>any()))
-                .thenReturn(List.of("other"));
-        assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "jperez",
-                new UpdatePersonRequest(null, null, "other@x.com", null)))
-                .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void disableEnableAndResetPasswordWriteExpectedAttributes() {
-                doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        service.disablePerson(actor, "reclamos", "jperez");
-        service.enablePerson(actor, "reclamos", "jperez");
-        service.resetPassword(actor, "reclamos", "jperez", "12345678");
-        verify(ldap, times(3)).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
-        verify(audit).record(eq(actor), eq("PERSON_DISABLED"), anyString(), isNull());
-        verify(audit).record(eq(actor), eq("PERSON_ENABLED"), anyString(), isNull());
-        verify(audit).record(eq(actor), eq("PASSWORD_RESET"), anyString(), isNull());
-    }
-
-    @Test
-    void disableTranslatesLdapError() {
-        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        doThrow(new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("no se pudo escribir")))
-                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
-        assertThatThrownBy(() -> service.disablePerson(actor, "reclamos", "jperez"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("No se pudo deshabilitar");
-    }
-
-    @Test
-    void enableTranslatesLdapError() {
-        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        doThrow(new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("no se pudo escribir")))
-                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
-        assertThatThrownBy(() -> service.enablePerson(actor, "reclamos", "jperez"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("No se pudo rehabilitar");
-    }
-
-    @Test
-    void resetPasswordRejectsShortPassword() {
-        assertThatThrownBy(() -> service.resetPassword(actor, "reclamos", "jperez", "123"))
-                .isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(ldap);
-    }
-
-    @Test
-    void setPasswordWritesUserPasswordAndRejectsShortValues() {
-        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        service.setPassword("reclamos", "jperez", "12345678");
-        assertThatThrownBy(() -> service.setPassword("reclamos", "jperez", "123"))
-                .isInstanceOf(IllegalArgumentException.class);
-        verify(ldap).lookupContext(any(LdapName.class));
-        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        service = new PanelGroupService(new PanelLdapSupport(ldap), audit);
     }
 
     @Test
@@ -359,6 +144,28 @@ class PanelDirectoryServiceTest {
     }
 
     @Test
+    void removeMemberFromDelegadosWithSurvivorsSucceeds() {
+        DirContextOperations group = mock(DirContextOperations.class);
+        when(group.getStringAttributes("member")).thenReturn(new String[]{
+                "uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local",
+                "uid=other,ou=People,ou=Reclamos,dc=citypass,dc=local"});
+        when(ldap.lookupContext(any(LdapName.class))).thenReturn(group);
+        var result = service.removeMember(actor, "reclamos", "delegados", "jperez");
+        assertThat(result.warnings()).isEmpty();
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verify(audit).record(eq(actor), eq("MEMBER_REMOVED"), anyString(), eq("uid=jperez"));
+    }
+
+    @Test
+    void deleteGroupMissingGroupFails() {
+        when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
+        assertThatThrownBy(() -> service.deleteGroup(actor, "reclamos", "ops"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No existe en su módulo");
+        verify(ldap, never()).unbind(any(LdapName.class));
+    }
+
+    @Test
     void globalAdminCanRemoveLastHumanFromDelegados() {
         DirContextOperations group = mock(DirContextOperations.class);
         when(group.getStringAttributes("member")).thenReturn(new String[]{"uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local"});
@@ -453,21 +260,6 @@ class PanelDirectoryServiceTest {
         verifyNoInteractions(ldap);
     }
 
-    @Test
-    void invalidUsernameIsRejectedBeforeLdap() {
-        var req = new NewPersonRequest("Juan", "Perez", "Bad Name", "j@x.com", "12345678");
-        assertThatThrownBy(() -> service.createPerson(actor, "reclamos", req))
-                .isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(ldap);
-    }
-
-    @Test
-    void updatePersonRejectsInvalidEmail() {
-                doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "jperez",
-                new UpdatePersonRequest(null, null, "invalid", null)))
-                .isInstanceOf(IllegalArgumentException.class);
-    }
 
     @Test
     void addMemberRejectsMissingPerson() {
@@ -502,6 +294,22 @@ class PanelDirectoryServiceTest {
     }
 
     @Test
+    void addMemberSuccessWithoutWarnings() {
+        DirContextOperations group = mock(DirContextOperations.class);
+        when(group.getStringAttributes("member")).thenReturn(new String[]{"uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local"});
+        when(ldap.lookupContext(any(LdapName.class))).thenReturn(group);
+        when(ldap.search(any(LdapName.class), contains("uid=jperez"), any(javax.naming.directory.SearchControls.class), ArgumentMatchers.<org.springframework.ldap.core.ContextMapper<Integer>>any()))
+                .thenReturn(List.of(5))
+                .thenReturn(List.of(6));
+
+        var result = service.addMember(actor, "reclamos", "ops", "jperez");
+
+        assertThat(result.warnings()).isEmpty();
+        assertThat(result.group().members()).containsExactly("jperez");
+        verify(audit).record(eq(actor), eq("MEMBER_ADDED"), anyString(), eq("uid=jperez"));
+    }
+
+    @Test
     void removeMemberTranslatesMissingValueError() {
                 doReturn(personContext("ops")).when(ldap).lookupContext(any(LdapName.class));
         doThrow(new org.springframework.ldap.NoSuchAttributeException(new javax.naming.directory.NoSuchAttributeException("not a member")))
@@ -510,23 +318,6 @@ class PanelDirectoryServiceTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    @Test
-    void listPeopleRejectsInvalidGroupFilterNoLdap() {
-        assertThatThrownBy(() -> service.listPeople("reclamos",
-                new PeopleSearchCriteria(0, 10, null, "Bad Name", null)))
-                .isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(ldap);
-    }
-
-    private Attributes person(String uid) {
-        BasicAttributes a = new BasicAttributes(true);
-        a.put(new BasicAttribute("uid", uid));
-        a.put(new BasicAttribute("employeeNumber", "U000042"));
-        a.put(new BasicAttribute("givenName", "Juan"));
-        a.put(new BasicAttribute("sn", "Perez"));
-        a.put(new BasicAttribute("mail", uid + "@x.com"));
-        return a;
-    }
 
     private DirContextOperations personContext(String uid) {
         DirContextOperations ctx = mock(DirContextOperations.class);
