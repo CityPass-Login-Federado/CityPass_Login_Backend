@@ -55,44 +55,6 @@ class PanelDirectoryServiceTest {
     }
 
 
-    @Test
-    void disableEnableAndResetPasswordWriteExpectedAttributes() {
-                doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        service.disablePerson(actor, "reclamos", "jperez");
-        service.enablePerson(actor, "reclamos", "jperez");
-        service.resetPassword(actor, "reclamos", "jperez", "12345678");
-        verify(ldap, times(3)).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
-        verify(audit).record(eq(actor), eq("PERSON_DISABLED"), anyString(), isNull());
-        verify(audit).record(eq(actor), eq("PERSON_ENABLED"), anyString(), isNull());
-        verify(audit).record(eq(actor), eq("PASSWORD_RESET"), anyString(), isNull());
-    }
-
-    @Test
-    void disableTranslatesLdapError() {
-        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        doThrow(new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("no se pudo escribir")))
-                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
-        assertThatThrownBy(() -> service.disablePerson(actor, "reclamos", "jperez"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("No se pudo deshabilitar");
-    }
-
-    @Test
-    void enableTranslatesLdapError() {
-        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
-        doThrow(new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("no se pudo escribir")))
-                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
-        assertThatThrownBy(() -> service.enablePerson(actor, "reclamos", "jperez"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("No se pudo rehabilitar");
-    }
-
-    @Test
-    void resetPasswordRejectsShortPassword() {
-        assertThatThrownBy(() -> service.resetPassword(actor, "reclamos", "jperez", "123"))
-                .isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(ldap);
-    }
 
 
 

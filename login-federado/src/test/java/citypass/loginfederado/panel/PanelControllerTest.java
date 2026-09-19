@@ -41,6 +41,7 @@ class PanelControllerTest {
     private PanelDirectoryService directory;
     private PanelPersonService persons;
     private PanelGroupService groups;
+    private PanelAccountService accounts;
     private PanelAuthorization authorization;
     private PanelController controller;
 
@@ -49,8 +50,9 @@ class PanelControllerTest {
         directory = mock(PanelDirectoryService.class);
         persons = mock(PanelPersonService.class);
         groups = mock(PanelGroupService.class);
+        accounts = mock(PanelAccountService.class);
         authorization = mock(PanelAuthorization.class);
-        controller = new PanelController(directory, persons, groups, authorization, mock(PanelAuditService.class),
+        controller = new PanelController(directory, persons, groups, accounts, authorization, mock(PanelAuditService.class),
                 mock(RefreshTokenService.class));
     }
 
@@ -95,9 +97,9 @@ class PanelControllerTest {
         controller.addMember(jwt, "movilidad", "ops", new MemberRequest("jperez"));
         controller.removeMember(jwt, "movilidad", "ops", "jperez");
 
-        verify(directory).disablePerson(any(), eq("movilidad"), eq("jperez"));
-        verify(directory).enablePerson(any(), eq("movilidad"), eq("jperez"));
-        verify(directory).resetPassword(any(), eq("movilidad"), eq("jperez"), eq("password1"));
+        verify(accounts).disablePerson(any(), eq("movilidad"), eq("jperez"));
+        verify(accounts).enablePerson(any(), eq("movilidad"), eq("jperez"));
+        verify(accounts).resetPassword(any(), eq("movilidad"), eq("jperez"), eq("password1"));
         verify(groups).deleteGroup(any(), eq("movilidad"), eq("ops"));
         verify(groups).addMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));
         verify(groups).removeMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));

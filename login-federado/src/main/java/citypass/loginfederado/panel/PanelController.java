@@ -52,6 +52,7 @@ public class PanelController {
     private final PanelDirectoryService directory;
     private final PanelPersonService persons;
     private final PanelGroupService groups;
+    private final PanelAccountService accounts;
     private final PanelAuthorization authorization;
     private final PanelAuditService audit;
     private final RefreshTokenService refreshTokens;
@@ -59,12 +60,14 @@ public class PanelController {
     public PanelController(PanelDirectoryService directory,
                         PanelPersonService persons,
                         PanelGroupService groups,
+                        PanelAccountService accounts,
                         PanelAuthorization authorization,
                         PanelAuditService audit,
                         RefreshTokenService refreshTokens) {
         this.directory = directory;
         this.persons = persons;
         this.groups = groups;
+        this.accounts = accounts;
         this.authorization = authorization;
         this.audit = audit;
         this.refreshTokens = refreshTokens;
@@ -173,7 +176,7 @@ public class PanelController {
         var delegate = delegate(jwt, module);
         PersonView person = persons.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
-        directory.disablePerson(delegate, delegate.module(), uid);
+        accounts.disablePerson(delegate, delegate.module(), uid);
         refreshTokens.revokeAllForSub(person.employeeNumber());
         audit.record(delegate, "SESSIONS_REVOKED", person.uid(), "baja de persona");
         return ResponseEntity.noContent().build();
@@ -193,7 +196,7 @@ public class PanelController {
                                             @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         var delegate = delegate(jwt, module);
-        directory.enablePerson(delegate, delegate.module(), uid);
+        accounts.enablePerson(delegate, delegate.module(), uid);
         return ResponseEntity.noContent().build();
     }
 
@@ -213,7 +216,7 @@ public class PanelController {
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
                                             @Valid @RequestBody PasswordResetRequest request) {
         var delegate = delegate(jwt, module);
-        directory.resetPassword(delegate, delegate.module(), uid, request.temporaryPassword());
+        accounts.resetPassword(delegate, delegate.module(), uid, request.temporaryPassword());
         return ResponseEntity.noContent().build();
     }
 
