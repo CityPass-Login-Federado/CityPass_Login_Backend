@@ -177,17 +177,24 @@ done
 # --- memberof: referencia inversa persona→grupos (spec §2.7) ---
 # OJO: la imagen trae SU PROPIO memberof ({0}, para groupOfUniqueNames/
 # uniqueMember) y el chequeo de "ya existe" NO alcanza: hay que verificar la
-# CONFIGURACIÓN. Con el memberof de la imagen, memberOf siempre viene vacío,
-# los tokens salen sin grupos y el panel devuelve 403 a todos los delegados.
-# Si existe pero con otra config, se corrige in place (replace); si no
-# existe, se crea el nuestro. Ambas operaciones son idempotentes.
+# CONFIGURACIÓN. Con solo el de la imagen, memberOf viene vacío, los tokens
+# salen sin grupos y el panel devuelve 403 a todos los delegados.
+# Estrategia probada: si YA hay un memberof con groupOfNames se omite; si no,
+# se AGREGA el nuestro junto al de la imagen (coexisten sin problema: el de
+# la imagen no matchea nada nuestro y queda inerte). NO se modifica la
+# entrada existente (el replace en caliente no reconfigura la instancia
+# viva) ni se borra (slapd rechaza el delete con 53).
 ensure_memberof() {
   echo "--> Overlay memberof"
-  local existing
-  existing=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
-    -b cn=config '(olcOverlay=memberof)' dn 2>/dev/null | grep '^dn: ' | head -n1 | sed 's/^dn: //')
-  if [ -z "$existing" ]; then
-    cat >"$TMP/ov-memberof.ldif" <<EOF
+  local correct
+  correct=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+    -b cn=config '(&(olcOverlay=memberof)(olcMemberOfGroupOC=groupOfNames))' dn 2>/dev/null \
+    | grep -c '^dn: ')
+  if [ "$correct" -ge 1 ]; then
+    echo "    ya aplicado — se omite"
+    return
+  fi
+  cat >"$TMP/ov-memberof.ldif" <<EOF
 dn: olcOverlay=memberof,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
@@ -198,33 +205,7 @@ olcMemberOfMemberAD: member
 olcMemberOfMemberofAD: memberOf
 olcMemberOfRefInt: TRUE
 EOF
-    apply_cfg "$TMP/ov-memberof.ldif" "Overlay memberof"
-    return
-  fi
-  local groupoc
-  groupoc=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
-    -b "$existing" -s base '(objectClass=*)' olcMemberOfGroupOC 2>/dev/null \
-    | grep -i '^olcMemberOfGroupOC:' | head -n1 | sed 's/^[^:]*:[[:space:]]*//')
-  if [ "$groupoc" = "groupOfNames" ]; then
-    echo "    ya aplicado — se omite"
-    return
-  fi
-  cat >"$TMP/ov-memberof-fix.ldif" <<EOF
-dn: ${existing}
-changetype: modify
-replace: olcMemberOfGroupOC
-olcMemberOfGroupOC: groupOfNames
--
-replace: olcMemberOfMemberAD
-olcMemberOfMemberAD: member
--
-replace: olcMemberOfMemberofAD
-olcMemberOfMemberofAD: memberOf
--
-replace: olcMemberOfRefInt
-olcMemberOfRefInt: TRUE
-EOF
-  apply_cfg "$TMP/ov-memberof-fix.ldif" "Overlay memberof (corregido a groupOfNames/member)"
+  apply_cfg "$TMP/ov-memberof.ldif" "Overlay memberof"
 }
 ensure_memberof
 
@@ -380,6 +361,48 @@ else
     echo "ERROR cargando seed:"; cat "$TMP/seed.log"; exit 1
   fi
 fi
+
+# -----------------------------------------------------------------------------
+# 6) Re-touch de membresías (registro memberOf)
+# -----------------------------------------------------------------------------
+# El overlay memberof de esta build (2.4.57) solo registra las membresías que
+# entran por MODIFY sobre un grupo existente: los `member` que vienen inline
+# en la CREACIÓN del grupo (seed) quedan sin referencia inversa -> memberOf
+# vacío -> tokens sin grupos -> 403 en el panel para delegados (y admin).
+# Reescribir cada member (delete+add del MISMO valor) fuerza el registro sin
+# cambiar ningún dato. Idempotente: siempre opera sobre valores existentes;
+# el placeholder técnico se salta a propósito.
+echo "--> Re-touch de membresías (memberOf)"
+retouched=0
+for groupdn in $(ldapsearch -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -b dc=citypass,dc=local '(&(objectClass=groupOfNames))' dn 2>/dev/null \
+    | grep '^dn: ' | sed 's/^dn: //'); do
+  members=$(ldapsearch -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -b "$groupdn" -s base '(objectClass=*)' member 2>/dev/null \
+    | grep '^member: ' | sed 's/^member: //' | grep -v 'empty-group-placeholder' || true)
+  [ -z "$members" ] && continue
+  {
+    echo "dn: $groupdn"
+    echo "changetype: modify"
+    first=1
+    while IFS= read -r m; do
+      [ -z "$m" ] && continue
+      [ "$first" -eq 0 ] && echo "-"
+      echo "delete: member"
+      echo "member: $m"
+      echo "-"
+      echo "add: member"
+      echo "member: $m"
+      first=0
+    done <<< "$members"
+  } >"$TMP/retouch.ldif"
+  if ldapmodify -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" -f "$TMP/retouch.ldif" >"$TMP/retouch.log" 2>&1; then
+    retouched=$((retouched+1))
+  else
+    echo "ERROR en re-touch de ${groupdn}:"; cat "$TMP/retouch.log"; exit 1
+  fi
+done
+echo "    grupos retocados: ${retouched}"
 
 echo ""
 echo "== Directorio configurado correctamente =="
