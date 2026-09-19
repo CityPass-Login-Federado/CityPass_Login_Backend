@@ -34,6 +34,16 @@ spring:
 server:
   port: 8081
 
+# --- Actuator: el mail es best-effort y async (con fallback a log), así que
+# su indicador NO debe voltear la salud de la app. Sin esto, un entorno sin
+# SMTP (CI) o con SMTP caído deja /actuator/health en DOWN (503) y el
+# healthcheck del contenedor nunca pasa, aunque el login funcione perfecto.
+# El fallo real de envío se sigue logueando en PasswordEmailService.
+management:
+  health:
+    mail:
+      enabled: false
+
 # --- JWT / RS256 ---
 # El kid NO se configura acá: se deriva del contenido de la clave
 # (huella RFC 7638) en JwtKeyConfig — misma clave, mismo kid, siempre.
@@ -114,3 +124,21 @@ springdoc:
 anomaly:
   service:
     url: ${ANOMALY_SERVICE_URL:http://localhost:8000}
+
+# --- Self-service de contraseñas (POST /auth/forgot-password + /auth/reset-password) ---
+# Flujo por token de un solo uso: la solicitud NUNCA escribe en LDAP, solo
+# persiste el hash de un token y lo manda por mail (enlace). LDAP se toca
+# recién al canjear el token con la nueva contraseña.
+# Sin spring.mail.host (dev) NO existe JavaMailSender y se usa `debug-log`
+# para mostrar el enlace en consola. Para producción habilitar SMTP con
+# spring.mail.* y poner debug-log en false. IMPORTANTE: nunca exportar
+# SPRING_MAIL_HOST vacío: Boot lo toma como configurado y saltea el fallback.
+app:
+  password-reset:
+    from: ${PASSWORD_RESET_FROM:no-reply@citypass.local}
+    debug-log: ${PASSWORD_RESET_DEBUG_LOG:true}
+    reset-link-base: ${PASSWORD_RESET_LINK_BASE:http://localhost:3000/reset-password}
+    token-ttl-minutes: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:30}
+    cooldown-minutes: ${PASSWORD_RESET_COOLDOWN_MINUTES:5}
+    max-per-account-per-hour: ${PASSWORD_RESET_MAX_PER_ACCOUNT_PER_HOUR:3}
+    max-per-ip-per-hour: ${PASSWORD_RESET_MAX_PER_IP_PER_HOUR:50}

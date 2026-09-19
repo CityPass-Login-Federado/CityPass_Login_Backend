@@ -74,4 +74,21 @@ public class PanelAccountService {
                 replace("userPassword", temporaryPassword)});
         audit.record(actor, "PASSWORD_RESET", support.absPersonDn(module, uid), null);
     }
+
+    /**
+     * Escritura de contraseña del flujo SELF-SERVICE (recupero con token /
+     * cambio desde el perfil). No audita ni exige delegado: la identidad ya
+     * fue validada antes — por token de un solo uso o por bind con la clave
+     * actual. Usa la misma cuenta panel-writer; ppolicy hashea antes de
+     * guardar.
+     */
+    public void setPassword(String module, String uid, String newPassword) {
+        support.assertModule(module);
+        if (newPassword == null || newPassword.length() < 8) {
+            throw new IllegalArgumentException("La contraseña debe tener al menos 8 caracteres");
+        }
+        support.requireContext(support.personDn(module, uid));
+        ldap.modifyAttributes(support.personDn(module, uid), new ModificationItem[]{
+                replace("userPassword", newPassword)});
+    }
 }

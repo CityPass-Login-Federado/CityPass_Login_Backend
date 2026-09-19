@@ -27,7 +27,7 @@ import org.springframework.ldap.core.support.LdapContextSource;
  */
 @Configuration
 @EnableConfigurationProperties({JwtProperties.class, LockoutProperties.class,
-        CitypassProperties.class, PanelProperties.class})
+        CitypassProperties.class, PanelProperties.class, PasswordResetProperties.class})
 public class LdapConfig {
 
     @Value("${spring.ldap.urls}")
