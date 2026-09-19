@@ -27,6 +27,17 @@ public final class PanelDirectoryRules {
     public static final int MAX_GROUPS = 50;   // D5: bloqueo duro (token bloat)
     public static final int WARN_GROUPS = 30;  // D5: aviso preventivo
 
+    /** D6 aplicado: nombre de grupo inválido → 400 con mensaje amable. */
+    public static void validateGroupName(String name) {
+        if (name == null || !GROUP_NAME.matcher(name).matches()) {
+            throw new IllegalArgumentException(
+                    "Nombre de grupo inválido: solo minúsculas, números y guiones (ej. soporte-n2)");
+        }
+        if (name.length() > 64) {
+            throw new IllegalArgumentException("Nombre de grupo demasiado largo (máx 64)");
+        }
+    }
+
     /** Escapado RFC 4515 para filtros LDAP — nunca concatenar crudo. */
     public static String escapeFilter(String raw) {
         StringBuilder sb = new StringBuilder(raw.length());

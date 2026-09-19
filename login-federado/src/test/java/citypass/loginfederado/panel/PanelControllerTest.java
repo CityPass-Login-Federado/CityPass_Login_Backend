@@ -39,14 +39,16 @@ class PanelControllerTest {
             new PanelAuthorization.Delegate("U000007", "admin-global", "", true);
 
     private PanelDirectoryService directory;
+    private PanelPersonService persons;
     private PanelAuthorization authorization;
     private PanelController controller;
 
     @BeforeEach
     void setUp() {
         directory = mock(PanelDirectoryService.class);
+        persons = mock(PanelPersonService.class);
         authorization = mock(PanelAuthorization.class);
-        controller = new PanelController(directory, authorization, mock(PanelAuditService.class),
+        controller = new PanelController(directory, persons, authorization, mock(PanelAuditService.class),
                 mock(RefreshTokenService.class));
     }
 
@@ -54,11 +56,11 @@ class PanelControllerTest {
     void normalDelegateAlwaysUsesModuleFromItsToken() {
         when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
         var expected = new PaginatedResponse<PersonView>(List.of(), 0, 0, 0, 10);
-        when(directory.listPeople(eq("reclamos"), any(PeopleSearchCriteria.class))).thenReturn(expected);
+        when(persons.listPeople(eq("reclamos"), any(PeopleSearchCriteria.class))).thenReturn(expected);
 
         assertThat(controller.listPeople(jwt, "movilidad", 0, 10, null, null, null)).isSameAs(expected);
 
-        verify(directory).listPeople(eq("reclamos"), any(PeopleSearchCriteria.class));
+        verify(persons).listPeople(eq("reclamos"), any(PeopleSearchCriteria.class));
     }
 
     @Test
@@ -69,10 +71,10 @@ class PanelControllerTest {
         var people = new PaginatedResponse<>(List.of(person), 1, 1, 0, 10);
         var groups = new PaginatedResponse<>(List.of(group), 1, 1, 0, 10);
         var membership = new MembershipChangeResponse(group, List.of());
-        when(directory.listPeople(eq("movilidad"), any(PeopleSearchCriteria.class))).thenReturn(people);
-        when(directory.findPerson("movilidad", "jperez")).thenReturn(Optional.of(person));
-        when(directory.createPerson(any(), eq("movilidad"), any())).thenReturn(person);
-        when(directory.updatePerson(any(), eq("movilidad"), eq("jperez"), any())).thenReturn(person);
+        when(persons.listPeople(eq("movilidad"), any(PeopleSearchCriteria.class))).thenReturn(people);
+        when(persons.findPerson("movilidad", "jperez")).thenReturn(Optional.of(person));
+        when(persons.createPerson(any(), eq("movilidad"), any())).thenReturn(person);
+        when(persons.updatePerson(any(), eq("movilidad"), eq("jperez"), any())).thenReturn(person);
         when(directory.listGroups(eq("movilidad"), any(GroupSearchCriteria.class))).thenReturn(groups);
         when(directory.createGroup(any(), eq("movilidad"), eq("ops"))).thenReturn(group);
         when(directory.addMember(any(), eq("movilidad"), eq("ops"), eq("jperez"))).thenReturn(membership);
@@ -106,7 +108,7 @@ class PanelControllerTest {
         assertBadRequest(() -> controller.listPeople(jwt, null, 0, 10, null, null, null), "Módulo requerido");
         assertBadRequest(() -> controller.listGroups(jwt, "unknown", 0, 10, null, null), "Módulo inválido");
 
-        verify(directory, never()).listPeople(any(), any());
+        verify(persons, never()).listPeople(any(), any());
         verify(directory, never()).listGroups(any(), any());
     }
 

@@ -50,15 +50,18 @@ import java.util.Locale;
 public class PanelController {
 
     private final PanelDirectoryService directory;
+    private final PanelPersonService persons;
     private final PanelAuthorization authorization;
     private final PanelAuditService audit;
     private final RefreshTokenService refreshTokens;
 
     public PanelController(PanelDirectoryService directory,
+                        PanelPersonService persons,
                         PanelAuthorization authorization,
                         PanelAuditService audit,
                         RefreshTokenService refreshTokens) {
         this.directory = directory;
+        this.persons = persons;
         this.authorization = authorization;
         this.audit = audit;
         this.refreshTokens = refreshTokens;
@@ -88,7 +91,7 @@ public class PanelController {
             @Parameter(description = "Texto libre en nombre, apellido, uid o mail") @RequestParam(required = false) String search,
             @Parameter(description = "Nombre de grupo para filtrar por membresía") @RequestParam(required = false) String group,
             @Parameter(description = "true: solo deshabilitadas; false: solo habilitadas") @RequestParam(required = false) Boolean disabled) {
-        return directory.listPeople(delegate(jwt, module).module(), new PeopleSearchCriteria(page, size, search, group, disabled));
+        return persons.listPeople(delegate(jwt, module).module(), new PeopleSearchCriteria(page, size, search, group, disabled));
     }
 
     @Operation(summary = "Obtener persona por UID",
@@ -105,7 +108,7 @@ public class PanelController {
             @AuthenticationPrincipal Jwt jwt,
             @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
-        return directory.findPerson(delegate(jwt, module).module(), uid)
+        return persons.findPerson(delegate(jwt, module).module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
     }
 
@@ -125,7 +128,7 @@ public class PanelController {
                                                 @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                                 @Valid @RequestBody NewPersonRequest request) {
         var delegate = delegate(jwt, module);
-        PersonView created = directory.createPerson(delegate, delegate.module(), request);
+        PersonView created = persons.createPerson(delegate, delegate.module(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -147,7 +150,7 @@ public class PanelController {
                                 @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
                                 @RequestBody UpdatePersonRequest request) {
         var delegate = delegate(jwt, module);
-        return directory.updatePerson(delegate, delegate.module(), uid, request);
+        return persons.updatePerson(delegate, delegate.module(), uid, request);
     }
 
     @Operation(summary = "Deshabilitar persona (baja D7)",
@@ -165,7 +168,7 @@ public class PanelController {
                                             @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         var delegate = delegate(jwt, module);
-        PersonView person = directory.findPerson(delegate.module(), uid)
+        PersonView person = persons.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
         directory.disablePerson(delegate, delegate.module(), uid);
         refreshTokens.revokeAllForSub(person.employeeNumber());
