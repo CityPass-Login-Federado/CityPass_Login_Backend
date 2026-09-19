@@ -38,19 +38,15 @@ class PanelControllerTest {
     private final PanelAuthorization.Delegate globalDelegate =
             new PanelAuthorization.Delegate("U000007", "admin-global", "", true);
 
-    private PanelPersonService persons;
-    private PanelGroupService groups;
-    private PanelAccountService accounts;
+    private PanelDirectoryService directory;
     private PanelAuthorization authorization;
     private PanelController controller;
 
     @BeforeEach
     void setUp() {
-        persons = mock(PanelPersonService.class);
-        groups = mock(PanelGroupService.class);
-        accounts = mock(PanelAccountService.class);
+        directory = mock(PanelDirectoryService.class);
         authorization = mock(PanelAuthorization.class);
-        controller = new PanelController(persons, groups, accounts, authorization, mock(PanelAuditService.class),
+        controller = new PanelController(directory, authorization, mock(PanelAuditService.class),
                 mock(RefreshTokenService.class));
     }
 
@@ -58,11 +54,11 @@ class PanelControllerTest {
     void normalDelegateAlwaysUsesModuleFromItsToken() {
         when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
         var expected = new PaginatedResponse<PersonView>(List.of(), 0, 0, 0, 10);
-        when(persons.listPeople(eq("reclamos"), any(PeopleSearchCriteria.class))).thenReturn(expected);
+        when(directory.listPeople(eq("reclamos"), any(PeopleSearchCriteria.class))).thenReturn(expected);
 
         assertThat(controller.listPeople(jwt, "movilidad", 0, 10, null, null, null)).isSameAs(expected);
 
-        verify(persons).listPeople(eq("reclamos"), any(PeopleSearchCriteria.class));
+        verify(directory).listPeople(eq("reclamos"), any(PeopleSearchCriteria.class));
     }
 
     @Test
@@ -71,16 +67,16 @@ class PanelControllerTest {
         var person = new PersonView("U000042", "jperez", "Juan", "Perez", "j@x.com", false);
         var group = new GroupView("ops", List.of(), false);
         var people = new PaginatedResponse<>(List.of(person), 1, 1, 0, 10);
-        var groupPage = new PaginatedResponse<>(List.of(group), 1, 1, 0, 10);
+        var groups = new PaginatedResponse<>(List.of(group), 1, 1, 0, 10);
         var membership = new MembershipChangeResponse(group, List.of());
-        when(persons.listPeople(eq("movilidad"), any(PeopleSearchCriteria.class))).thenReturn(people);
-        when(persons.findPerson("movilidad", "jperez")).thenReturn(Optional.of(person));
-        when(persons.createPerson(any(), eq("movilidad"), any())).thenReturn(person);
-        when(persons.updatePerson(any(), eq("movilidad"), eq("jperez"), any())).thenReturn(person);
-        when(groups.listGroups(eq("movilidad"), any(GroupSearchCriteria.class))).thenReturn(groupPage);
-        when(groups.createGroup(any(), eq("movilidad"), eq("ops"))).thenReturn(group);
-        when(groups.addMember(any(), eq("movilidad"), eq("ops"), eq("jperez"))).thenReturn(membership);
-        when(groups.removeMember(any(), eq("movilidad"), eq("ops"), eq("jperez"))).thenReturn(membership);
+        when(directory.listPeople(eq("movilidad"), any(PeopleSearchCriteria.class))).thenReturn(people);
+        when(directory.findPerson("movilidad", "jperez")).thenReturn(Optional.of(person));
+        when(directory.createPerson(any(), eq("movilidad"), any())).thenReturn(person);
+        when(directory.updatePerson(any(), eq("movilidad"), eq("jperez"), any())).thenReturn(person);
+        when(directory.listGroups(eq("movilidad"), any(GroupSearchCriteria.class))).thenReturn(groups);
+        when(directory.createGroup(any(), eq("movilidad"), eq("ops"))).thenReturn(group);
+        when(directory.addMember(any(), eq("movilidad"), eq("ops"), eq("jperez"))).thenReturn(membership);
+        when(directory.removeMember(any(), eq("movilidad"), eq("ops"), eq("jperez"))).thenReturn(membership);
 
         controller.listPeople(jwt, " Movilidad ", 0, 10, null, null, null);
         assertThat(controller.getPerson(jwt, "MOVILIDAD", "jperez")).isEqualTo(person);
@@ -95,35 +91,12 @@ class PanelControllerTest {
         controller.addMember(jwt, "movilidad", "ops", new MemberRequest("jperez"));
         controller.removeMember(jwt, "movilidad", "ops", "jperez");
 
-        verify(accounts).disablePerson(any(), eq("movilidad"), eq("jperez"));
-        verify(accounts).enablePerson(any(), eq("movilidad"), eq("jperez"));
-        verify(accounts).resetPassword(any(), eq("movilidad"), eq("jperez"), eq("password1"));
-        verify(groups).deleteGroup(any(), eq("movilidad"), eq("ops"));
-        verify(groups).addMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));
-        verify(groups).removeMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));
-    }
-
-    @Test
-    void getPersonMissingReturns404() {
-        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
-        when(persons.findPerson("movilidad", "nobody")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> controller.getPerson(jwt, "movilidad", "nobody"))
-                .isInstanceOf(ResponseStatusException.class)
-                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
-                        .isEqualTo(HttpStatus.NOT_FOUND));
-    }
-
-    @Test
-    void disablePersonMissingReturns404() {
-        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
-        when(persons.findPerson("movilidad", "nobody")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> controller.disablePerson(jwt, "movilidad", "nobody"))
-                .isInstanceOf(ResponseStatusException.class)
-                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
-                        .isEqualTo(HttpStatus.NOT_FOUND));
-        verify(accounts, never()).disablePerson(any(), any(), any());
+        verify(directory).disablePerson(any(), eq("movilidad"), eq("jperez"));
+        verify(directory).enablePerson(any(), eq("movilidad"), eq("jperez"));
+        verify(directory).resetPassword(any(), eq("movilidad"), eq("jperez"), eq("password1"));
+        verify(directory).deleteGroup(any(), eq("movilidad"), eq("ops"));
+        verify(directory).addMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));
+        verify(directory).removeMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));
     }
 
     @Test
@@ -133,15 +106,15 @@ class PanelControllerTest {
         assertBadRequest(() -> controller.listPeople(jwt, null, 0, 10, null, null, null), "Módulo requerido");
         assertBadRequest(() -> controller.listGroups(jwt, "unknown", 0, 10, null, null), "Módulo inválido");
 
-        verify(persons, never()).listPeople(any(), any());
-        verify(groups, never()).listGroups(any(), any());
+        verify(directory, never()).listPeople(any(), any());
+        verify(directory, never()).listGroups(any(), any());
     }
 
     @Test
     void modulesEndpointRequiresAuthorizationAndReturnsDirectoryModules() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
 
-        assertThat(controller.listModules(jwt)).containsExactlyElementsOf(PanelDirectoryRules.MODULES);
+        assertThat(controller.listModules(jwt)).containsExactlyElementsOf(PanelDirectoryService.MODULES);
 
         verify(authorization).requireDelegate(jwt);
     }

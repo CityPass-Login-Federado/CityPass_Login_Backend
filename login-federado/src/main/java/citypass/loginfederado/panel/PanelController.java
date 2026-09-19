@@ -49,22 +49,16 @@ import java.util.Locale;
 @RequestMapping("/panel")
 public class PanelController {
 
-    private final PanelPersonService persons;
-    private final PanelGroupService groups;
-    private final PanelAccountService accounts;
+    private final PanelDirectoryService directory;
     private final PanelAuthorization authorization;
     private final PanelAuditService audit;
     private final RefreshTokenService refreshTokens;
 
-    public PanelController(PanelPersonService persons,
-                        PanelGroupService groups,
-                        PanelAccountService accounts,
+    public PanelController(PanelDirectoryService directory,
                         PanelAuthorization authorization,
                         PanelAuditService audit,
                         RefreshTokenService refreshTokens) {
-        this.persons = persons;
-        this.groups = groups;
-        this.accounts = accounts;
+        this.directory = directory;
         this.authorization = authorization;
         this.audit = audit;
         this.refreshTokens = refreshTokens;
@@ -94,7 +88,7 @@ public class PanelController {
             @Parameter(description = "Texto libre en nombre, apellido, uid o mail") @RequestParam(required = false) String search,
             @Parameter(description = "Nombre de grupo para filtrar por membresía") @RequestParam(required = false) String group,
             @Parameter(description = "true: solo deshabilitadas; false: solo habilitadas") @RequestParam(required = false) Boolean disabled) {
-        return persons.listPeople(delegate(jwt, module).module(), new PeopleSearchCriteria(page, size, search, group, disabled));
+        return directory.listPeople(delegate(jwt, module).module(), new PeopleSearchCriteria(page, size, search, group, disabled));
     }
 
     @Operation(summary = "Obtener persona por UID",
@@ -111,7 +105,7 @@ public class PanelController {
             @AuthenticationPrincipal Jwt jwt,
             @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
-        return persons.findPerson(delegate(jwt, module).module(), uid)
+        return directory.findPerson(delegate(jwt, module).module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
     }
 
@@ -131,7 +125,7 @@ public class PanelController {
                                                 @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                                 @Valid @RequestBody NewPersonRequest request) {
         var delegate = delegate(jwt, module);
-        PersonView created = persons.createPerson(delegate, delegate.module(), request);
+        PersonView created = directory.createPerson(delegate, delegate.module(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -153,7 +147,7 @@ public class PanelController {
                                 @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
                                 @RequestBody UpdatePersonRequest request) {
         var delegate = delegate(jwt, module);
-        return persons.updatePerson(delegate, delegate.module(), uid, request);
+        return directory.updatePerson(delegate, delegate.module(), uid, request);
     }
 
     @Operation(summary = "Deshabilitar persona (baja D7)",
@@ -171,9 +165,9 @@ public class PanelController {
                                             @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         var delegate = delegate(jwt, module);
-        PersonView person = persons.findPerson(delegate.module(), uid)
+        PersonView person = directory.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
-        accounts.disablePerson(delegate, delegate.module(), uid);
+        directory.disablePerson(delegate, delegate.module(), uid);
         refreshTokens.revokeAllForSub(person.employeeNumber());
         audit.record(delegate, "SESSIONS_REVOKED", person.uid(), "baja de persona");
         return ResponseEntity.noContent().build();
@@ -193,7 +187,7 @@ public class PanelController {
                                             @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         var delegate = delegate(jwt, module);
-        accounts.enablePerson(delegate, delegate.module(), uid);
+        directory.enablePerson(delegate, delegate.module(), uid);
         return ResponseEntity.noContent().build();
     }
 
@@ -213,7 +207,7 @@ public class PanelController {
                                             @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
                                             @Valid @RequestBody PasswordResetRequest request) {
         var delegate = delegate(jwt, module);
-        accounts.resetPassword(delegate, delegate.module(), uid, request.temporaryPassword());
+        directory.resetPassword(delegate, delegate.module(), uid, request.temporaryPassword());
         return ResponseEntity.noContent().build();
     }
 
@@ -238,7 +232,7 @@ public class PanelController {
             @Parameter(description = "Tamaño de página") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "Texto libre en el nombre del grupo") @RequestParam(required = false) String search,
             @Parameter(description = "true: solo grupos reservados; false: solo no reservados") @RequestParam(required = false) Boolean reserved) {
-        return groups.listGroups(delegate(jwt, module).module(), new GroupSearchCriteria(page, size, search, reserved));
+        return directory.listGroups(delegate(jwt, module).module(), new GroupSearchCriteria(page, size, search, reserved));
     }
 
     @Operation(summary = "Crear grupo",
@@ -257,7 +251,7 @@ public class PanelController {
                                                 @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                                 @Valid @RequestBody GroupCreateRequest request) {
         var delegate = delegate(jwt, module);
-        GroupView created = groups.createGroup(delegate, delegate.module(), request.name());
+        GroupView created = directory.createGroup(delegate, delegate.module(), request.name());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -275,7 +269,7 @@ public class PanelController {
                                             @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
                                             @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name) {
         var delegate = delegate(jwt, module);
-        groups.deleteGroup(delegate, delegate.module(), name);
+        directory.deleteGroup(delegate, delegate.module(), name);
         return ResponseEntity.noContent().build();
     }
 
@@ -294,7 +288,7 @@ public class PanelController {
                                             @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name,
                                             @Valid @RequestBody MemberRequest request) {
         var delegate = delegate(jwt, module);
-        return groups.addMember(delegate, delegate.module(), name, request.memberUid());
+        return directory.addMember(delegate, delegate.module(), name, request.memberUid());
     }
 
     @Operation(summary = "Quitar miembro de grupo",
@@ -312,7 +306,7 @@ public class PanelController {
                                                 @Parameter(description = "Nombre del grupo (solo minúsculas, números, guiones)") @PathVariable String name,
                                                 @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
         var delegate = delegate(jwt, module);
-        return groups.removeMember(delegate, delegate.module(), name, uid);
+        return directory.removeMember(delegate, delegate.module(), name, uid);
     }
 
     @Operation(summary = "Listar módulos existentes",
@@ -328,7 +322,7 @@ public class PanelController {
     @GetMapping("/modules")
     public List<String> listModules(@AuthenticationPrincipal Jwt jwt) {
         authorization.requireDelegate(jwt);
-        return PanelDirectoryRules.MODULES;
+        return PanelDirectoryService.MODULES;
     }
 
     // ------------------------------------------------------------------
@@ -349,7 +343,7 @@ public class PanelController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo requerido para admin global");
         }
         String module = moduleParam.trim().toLowerCase(Locale.ROOT);
-        if (!PanelDirectoryRules.MODULES.contains(module)) {
+        if (!PanelDirectoryService.MODULES.contains(module)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo inválido: " + moduleParam);
         }
         return new PanelAuthorization.Delegate(base.sub(), base.uid(), module, true);
