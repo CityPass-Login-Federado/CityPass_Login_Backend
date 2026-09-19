@@ -4,6 +4,7 @@ import citypass.loginfederado.dto.ForgotPasswordRequest;
 import citypass.loginfederado.dto.LoginRequest;
 import citypass.loginfederado.dto.LoginResponse;
 import citypass.loginfederado.dto.RefreshRequest;
+import citypass.loginfederado.dto.ResetPasswordRequest;
 import citypass.loginfederado.service.AuthService;
 import citypass.loginfederado.service.PasswordService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -93,17 +94,35 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "Solicitar contraseña temporal",
-            description = "Genera una contraseña aleatoria, la fija en LDAP y la manda por mail. "
-                    + "Responde SIEMPRE 204 (usuario existente o no): no se puede enumerar el directorio. "
-                    + "Con el mail en mano el usuario entra con esa clave y la cambia en /me/change-password.")
+    @Operation(summary = "Solicitar recupero de contraseña",
+            description = "Emite un token de un solo uso y lo manda por mail como enlace. "
+                    + "NO escribe en LDAP al pedir: la contraseña cambia recién al canjear el "
+                    + "token en /auth/reset-password. Responde SIEMPRE 204 (usuario existente "
+                    + "o no, limitado o no): no se puede enumerar el directorio ni detectar "
+                    + "el freno anti-abuso. Cooldown por cuenta + topes por cuenta e IP.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Procesado (el mail llega solo si el usuario existe y tiene email)"),
             @ApiResponse(responseCode = "400", description = "Validación de campos fallida")
     })
     @PostMapping("/forgot-password")
-    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
-        passwordService.requestTemporaryPassword(request.uid());
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
+                                               HttpServletRequest httpRequest) {
+        passwordService.requestPasswordReset(request.uid(), resolveClientIp(httpRequest));
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Canjear token de recupero",
+            description = "Define la nueva contraseña con el token del enlace del mail "
+                    + "(un solo uso, con vencimiento). Al canjear se revocan TODAS las "
+                    + "sesiones vigentes de la cuenta, igual que en /me/change-password.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Contraseña restablecida y sesiones revocadas"),
+            @ApiResponse(responseCode = "400", description = "Validación de campos fallida"),
+            @ApiResponse(responseCode = "422", description = "Enlace inválido o expiró")
+    })
+    @PostMapping("/reset-password")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        passwordService.redeemResetToken(request.token(), request.newPassword());
         return ResponseEntity.noContent().build();
     }
 }

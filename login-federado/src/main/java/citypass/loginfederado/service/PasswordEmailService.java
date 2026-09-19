@@ -8,19 +8,31 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 /**
- * Envío del mail con la contraseña temporal.
+ * Envío del mail con el ENLACE de recupero (token de un solo uso).
  *
- * Usa JavaMailSender SOLO si hay SMTP configurado (spring.mail.host: lo
- * auto-configura Boot). Sin SMTP (desarrollo) respeta `debug-log`: si es true
- * imprime la clave en consola para poder entrar sin levantar un servidor de
- * mail; si es false, no intenta mandar nada y loguea el problema.
+ * El mail NUNCA lleva credenciales: solo el enlace con el token crudo. LDAP
+ * no se tocó todavía cuando esto se manda — si el envío falla, la
+ * contraseña vigente sigue intacta.
  *
- * Cualquier falla de envío se registra y NO se propaga: el endpoint de
- * recupero responde siempre 204 (anti-enumeración del directorio).
+ * Usa JavaMailSender SOLO si hay SMTP REAL configurado: bean presente Y host
+ * no blanco. Un host vacío ("") cuenta como ausente — Boot lo interpreta
+ * como configurado y crearía el sender igual (issue del compose), así que
+ * se detecta explícitamente acá y se usa el mismo fallback que sin sender.
+ *
+ * Sin SMTP (desarrollo) respeta `debug-log`: si es true imprime el enlace
+ * en consola para poder probar sin servidor de mail; si es false, no
+ * intenta mandar nada y REPORTA el fallo (false).
+ *
+ * Devuelve true si el usuario quedó notificado (mail enviado o logueado en
+ * dev), false si no. El llamador decide con ese booleano (p.ej. liberar el
+ * token pendiente para que el usuario pueda reintentar de inmediato).
+ * Nunca lanza: fallar ruidoso hacia afuera permitiría enumerar el
+ * directorio por diferencia de respuestas.
  */
 @Service
 public class PasswordEmailService {
@@ -37,43 +49,65 @@ public class PasswordEmailService {
     }
 
     /**
-     * @param temporaryPassword la clave recién generada (ya persistida en LDAP).
+     * @param resetLink enlace completo con el token crudo (ya armado).
+     * @return true si se notificó (enviado o debug-log), false si no.
      */
-    public void sendTemporaryPassword(String to, String username, String temporaryPassword) {
-        JavaMailSender sender = mailSenderProvider.getIfAvailable();
-        if (sender == null) {
+    public boolean sendResetLink(String to, String username, String resetLink) {
+        if (!hasUsableSmtp(mailSenderProvider.getIfAvailable())) {
             if (properties.debugLog()) {
-                log.warn("[DEV] SMTP no configurado: contraseña temporal de {} ({}) -> {}",
-                        username, to, temporaryPassword);
-            } else {
-                log.error("Recupero de contraseña de {} ({}) sin SMTP configurado: no se pudo notificar",
-                        username, to);
+                log.warn("[DEV] SMTP no configurado: enlace de recupero de {} ({}) -> {}",
+                        username, to, resetLink);
+                return true;
             }
-            return;
+            log.error("Recupero de contraseña de {} ({}) sin SMTP configurado: no se pudo notificar",
+                    username, to);
+            return false;
         }
 
         try {
+            JavaMailSender sender = mailSenderProvider.getIfAvailable();
             MimeMessage message = sender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
             helper.setFrom(properties.from());
             helper.setTo(to);
-            helper.setSubject("CityPass+ - Contraseña temporal");
+            helper.setSubject("CityPass+ - Recuperar contraseña");
             helper.setText("""
                     Hola %s,
 
-                    Solicitaste cambiar tu contraseña de CityPass+. Tu contraseña temporal es:
+                    Pediste recuperar tu contraseña de CityPass+. Entrá a este enlace
+                    para elegir una nueva (vence en %d minutos y es de un solo uso):
 
                         %s
 
-                    Entrá con esa contraseña y luego cámbiala desde tu perfil.
-                    """.formatted(username, temporaryPassword));
+                    Si no fuiste vos, ignorá este mensaje: tu contraseña actual
+                    sigue funcionando.
+                    """.formatted(username, properties.tokenTtlMinutes(), resetLink));
             sender.send(message);
-            log.info("Contraseña temporal enviada a {}", to);
-        } catch (MessagingException | MailException ex) {
+            log.info("Enlace de recupero enviado a {}", to);
+            return true;
+        } catch (MessagingException | MailException | IllegalStateException ex) {
             // El SMTP real lanza MailException (runtime) en el send; la
-            // MessagingException cubre el armado del mensaje. Cualquiera de las
-            // dos: se registra y NO se propaga (el endpoint responde 204 igual).
-            log.error("No se pudo enviar la contraseña temporal a {}", to, ex);
+            // MessagingException cubre el armado del mensaje. Se registra y se
+            // REPORTA (false): el llamador invalida el token pendiente para
+            // que el usuario pueda reintentar, sin tocar LDAP.
+            log.error("No se pudo enviar el enlace de recupero a {}", to, ex);
+            return false;
         }
+    }
+
+    /**
+     * SMTP usable = bean presente y host no blanco. El host vacío que exporta
+     * el compose por defecto ("${VAR:-}") hace que Boot cree el sender igual:
+     * tratarlo como ausente restaura el fallback de desarrollo.
+     */
+    private static boolean hasUsableSmtp(JavaMailSender sender) {
+        if (sender == null) {
+            return false;
+        }
+        if (sender instanceof JavaMailSenderImpl impl) {
+            String host = impl.getHost();
+            return host != null && !host.isBlank();
+        }
+        return true;
     }
 }

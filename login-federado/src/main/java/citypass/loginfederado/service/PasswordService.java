@@ -1,27 +1,47 @@
 package citypass.loginfederado.service;
 
+import citypass.loginfederado.config.PasswordResetProperties;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
+import citypass.loginfederado.model.PasswordResetToken;
 import citypass.loginfederado.panel.PanelDirectoryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 
 /**
- * Self-service de contraseñas (olvidé mi clave + cambio desde el perfil):
+ * Self-service de contraseñas (olvidé mi clave + cambio desde el perfil).
  *
- * - requestTemporaryPassword: busca la ficha GLOBAL por uid, escribe una clave
- *   random en LDAP (panel-writer) y la manda por mail. Si el usuario no existe
- *   (o no tiene mail) NO hace nada: el endpoint responde 204 igual, no se
- *   puede enumerar el directorio con este flujo.
- *
+ * - requestPasswordReset: NO escribe en LDAP. Emite un token aleatorio de un
+ *   solo uso, persiste SOLO su hash SHA-256 (un activo por cuenta) y encola
+ *   el mail con el enlace. Exista o no el usuario, haya o no mail, falle el
+ *   SMTP o limite el freno: el endpoint responde 204 igual, no se puede
+ *   enumerar el directorio con este flujo. Como el LDAP no se toca al pedir,
+ *   un fallo de mail jamás deja al usuario sin su contraseña vigente.
+ * - redeemResetToken: canjea el token ( landed del enlace) junto a la NUEVA
+ *   contraseña. Recién acá se escribe LDAP — y al hacerlo se revocan TODAS
+ *   las sesiones (refresh tokens), igual que el cambio desde perfil.
  * - changePassword: relee la ficha por sub (employeeNumber del JWT), pide la
- *   clave ACTUAL como segundo factor, la verifica por bind contra LDAP y recién
- *   ahí escribe la nueva. Al cambiar, se revocan todas las sesiones (refresh
- *   tokens) de la persona.
+ *   clave ACTUAL como segundo factor, la verifica por bind contra LDAP y
+ *   recién ahí escribe la nueva, revocando sesiones.
+ *
+ * Anti-timing: la respuesta 204 sale tras un camino uniforme corto
+ * (normalizar → limiter → lookup LDAP → generar token + hashear, SIEMPRE
+ * incluso para usuarios inexistentes con un token ficticio). El trabajo
+ * real y lento (persistir + SMTP de segundos) corre async después de
+ * responder. Nada de lo que tarda distinto según exista la cuenta ocurre
+ * antes del 204.
  */
 @Service
 public class PasswordService {
@@ -29,61 +49,171 @@ public class PasswordService {
     private static final Logger securityLog = LoggerFactory.getLogger("SECURITY");
     private static final Logger log = LoggerFactory.getLogger(PasswordService.class);
 
-    private static final int TEMP_PASSWORD_LENGTH = 12;
-    private static final String PASSWORD_ALPHABET =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    private static final int RESET_TOKEN_BYTE_LENGTH = 32;
+
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final LdapDirectory ldapDirectory;
     private final PanelDirectoryService directory;
     private final PasswordEmailService emailSender;
     private final RefreshTokenService refreshTokenService;
+    private final PasswordResetLimiter limiter;
+    private final PasswordResetTokenStore tokenStore;
+    private final PasswordResetProperties properties;
+    private final Executor resetExecutor;
 
     public PasswordService(LdapDirectory ldapDirectory,
                            PanelDirectoryService directory,
                            PasswordEmailService emailSender,
-                           RefreshTokenService refreshTokenService) {
+                           RefreshTokenService refreshTokenService,
+                           PasswordResetLimiter limiter,
+                           PasswordResetTokenStore tokenStore,
+                           PasswordResetProperties properties,
+                           @Qualifier("passwordResetExecutor") Executor resetExecutor) {
         this.ldapDirectory = ldapDirectory;
         this.directory = directory;
         this.emailSender = emailSender;
         this.refreshTokenService = refreshTokenService;
+        this.limiter = limiter;
+        this.tokenStore = tokenStore;
+        this.properties = properties;
+        this.resetExecutor = resetExecutor;
     }
 
     /**
-     * Genera, persiste y notifica una contraseña temporal. Nunca lanza: el
-     * usuario pida lo que pida, el resultado que ve es el mismo 204.
-     * Cualquier fallo interno (LDAP caído, escritura denegada, ppolicy,
-     * entrada corrupta) se loguea y se silencia: filtrarlo como 500/422
-     * permitiría enumerar el directorio por diferencia de respuestas.
+     * Solicitud de recupero. Nunca lanza: el usuario pida lo que pida, haya
+     * o no cuenta, falle lo que falle, el resultado visible es el mismo 204.
+     * La causa real va al log, nunca al cliente.
      */
-    public void requestTemporaryPassword(String username) {
+    public void requestPasswordReset(String uid, String ipAddress) {
         try {
-            doRequestTemporaryPassword(username);
+            doRequestPasswordReset(uid, ipAddress);
         } catch (Exception ex) {
-            // Contrato: SIEMPRE 204. La causa real va al log, nunca al cliente.
+            // Contrato: SIEMPRE 204. Filtrar un 500/422 permitiría enumerar
+            // el directorio por diferencia de respuestas.
             log.error("Recupero de contraseña fallido para '{}': se responde 204 igual",
-                    username, ex);
+                    uid, ex);
         }
     }
 
-    private void doRequestTemporaryPassword(String username) {
-        String uid = username == null ? "" : username.trim();
-        Optional<LdapDirectoryPerson> found = ldapDirectory.findByUid(uid);
-        if (found.isEmpty() || found.get() == null) {
-            // Usuario inexistente, deshabilitado o ficha corrupta (mapper
-            // devuelve null): mismo silencio que el éxito.
-            return;
-        }
-        LdapDirectoryPerson person = found.get();
-        if (person.email() == null || person.email().isBlank()) {
-            securityLog.warn("Recupero de contraseña omitido para sub={}: sin mail configurado", person.sub());
+    private void doRequestPasswordReset(String uid, String ipAddress) {
+        String key = uid == null ? "" : uid.trim();
+
+        // Freno anti-abuso (cooldown por cuenta + topes por cuenta e IP).
+        // Rechazado ⇒ 204 igual: el límite no revela si la cuenta existe.
+        if (!limiter.tryAcquire(key, ipAddress)) {
             return;
         }
 
-        String temporaryPassword = generateTemporaryPassword();
-        directory.setPassword(person.module(), person.uid(), temporaryPassword);
-        emailSender.sendTemporaryPassword(person.email(), person.uid(), temporaryPassword);
-        securityLog.info("Contraseña temporal asignada a sub={} (uid={})", person.sub(), person.uid());
+        Optional<LdapDirectoryPerson> found = ldapDirectory.findByUid(key);
+        if (found.isEmpty() || found.get() == null
+                || found.get().email() == null || found.get().email().isBlank()) {
+            // Usuario inexistente, deshabilitado, ficha corrupta o sin mail:
+            // trabajo ficticio comparable (generar + hashear) para no
+            // distinguir por timing, y mismo silencio que el éxito.
+            hashToken(generateRawToken());
+            if (found.isPresent() && found.get() != null) {
+                securityLog.warn("Recupero de contraseña omitido para sub={}: sin mail configurado",
+                        found.get().sub());
+            }
+            return;
+        }
+
+        LdapDirectoryPerson person = found.get();
+        String rawToken = generateRawToken();
+        String tokenHash = hashToken(rawToken);
+
+        // Reserva atómica del único token activo (borra el anterior, si hay).
+        // LDAP sigue intacto: si todo lo demás falla, la clave vigente vale.
+        tokenStore.issue(person.sub(), person.uid(), tokenHash, properties.tokenTtlMinutes());
+        securityLog.info("Token de recupero emitido para sub={} (uid={})", person.sub(), person.uid());
+
+        String resetLink = properties.resetLinkBase()
+                + "?token=" + URLEncoder.encode(rawToken, StandardCharsets.UTF_8);
+
+        // El envío (lento, segundos en SMTP real) corre DESPUÉS de responder.
+        resetExecutor.execute(() -> deliverResetLink(person, resetLink));
+    }
+
+    /**
+     * Entrega async del enlace. Si no se pudo notificar, se libera el token
+     * pendiente para que el usuario pueda reintentar de inmediato — y como
+     * LDAP nunca se tocó, su contraseña actual sigue funcionando.
+     */
+    private void deliverResetLink(LdapDirectoryPerson person, String resetLink) {
+        try {
+            boolean notified = emailSender.sendResetLink(person.email(), person.uid(), resetLink);
+            if (!notified) {
+                tokenStore.discard(person.sub());
+                securityLog.warn("Enlace de recupero no entregado a sub={}: token liberado para reintento",
+                        person.sub());
+            }
+        } catch (Exception ex) {
+            log.error("Fallo async de recupero para sub={}: se libera el token", person.sub(), ex);
+            try {
+                tokenStore.discard(person.sub());
+            } catch (Exception inner) {
+                log.error("No se pudo liberar el token pendiente de sub={}", person.sub(), inner);
+            }
+        }
+    }
+
+    /**
+     * Canje del token: define la nueva contraseña. Token inválido, usado o
+     * vencido, cuenta borrada o deshabilitada entre la solicitud y el canje:
+     * el MISMO 422 genérico (los tokens son aleatorios de 256 bits, no hay
+     * oráculo de enumeración posible).
+     */
+    public void redeemResetToken(String rawToken, String newPassword) {
+        if (newPassword == null || newPassword.length() < 8) {
+            throw new IllegalArgumentException("La nueva contraseña debe tener al menos 8 caracteres");
+        }
+
+        String tokenHash = (rawToken == null || rawToken.isBlank()) ? "" : hashToken(rawToken.trim());
+        Optional<PasswordResetToken> stored = tokenHash.isEmpty()
+                ? Optional.empty()
+                : tokenStore.findByHash(tokenHash);
+        if (stored.isEmpty() || !stored.get().isUsable()) {
+            rejectInvalidToken();
+        }
+        PasswordResetToken token = stored.get();
+
+        // La cuenta pudo borrarse o deshabilitarse DESPUÉS de pedir el token:
+        // se revalida contra LDAP igual que en cada canje de refresh.
+        LdapDirectoryPerson person = ldapDirectory.reloadBySub(token.getSub())
+                .orElseThrow(PasswordService::invalidToken);
+
+        // Consumo atómico: si otro hilo ganó el canje, este pierde y el
+        // token ya no sirve (single-use de verdad, aun concurrente).
+        if (!tokenStore.consumeIfUsable(tokenHash, Instant.now())) {
+            rejectInvalidToken();
+        }
+
+        // Recién ACÁ se escribe LDAP — y al hacerlo mueren todas las
+        // sesiones vigentes: quien tuviera un refresh anterior al recupero
+        // no puede seguir refrescando (mismo orden que changePassword).
+        directory.setPassword(person.module(), person.uid(), newPassword);
+        int revoked = refreshTokenService.revokeAllForSub(person.sub());
+        securityLog.info("Contraseña restablecida vía token para sub={} (sesiones revocadas={})",
+                person.sub(), revoked);
+    }
+
+    private static IllegalArgumentException invalidToken() {
+        return new IllegalArgumentException("El enlace es inválido o expiró");
+    }
+
+    /**
+     * Rechazo uniforme del canje inválido. El dummyBind quema un round-trip
+     * LDAP comparable al reloadBySub del camino válido, para no distinguir
+     * "token inexistente" de "token válido de cuenta borrada" por timing.
+     */
+    private void rejectInvalidToken() {
+        try {
+            ldapDirectory.dummyBind("reset-token-rejected");
+        } catch (Exception ignored) {
+            // El dummy nunca debe romper el rechazo uniforme.
+        }
+        throw invalidToken();
     }
 
     /**
@@ -113,11 +243,19 @@ public class PasswordService {
                 person.sub(), revoked);
     }
 
-    private static String generateTemporaryPassword() {
-        StringBuilder sb = new StringBuilder(TEMP_PASSWORD_LENGTH);
-        for (int i = 0; i < TEMP_PASSWORD_LENGTH; i++) {
-            sb.append(PASSWORD_ALPHABET.charAt(SECURE_RANDOM.nextInt(PASSWORD_ALPHABET.length())));
+    private static String generateRawToken() {
+        byte[] bytes = new byte[RESET_TOKEN_BYTE_LENGTH];
+        SECURE_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /** Solo el hash viaja a la base; el crudo va UNA vez en el enlace. */
+    private static String hashToken(String rawToken) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return Base64.getEncoder().encodeToString(digest.digest(rawToken.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 no disponible", e);
         }
-        return sb.toString();
     }
 }

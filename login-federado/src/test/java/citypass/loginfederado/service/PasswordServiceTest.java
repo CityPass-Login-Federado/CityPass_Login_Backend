@@ -1,16 +1,22 @@
 package citypass.loginfederado.service;
 
+import citypass.loginfederado.config.PasswordResetProperties;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
+import citypass.loginfederado.model.PasswordResetToken;
 import citypass.loginfederado.panel.PanelDirectoryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -22,81 +28,206 @@ import static org.mockito.Mockito.when;
 
 class PasswordServiceTest {
 
-    private static final String GENERATED = "AbC123XyZ987";
-
     private final LdapDirectoryPerson person = new LdapDirectoryPerson(
             "uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local",
             "U000042", "jperez", "Juan Perez", "jperez@citypass.local", "reclamos",
             List.of("soporte-n2"));
 
+    private final PasswordResetProperties properties = new PasswordResetProperties(
+            "no-reply@citypass.local", true, "http://localhost:3000/reset-password",
+            30, 5, 3, 50);
+
+    // Executor directo: el trabajo async corre sincrónico en el test.
+    private final Executor directExecutor = Runnable::run;
+
     private LdapDirectory ldap;
     private PanelDirectoryService directory;
     private PasswordEmailService emailSender;
     private RefreshTokenService refresh;
+    private PasswordResetLimiter limiter;
+    private PasswordResetTokenStore tokenStore;
     private PasswordService service;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         ldap = mock(LdapDirectory.class);
         directory = mock(PanelDirectoryService.class);
         emailSender = mock(PasswordEmailService.class);
         refresh = mock(RefreshTokenService.class);
-        service = new PasswordService(ldap, directory, emailSender, refresh);
+        limiter = mock(PasswordResetLimiter.class);
+        tokenStore = mock(PasswordResetTokenStore.class);
+        service = new PasswordService(ldap, directory, emailSender, refresh,
+                limiter, tokenStore, properties, directExecutor);
     }
 
+    private void acceptRequest() {
+        when(limiter.tryAcquire(anyString(), any())).thenReturn(true);
+        when(emailSender.sendResetLink(anyString(), anyString(), anyString())).thenReturn(true);
+    }
+
+    private PasswordResetToken usableToken() {
+        return new PasswordResetToken("U000042", "jperez", "hash-valido",
+                Instant.now(), Instant.now().plusSeconds(1800));
+    }
+
+    // --- Solicitud: emite token, NUNCA escribe LDAP ---
+
     @Test
-    void requestTemporaryPasswordWritesDirectoryAndSendsEmail() {
+    void requestPasswordResetIssuesTokenAndSendsLinkWithoutTouchingLdap() {
         when(ldap.findByUid("jperez")).thenReturn(Optional.of(person));
-        service.requestTemporaryPassword(" jperez ");
-        verify(directory).setPassword(eq("reclamos"), eq("jperez"), anyString());
-        verify(emailSender).sendTemporaryPassword(eq("jperez@citypass.local"), eq("jperez"), anyString());
+        acceptRequest();
+
+        assertThatCode(() -> service.requestPasswordReset(" jperez ", "10.0.0.1"))
+                .doesNotThrowAnyException();
+
+        verify(tokenStore).issue(eq("U000042"), eq("jperez"), anyString(), eq(30));
+        verify(emailSender).sendResetLink(eq("jperez@citypass.local"), eq("jperez"), anyString());
+        // La solicitud JAMÁS escribe la credencial: solo el canje toca LDAP.
+        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
     }
 
     @Test
-    void requestTemporaryPasswordUnknownUserIsSilent() {
+    void requestPasswordResetThrottledIsSilent() {
+        when(limiter.tryAcquire("jperez", "10.0.0.1")).thenReturn(false);
+
+        assertThatCode(() -> service.requestPasswordReset("jperez", "10.0.0.1"))
+                .doesNotThrowAnyException();
+
+        verifyNoInteractions(ldap, directory, tokenStore, emailSender);
+    }
+
+    @Test
+    void requestPasswordResetUnknownUserIsSilent() {
         when(ldap.findByUid("nobody")).thenReturn(Optional.empty());
-        service.requestTemporaryPassword("nobody");
-        verifyNoInteractions(directory);
-        verifyNoInteractions(emailSender);
+        when(limiter.tryAcquire(anyString(), any())).thenReturn(true);
+
+        assertThatCode(() -> service.requestPasswordReset("nobody", "10.0.0.1"))
+                .doesNotThrowAnyException();
+
+        verify(tokenStore, never()).issue(anyString(), anyString(), anyString(), anyInt());
+        verifyNoInteractions(directory, emailSender);
     }
 
     @Test
-    void requestTemporaryPasswordWithoutEmailDoesNothing() {
+    void requestPasswordResetWithoutEmailDoesNothing() {
         LdapDirectoryPerson noMail = new LdapDirectoryPerson(
                 person.dn(), person.sub(), person.uid(), person.fullName(),
                 null, person.module(), person.groups());
         when(ldap.findByUid("jperez")).thenReturn(Optional.of(noMail));
-        service.requestTemporaryPassword("jperez");
-        verifyNoInteractions(directory);
-        verifyNoInteractions(emailSender);
+        when(limiter.tryAcquire(anyString(), any())).thenReturn(true);
+
+        service.requestPasswordReset("jperez", "10.0.0.1");
+
+        verify(tokenStore, never()).issue(anyString(), anyString(), anyString(), anyInt());
+        verifyNoInteractions(directory, emailSender);
     }
 
     @Test
-    void requestTemporaryPasswordWriteFailureIsSilent() {
-        // Contrato: SIEMPRE 204. Un fallo de escritura LDAP no debe propagarse.
+    void requestPasswordResetMailFailureKeepsPriorCredentialAndReleasesToken() {
+        // Issue 3: si el SMTP falla, el usuario conserva su contraseña
+        // vigente (LDAP intacto) y el token se libera para reintentar.
         when(ldap.findByUid("jperez")).thenReturn(Optional.of(person));
-        doThrow(new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("ldap down")))
-                .when(directory).setPassword(eq("reclamos"), eq("jperez"), anyString());
-        service.requestTemporaryPassword("jperez");
-        verify(emailSender, never()).sendTemporaryPassword(anyString(), anyString(), anyString());
+        when(limiter.tryAcquire(anyString(), any())).thenReturn(true);
+        when(emailSender.sendResetLink(anyString(), anyString(), anyString())).thenReturn(false);
+
+        assertThatCode(() -> service.requestPasswordReset("jperez", "10.0.0.1"))
+                .doesNotThrowAnyException();
+
+        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(tokenStore).discard("U000042");
     }
 
     @Test
-    void requestTemporaryPasswordLookupFailureIsSilent() {
+    void requestPasswordResetLookupFailureIsSilent() {
         when(ldap.findByUid("jperez")).thenThrow(new RuntimeException("ldap down"));
-        service.requestTemporaryPassword("jperez");
-        verifyNoInteractions(directory);
-        verifyNoInteractions(emailSender);
+        when(limiter.tryAcquire(anyString(), any())).thenReturn(true);
+
+        assertThatCode(() -> service.requestPasswordReset("jperez", "10.0.0.1"))
+                .doesNotThrowAnyException();
+
+        verifyNoInteractions(directory, tokenStore, emailSender);
+    }
+
+    // --- Canje: escribe LDAP + revoca sesiones ---
+
+    @Test
+    void redeemResetTokenWritesLdapAndRevokesSessions() {
+        // El servicio hashea el crudo antes de buscar: el hash exacto es
+        // detalle interno, se matchea por tipo.
+        when(tokenStore.findByHash(anyString())).thenReturn(Optional.of(usableToken()));
+        when(ldap.reloadBySub("U000042")).thenReturn(Optional.of(person));
+        when(tokenStore.consumeIfUsable(anyString(), any(Instant.class))).thenReturn(true);
+        when(refresh.revokeAllForSub("U000042")).thenReturn(3);
+
+        assertThatCode(() -> service.redeemResetToken("token-crudo-del-enlace", "nuevaClave123"))
+                .doesNotThrowAnyException();
+
+        verify(directory).setPassword("reclamos", "jperez", "nuevaClave123");
+        verify(refresh).revokeAllForSub("U000042");
     }
 
     @Test
-    void requestTemporaryPasswordNullPersonIsSilent() {
-        // Mapper devuelve null en fichas corruptas/deshabilitadas: no debe dar NPE/500.
-        when(ldap.findByUid("jperez")).thenReturn(Optional.ofNullable(null));
-        service.requestTemporaryPassword("jperez");
-        verifyNoInteractions(directory);
-        verifyNoInteractions(emailSender);
+    void redeemResetTokenUnknownTokenFailsWithoutSideEffects() {
+        when(tokenStore.findByHash("falso")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.redeemResetToken("falso", "nuevaClave123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("inválido o expiró");
+
+        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(refresh, never()).revokeAllForSub(anyString());
     }
+
+    @Test
+    void redeemResetTokenUsedOrExpiredFailsWithoutSideEffects() {
+        PasswordResetToken used = usableToken();
+        used.markUsed(Instant.now());
+        when(tokenStore.findByHash(anyString())).thenReturn(Optional.of(used));
+
+        assertThatThrownBy(() -> service.redeemResetToken("usado", "nuevaClave123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("inválido o expiró");
+
+        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(refresh, never()).revokeAllForSub(anyString());
+        verify(ldap, never()).reloadBySub(anyString());
+    }
+
+    @Test
+    void redeemResetTokenDisabledAccountFailsWithoutSideEffects() {
+        when(tokenStore.findByHash(anyString())).thenReturn(Optional.of(usableToken()));
+        when(ldap.reloadBySub("U000042")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.redeemResetToken("hash-crudo", "nuevaClave123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("inválido o expiró");
+
+        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(refresh, never()).revokeAllForSub(anyString());
+    }
+
+    @Test
+    void redeemResetTokenLostRaceFailsWithoutWriting() {
+        when(tokenStore.findByHash(anyString())).thenReturn(Optional.of(usableToken()));
+        when(ldap.reloadBySub("U000042")).thenReturn(Optional.of(person));
+        when(tokenStore.consumeIfUsable(anyString(), any(Instant.class))).thenReturn(false);
+
+        assertThatThrownBy(() -> service.redeemResetToken("hash-crudo", "nuevaClave123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("inválido o expiró");
+
+        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(refresh, never()).revokeAllForSub(anyString());
+    }
+
+    @Test
+    void redeemResetTokenRejectsShortNewPassword() {
+        assertThatThrownBy(() -> service.redeemResetToken("cualquiera", "corta"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(ldap, directory, refresh, tokenStore);
+    }
+
+    // --- Cambio desde perfil (sin cambios de comportamiento) ---
 
     @Test
     void changePasswordRejectsShortNewPassword() {

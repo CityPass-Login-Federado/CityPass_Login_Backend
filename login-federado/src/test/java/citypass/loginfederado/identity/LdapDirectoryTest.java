@@ -94,6 +94,21 @@ class LdapDirectoryTest {
     }
 
     @Test
+    void singleDisabledResultIsEmptyInsteadOfNpe() {
+        // Regresión: el mapper devuelve null para la ficha deshabilitada; un
+        // único null llegaba a findFirst() → Optional.of(null) → NPE antes de
+        // que el servicio pudiera dar su error de negocio.
+        DirContextOperations locked = context("uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local", true, "U000042");
+        when(ldap.search(any(javax.naming.Name.class), anyString(), any(SearchControls.class), any(ContextMapper.class)))
+                .thenAnswer(invocation -> {
+                    ContextMapper<LdapDirectoryPerson> mapper = invocation.getArgument(3);
+                    // singletonList (no List.of): el mapper devuelve null a propósito.
+                    return java.util.Collections.singletonList(mapper.mapFromContext(locked));
+                });
+        assertThat(directory.reloadBySub("U000042")).isEmpty();
+    }
+
+    @Test
     void reloadBySubUsesEmployeeNumberFilter() {
         when(ldap.search(
             any(javax.naming.Name.class),

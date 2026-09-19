@@ -5,14 +5,14 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 
 /**
- * Solicitud de contraseña temporal (self-service). La respuesta es SIEMPRE
- * exitosa, exista o no el usuario: el endpoint no puede usarse para enumerar
+ * Solicitud de recupero (self-service). La respuesta es SIEMPRE exitosa,
+ * exista o no el usuario: el endpoint no puede usarse para enumerar
  * el directorio (misma regla que el login).
  *
  * El campo es el UID (uid en LDAP, ej: jperez). Se acepta "username" como
  * alias legacy para no romper clientes existentes.
  */
-@Schema(description = "Solicitud de contraseña temporal: se manda un mail con una clave random.")
+@Schema(description = "Solicitud de recupero: se manda un mail con un enlace de un solo uso.")
 public record ForgotPasswordRequest(
         @JsonAlias("username")
         @NotBlank(message = "El usuario es obligatorio")

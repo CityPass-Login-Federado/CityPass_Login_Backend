@@ -2557,6 +2557,27 @@
 					}
 				},
 				{
+					"name": "07c Reset-password token inválido (422)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 422 enlace inválido', () => pm.response.to.have.status(422));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"token\": \"token-falso-inexistente\",\n  \"newPassword\": \"nuevaClave123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/reset-password", "host": ["{{baseUrl}}"], "path": ["auth", "reset-password"] }
+					}
+				},
+				{
+					"name": "07d Reset-password token válido (204, revoca sesiones)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 204 canje OK', () => pm.response.to.have.status(204));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"token\": \"{{reset_token}}\",\n  \"newPassword\": \"nuevaClave123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/reset-password", "host": ["{{baseUrl}}"], "path": ["auth", "reset-password"] },
+						"description": "Pegar en {{reset_token}} el token crudo del enlace del mail (o del log [DEV]). Un solo uso: pedir otro forgot-password para reintentar."
+					}
+				},
+				{
 					"name": "08 Login perfil-qa (sesión fresca)",
 					"event": [
 						{
