@@ -17,7 +17,7 @@ class PanelDirectoryServiceRulesTest {
     @Test
     void validGroupNames() {
         for (String name : List.of("delegados", "soporte-n2", "a", "analitica-lectura-2024")) {
-            assertThat(PanelDirectoryService.GROUP_NAME.matcher(name).matches())
+            assertThat(PanelDirectoryRules.GROUP_NAME.matcher(name).matches())
                     .as(name).isTrue();
         }
     }
@@ -33,7 +33,7 @@ class PanelDirectoryServiceRulesTest {
                 "número",           // no ascii
                 "",                 // vacío
                 "con_underscore")) {
-            assertThat(PanelDirectoryService.GROUP_NAME.matcher(name).matches())
+            assertThat(PanelDirectoryRules.GROUP_NAME.matcher(name).matches())
                     .as(name).isFalse();
         }
     }
@@ -43,7 +43,7 @@ class PanelDirectoryServiceRulesTest {
     @Test
     void validUsernames() {
         for (String u : List.of("jperez", "m.gomez", "user_1", "abc", "a.b-c_d9")) {
-            assertThat(PanelDirectoryService.USERNAME.matcher(u).matches())
+            assertThat(PanelDirectoryRules.USERNAME.matcher(u).matches())
                     .as(u).isTrue();
         }
     }
@@ -51,7 +51,7 @@ class PanelDirectoryServiceRulesTest {
     @Test
     void invalidUsernames() {
         for (String u : List.of("", "x", ".punto", "-guion", "tiene espacio", "MAYUS", "a".repeat(33))) {
-            assertThat(PanelDirectoryService.USERNAME.matcher(u).matches())
+            assertThat(PanelDirectoryRules.USERNAME.matcher(u).matches())
                     .as(u).isFalse();
         }
     }
@@ -60,15 +60,15 @@ class PanelDirectoryServiceRulesTest {
 
     @Test
     void groupLimitsMatchTheSpec() {
-        assertThat(PanelDirectoryService.MAX_GROUPS).isEqualTo(50);
-        assertThat(PanelDirectoryService.WARN_GROUPS).isEqualTo(30);
+        assertThat(PanelDirectoryRules.MAX_GROUPS).isEqualTo(50);
+        assertThat(PanelDirectoryRules.WARN_GROUPS).isEqualTo(30);
     }
 
     // ---- Módulos fijos del árbol ----
 
     @Test
     void modulesMatchTheSeedTree() {
-        assertThat(PanelDirectoryService.MODULES).containsExactlyInAnyOrder(
+        assertThat(PanelDirectoryRules.MODULES).containsExactlyInAnyOrder(
                 "movilidad", "residuos", "reclamos", "emergencias", "espacios", "analitica");
     }
 
@@ -76,11 +76,11 @@ class PanelDirectoryServiceRulesTest {
 
     @Test
     void filterValuesAreEscaped() {
-        assertThat(PanelDirectoryService.escapeFilter("a*b"))
+        assertThat(PanelDirectoryRules.escapeFilter("a*b"))
                 .isEqualTo("a\\2ab");
-        assertThat(PanelDirectoryService.escapeFilter("(uid=x)"))
+        assertThat(PanelDirectoryRules.escapeFilter("(uid=x)"))
                 .isEqualTo("\\28uid=x\\29");
-        assertThat(PanelDirectoryService.escapeFilter("back\\slash"))
+        assertThat(PanelDirectoryRules.escapeFilter("back\\slash"))
                 .isEqualTo("back\\5cslash");
     }
 }
