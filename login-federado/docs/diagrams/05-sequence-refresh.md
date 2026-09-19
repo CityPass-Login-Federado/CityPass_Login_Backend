@@ -1,54 +1,74 @@
-﻿# Sequence Diagram — Flujo de Refresh Token
+# Secuencia — Rotación de refresh token
+
+**Estado representado:** AS-IS del endpoint `POST /auth/refresh`.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client (App)
+    actor C as Cliente web/móvil
     participant AC as AuthController
     participant AS as AuthService
     participant RTS as RefreshTokenService
     participant DB as PostgreSQL
-    participant JWT as JwtEncoder
+    participant LD as LdapDirectory
+    participant LDAP as OpenLDAP
+    participant CR as ClientRegistry
+    participant ATI as AccessTokenIssuer
 
     C->>AC: POST /auth/refresh {refreshToken}
     AC->>AS: refresh(request)
+    AS->>RTS: continueChain(rawToken)
 
-    AS->>RTS: validateAndRotate(rawToken)
-    RTS->>DB: findByTokenHash(SHA-256(rawToken))
-    DB-->>RTS: RefreshToken entity
+    RTS->>RTS: SHA-256(rawToken)
+    RTS->>DB: findByTokenHash(hash)
+    DB-->>RTS: RefreshToken o vacío
 
-    alt token no encontrado
-        RTS-->>AS: BadCredentialsException
-        AS-->>AC: 401 Unauthorized
-    else token revocado o expirado
-        RTS-->>AS: BadCredentialsException
-        AS-->>AC: 401 Unauthorized
+    alt token inexistente
+        RTS-->>C: 401 genérico
+    else token ya revocado (reuso)
+        RTS->>DB: revokeChain(chainId, now)
+        RTS-->>C: 401 genérico con cadena completa revocada
+    else token expirado
+        RTS-->>C: 401 genérico
+    else token activo
+        RTS->>DB: UPDATE condicional revokeIfActive(hash, now)
+        alt otra solicitud lo revocó primero
+            RTS->>DB: revokeChain(chainId, now)
+            RTS-->>C: 401 genérico por reuso concurrente
+        else revocación exitosa
+            RTS->>DB: Guarda el eslabón revocado
+        end
     end
 
-    rect rgb(255, 245, 230)
-        Note over RTS,DB: Rotación de token (uso único)
-        RTS->>RTS: revoke() — marca como revocado
-        RTS->>DB: UPDATE refresh_tokens SET revoked=true
-        RTS-->>AS: RefreshTokenPrincipal (user data)
+    RTS->>LD: reloadBySub(stored.sub)
+    LD->>LDAP: Search por employeeNumber con estado, módulo y memberOf actuales
+    LDAP-->>LD: persona revalidada o vacío
+    alt persona borrada o deshabilitada
+        RTS-->>C: 401 genérico
     end
 
-    rect rgb(240, 240, 255)
-        Note over AS,JWT: Nuevos tokens
-        AS->>JWT: encode(nuevo access token, mismos claims)
-        JWT-->>AS: newAccessToken
-
-        AS->>RTS: issueFor(username, nombre, email, roles)
-        RTS->>DB: INSERT nuevo refresh_tokens
-        RTS-->>AS: newRefreshToken
+    RTS->>CR: requireHuman(stored.clientId)
+    RTS->>CR: valida audience y acceptsModule(...)
+    alt cliente, audience o módulo incompatibles
+        RTS-->>C: 401 genérico
     end
 
-    AS-->>AC: LoginResponse {newAccessToken, newRefreshToken}
-    AC-->>C: 200 OK + nuevos tokens
+    RTS-->>AS: ChainContinuation(person actual, chainId, client)
+    AS->>ATI: issueHuman(person actual, client)
+    ATI-->>AS: Nuevo access token con grupos y módulo actuales
+
+    AS->>RTS: issueNext(person, mismo chainId, client)
+    RTS->>DB: INSERT siguiente eslabón refresh_tokens
+    RTS-->>AS: Nuevo refresh token opaco
+
+    AS-->>AC: LoginResponse con access_token, refresh_token, token_type y expires_in
+    AC-->>C: 200 OK
 ```
 
-## Resumen
+## Reglas reflejadas
 
-1. **Validación**: Se busca el hash del token en PostgreSQL
-2. **Rotación**: El token viejo se revoca INMEDIATAMENTE (uso único)
-3. **Nuevos tokens**: Se emite un nuevo access token + un nuevo refresh token
-4. **Seguridad**: Si alguien reutiliza un token ya usado, falla (detecta robo de tokens)
+1. Cada refresh token válido se usa una sola vez.
+2. El reuso, incluido el canje concurrente, revoca toda la cadena como señal de posible robo.
+3. La cuenta, los grupos y el módulo se releen desde LDAP en cada canje.
+4. Los claims no se copian del token anterior: se emiten con el estado actual del directorio.
+5. El siguiente refresh token conserva el `chainId`, `clientId` y audience de la sesión.

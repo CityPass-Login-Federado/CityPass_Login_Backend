@@ -1,62 +1,104 @@
-﻿# Sequence Diagram — Flujo de Login
+# Secuencia — Login humano
+
+**Estado representado:** AS-IS del endpoint `POST /auth/login`.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client (App)
+    actor C as Cliente web/móvil
     participant AC as AuthController
     participant AS as AuthService
+    participant CR as ClientRegistry
     participant LA as LoginAttemptService
+    participant LD as LdapDirectory
     participant LDAP as OpenLDAP
-    participant JWT as JwtEncoder
+    participant ARC as AnomalyRiskClient
+    participant AD as anomaly-detection
+    participant ATI as AccessTokenIssuer
     participant RTS as RefreshTokenService
     participant DB as PostgreSQL
-    participant EP as EventPublisher
+    participant EP as LoggingEventPublisher
 
-    C->>AC: POST /auth/login {username, password}
+    C->>AC: POST /auth/login {username, password, clientId}
+    AC->>AC: Resuelve IP y User-Agent
     AC->>AS: login(request, ip, userAgent)
 
-    rect rgb(255, 240, 240)
-        Note over AS,LA: Capa 1 — Anti-brute-force
-        AS->>LA: assertNotLocked(username)
-        LA->>DB: COUNT intentos fallidos (últimos 15 min)
-        DB-->>LA: count
-        alt count >= 5
-            LA-->>AS: AccountLockedException (423)
-            AS-->>AC: Error: cuenta bloqueada
-            AC-->>C: 423 Locked
-        end
+    AS->>CR: requireHuman(clientId)
+    alt cliente inexistente o de servicio
+        CR-->>C: 401 genérico
     end
 
-    rect rgb(240, 255, 240)
-        Note over AS,LDAP: Autenticación LDAP
-        AS->>LDAP: bind(username, password)
-        LDAP-->>AS: LdapUserPrincipal (username, nombre, email, roles)
+    AS->>LA: assertNotLocked(username)
+    LA->>DB: COUNT fallidos desde ahora - 15 min
+    DB-->>LA: cantidad
+    alt cantidad >= 5
+        LA-->>AS: AccountLockedException
+        AS-->>C: 401 genérico
     end
 
-    rect rgb(240, 240, 255)
-        Note over AS,EP: Emisión de tokens + evento
-        AS->>LA: recordAttempt(username, ip, ua, true)
+    AS->>LD: findByUid(username)
+    LD->>LDAP: Search global uid + atributos operacionales
+    LDAP-->>LD: persona o vacío
+    alt persona inexistente, deshabilitada o sin employeeNumber
+        LD->>LDAP: dummyBind(password)
+        AS->>LA: recordAttempt(..., false)
         LA->>DB: INSERT login_attempts
-
-        AS->>JWT: encode(RS256, claims: sub, roles, name, email)
-        JWT-->>AS: accessToken (JWT)
-
-        AS->>RTS: issueFor(username, nombre, email, roles)
-        RTS->>DB: INSERT refresh_tokens (hash SHA-256)
-        RTS-->>AS: refreshToken (raw, solo se muestra 1 vez)
-
-        AS->>EP: publish("usuario.autenticado", event)
+        AS-->>C: 401 genérico
     end
 
-    AS-->>AC: LoginResponse {accessToken, refreshToken, "Bearer", 900}
-    AC-->>C: 200 OK + tokens
+    AS->>CR: acceptsModule(client, person.module)
+    alt módulo incompatible con el clientId
+        AS->>LA: recordAttempt(..., false)
+        LA->>DB: INSERT login_attempts
+        AS-->>C: 401 genérico
+    end
+
+    AS->>LD: bind(person.dn, password)
+    LD->>LDAP: LDAP bind con DN exacto
+    alt contraseña inválida o error LDAP
+        AS->>LA: recordAttempt(..., false)
+        LA->>DB: INSERT login_attempts
+        AS-->>C: 401 genérico
+    end
+
+    AS->>ARC: score(username, ip, userAgent)
+    ARC->>AD: POST /score
+    AD->>DB: Consulta historial de login
+    DB-->>AD: Features históricas
+    AD-->>ARC: {risk_score, decision, reasons}
+    alt anomaly-detection no responde
+        ARC-->>AS: AnomalyServiceUnavailableException
+        AS-->>C: 401 genérico (fail-closed)
+    else decision = BLOCK
+        AS->>LA: recordAttempt(..., false)
+        LA->>DB: INSERT login_attempts
+        AS-->>C: 401 genérico
+    end
+
+    AS->>LA: recordAttempt(..., true)
+    LA->>DB: INSERT login_attempts
+
+    AS->>ATI: issueHuman(person, client)
+    Note over ATI: Claims humanos: sub, aud, token_use, ver, preferred_username, module y groups
+    Note over ATI: Claims estándar: iss, iat, exp y jti
+    ATI-->>AS: accessToken RS256 (15 min)
+
+    AS->>RTS: issueInitial(person, client)
+    RTS->>DB: INSERT refresh_tokens con hash, chainId, sub, clientId y audience
+    RTS-->>AS: refreshToken opaco de 64 bytes (8 h)
+
+    AS->>EP: publish(usuario.autenticado, evento)
+    EP->>EP: Serializa el evento en el log
+    Note over EP: No existe todavía un broker Kafka/RabbitMQ
+
+    AS-->>AC: LoginResponse con access_token, refresh_token, token_type y expires_in
+    AC-->>C: 200 OK
 ```
 
-## Resumen
+## Reglas reflejadas
 
-1. **Anti-brute-force**: Se verifica antes de tocar LDAP (capa de protección barata)
-2. **LDAP bind**: Autenticación real contra el directorio
-3. **JWT RS256**: Access token de 15 min con claims custom (roles, name, email)
-4. **Refresh token**: Token opaco de 64 bytes, solo se almacena su hash SHA-256 (7 días)
-5. **Evento**: Se publica `usuario.autenticado` para el bus de eventos
+1. El `clientId` es obligatorio y limita el módulo y la audience del JWT.
+2. Toda falla de autenticación, lockout o anomalías devuelve el mismo 401 para evitar enumeración.
+3. La evaluación de anomalías ocurre después de un bind LDAP exitoso y antes de emitir tokens.
+4. El access token dura 15 minutos; el refresh token dura 8 horas y solo se almacena hasheado.
+5. La publicación de eventos es actualmente un placeholder basado en logs.

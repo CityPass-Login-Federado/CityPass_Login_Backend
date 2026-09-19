@@ -1,42 +1,41 @@
-﻿# Sequence Diagram — Flujo de Logout
+# Secuencia — Logout por refresh token
+
+**Estado representado:** AS-IS del endpoint `POST /auth/logout`.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client (App)
+    actor C as Cliente web/móvil
     participant AC as AuthController
-    participant SEC as SecurityFilterChain
     participant AS as AuthService
     participant RTS as RefreshTokenService
     participant DB as PostgreSQL
 
-    C->>AC: POST /auth/logout
-    Note over C,AC: Header: Authorization: Bearer <accessToken>
+    Note over C,AC: /auth/** es público y no requiere access token
+    C->>AC: POST /auth/logout {refreshToken}
+    AC->>AS: logout(rawToken)
+    AS->>RTS: revokeSingle(rawToken)
 
-    rect rgb(255, 240, 240)
-        Note over SEC: Validación JWT (obligatorio)
-        SEC->>SEC: JwtDecoder valida firma RS256 + expiración
-        SEC->>SEC: Extrae subject del JWT
+    alt token nulo o vacío
+        RTS-->>AS: Sin cambios
+    else token informado
+        RTS->>RTS: SHA-256(rawToken)
+        RTS->>DB: findByTokenHash(hash)
+        DB-->>RTS: token o vacío
+        opt token conocido
+            RTS->>DB: Guarda revoked_at = now
+        end
     end
 
-    AC->>AS: logout(username = jwt.getSubject())
-    AS->>RTS: revokeAllFor(username)
-    RTS->>DB: findAllByUsernameAndRevokedFalse(username)
-    DB-->>RTS: lista de tokens activos
-
-    loop Para cada token activo
-        RTS->>RTS: revoke()
-    end
-
-    RTS->>DB: UPDATE refresh_tokens SET revoked=true WHERE...
     RTS-->>AS: void
     AS-->>AC: void
     AC-->>C: 204 No Content
 ```
 
-## Resumen
+## Semántica de seguridad
 
-1. **JWT obligatorio**: El endpoint `/auth/logout` NO es público — requiere un access token válido
-2. **Identificación**: El `sub` del JWT identifica al usuario (no se recibe por body)
-3. **Revocación masiva**: Se revocan TODOS los refresh tokens activos del usuario
-4. **Access token**: Sigue válido hasta su expiración (15 min) — no hay blacklist
+1. El logout recibe el refresh token en el body; no identifica al usuario desde un JWT.
+2. Solo revoca el refresh token presentado. Otros refresh tokens de la misma persona permanecen activos.
+3. Un token desconocido devuelve también 204 para no revelar su existencia.
+4. Los access tokens ya emitidos siguen válidos hasta su expiración máxima de 15 minutos.
+5. La revocación masiva por `sub` es otra operación y se usa al deshabilitar una persona desde el panel.
