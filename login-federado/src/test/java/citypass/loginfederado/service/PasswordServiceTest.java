@@ -4,7 +4,8 @@ import citypass.loginfederado.config.PasswordResetProperties;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
 import citypass.loginfederado.model.PasswordResetToken;
-import citypass.loginfederado.panel.PanelDirectoryService;
+import citypass.loginfederado.panel.PanelAccountService;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -41,7 +42,7 @@ class PasswordServiceTest {
     private final Executor directExecutor = Runnable::run;
 
     private LdapDirectory ldap;
-    private PanelDirectoryService directory;
+    private PanelAccountService accounts;
     private PasswordEmailService emailSender;
     private RefreshTokenService refresh;
     private PasswordResetLimiter limiter;
@@ -51,12 +52,12 @@ class PasswordServiceTest {
     @BeforeEach
     void setUp() {
         ldap = mock(LdapDirectory.class);
-        directory = mock(PanelDirectoryService.class);
+        accounts = mock(PanelAccountService.class);
         emailSender = mock(PasswordEmailService.class);
         refresh = mock(RefreshTokenService.class);
         limiter = mock(PasswordResetLimiter.class);
         tokenStore = mock(PasswordResetTokenStore.class);
-        service = new PasswordService(ldap, directory, emailSender, refresh,
+        service = new PasswordService(ldap, accounts, emailSender, refresh,
                 limiter, tokenStore, properties, directExecutor);
     }
 
@@ -83,7 +84,7 @@ class PasswordServiceTest {
         verify(tokenStore).issue(eq("U000042"), eq("jperez"), anyString(), eq(30));
         verify(emailSender).sendResetLink(eq("jperez@citypass.local"), eq("jperez"), anyString());
         // La solicitud JAMÁS escribe la credencial: solo el canje toca LDAP.
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -93,7 +94,7 @@ class PasswordServiceTest {
         assertThatCode(() -> service.requestPasswordReset("jperez", "10.0.0.1"))
                 .doesNotThrowAnyException();
 
-        verifyNoInteractions(ldap, directory, tokenStore, emailSender);
+        verifyNoInteractions(ldap, accounts, tokenStore, emailSender);
     }
 
     @Test
@@ -105,7 +106,7 @@ class PasswordServiceTest {
                 .doesNotThrowAnyException();
 
         verify(tokenStore, never()).issue(anyString(), anyString(), anyString(), anyInt());
-        verifyNoInteractions(directory, emailSender);
+        verifyNoInteractions(accounts, emailSender);
     }
 
     @Test
@@ -119,7 +120,7 @@ class PasswordServiceTest {
         service.requestPasswordReset("jperez", "10.0.0.1");
 
         verify(tokenStore, never()).issue(anyString(), anyString(), anyString(), anyInt());
-        verifyNoInteractions(directory, emailSender);
+        verifyNoInteractions(accounts, emailSender);
     }
 
     @Test
@@ -133,7 +134,7 @@ class PasswordServiceTest {
         assertThatCode(() -> service.requestPasswordReset("jperez", "10.0.0.1"))
                 .doesNotThrowAnyException();
 
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
         verify(tokenStore).discard("U000042");
     }
 
@@ -150,7 +151,7 @@ class PasswordServiceTest {
         assertThatCode(() -> service.requestPasswordReset("jperez", "10.0.0.1"))
                 .doesNotThrowAnyException();
 
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -163,14 +164,14 @@ class PasswordServiceTest {
         when(brokenTemplate.getContextSource()).thenReturn(null);
         PasswordService strictService = new PasswordService(
                 new citypass.loginfederado.identity.LdapDirectory(brokenTemplate),
-                directory, emailSender, refresh, limiter, tokenStore, properties, directExecutor);
+                accounts, emailSender, refresh, limiter, tokenStore, properties, directExecutor);
         when(tokenStore.findByHash(anyString())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> strictService.redeemResetToken("falso", "nuevaClave123"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("inválido o expiró");
 
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
         verify(refresh, never()).revokeAllForSub(anyString());
     }
 
@@ -183,7 +184,7 @@ class PasswordServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("inválido o expiró");
 
-        verifyNoInteractions(tokenStore, directory, refresh);
+        verifyNoInteractions(tokenStore, accounts, refresh);
         verify(ldap, never()).reloadBySub(anyString());
     }
 
@@ -195,7 +196,7 @@ class PasswordServiceTest {
         assertThatCode(() -> service.requestPasswordReset("jperez", "10.0.0.1"))
                 .doesNotThrowAnyException();
 
-        verifyNoInteractions(directory, tokenStore, emailSender);
+        verifyNoInteractions(accounts, tokenStore, emailSender);
     }
 
     // --- Canje: escribe LDAP + revoca sesiones ---
@@ -212,7 +213,7 @@ class PasswordServiceTest {
         assertThatCode(() -> service.redeemResetToken("token-crudo-del-enlace", "nuevaClave123"))
                 .doesNotThrowAnyException();
 
-        verify(directory).setPassword("reclamos", "jperez", "nuevaClave123");
+        verify(accounts).setPassword("reclamos", "jperez", "nuevaClave123");
         verify(refresh).revokeAllForSub("U000042");
     }
 
@@ -224,7 +225,7 @@ class PasswordServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("inválido o expiró");
 
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
         verify(refresh, never()).revokeAllForSub(anyString());
     }
 
@@ -238,7 +239,7 @@ class PasswordServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("inválido o expiró");
 
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
         verify(refresh, never()).revokeAllForSub(anyString());
         verify(ldap, never()).reloadBySub(anyString());
     }
@@ -252,7 +253,7 @@ class PasswordServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("inválido o expiró");
 
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
         verify(refresh, never()).revokeAllForSub(anyString());
     }
 
@@ -266,7 +267,7 @@ class PasswordServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("inválido o expiró");
 
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
         verify(refresh, never()).revokeAllForSub(anyString());
     }
 
@@ -274,7 +275,7 @@ class PasswordServiceTest {
     void redeemResetTokenRejectsShortNewPassword() {
         assertThatThrownBy(() -> service.redeemResetToken("cualquiera", "corta"))
                 .isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(ldap, directory, refresh, tokenStore);
+        verifyNoInteractions(ldap, accounts, refresh, tokenStore);
     }
 
     // --- Cambio desde perfil (sin cambios de comportamiento) ---
@@ -283,7 +284,7 @@ class PasswordServiceTest {
     void changePasswordRejectsShortNewPassword() {
         assertThatThrownBy(() -> service.changePassword("U000042", "actual", "corta"))
                 .isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(ldap, directory, refresh);
+        verifyNoInteractions(ldap, accounts, refresh);
     }
 
     @Test
@@ -292,7 +293,7 @@ class PasswordServiceTest {
         assertThatThrownBy(() -> service.changePassword("U000042", "actual", "12345678"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("ya no existe");
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -303,7 +304,7 @@ class PasswordServiceTest {
         assertThatThrownBy(() -> service.changePassword("U000042", "mal", "12345678"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("actual es incorrecta");
-        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
         verify(refresh, never()).revokeAllForSub(anyString());
     }
 
@@ -313,7 +314,7 @@ class PasswordServiceTest {
         when(refresh.revokeAllForSub("U000042")).thenReturn(3);
         service.changePassword("U000042", "actual", "12345678");
         verify(ldap).bind(person.dn(), "actual");
-        verify(directory).setPassword("reclamos", "jperez", "12345678");
+        verify(accounts).setPassword("reclamos", "jperez", "12345678");
         verify(refresh).revokeAllForSub("U000042");
     }
 }
