@@ -134,7 +134,7 @@ public class PanelPersonService {
     public PersonView createPerson(PanelAuthorization.Delegate actor, String module, NewPersonRequest req) {
         support.assertModule(module);
         validateUsername(req.username());
-        if (req.email() == null || !req.email().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+        if (!PanelDirectoryRules.isValidEmail(req.email())) {
             throw new IllegalArgumentException("Email inválido");
         }
         if (req.temporaryPassword().length() < 8) {
@@ -196,7 +196,7 @@ public class PanelPersonService {
         }
 
         if (req.email() != null && !req.email().isBlank()) {
-            if (!req.email().matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
+            if (!PanelDirectoryRules.isValidEmail(req.email())) {
                 throw new IllegalArgumentException("Email inválido");
             }
             if (findGlobalByUidOrMail(null, req.email(), uid).isPresent()) {

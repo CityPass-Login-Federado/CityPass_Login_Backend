@@ -19,9 +19,34 @@ public final class PanelDirectoryRules {
 
     public static final String DELEGADOS = "delegados";
 
-    /** D6: solo minúsculas, números y guiones (sin guion inicial/final/doble). */
-    public static final Pattern GROUP_NAME = Pattern.compile("^[a-z0-9]+(-[a-z0-9]+)*$");
-    /** Username: minúsculas/números/._-, 3–32 chars. */
+    /**
+     * D6: solo minúsculas, números y guiones (sin guion inicial/final/doble).
+     * Chequeo MANUAL en vez de regex: el patrón `^[a-z0-9]+(-[a-z0-9]+)*$`
+     * tiene cuantificadores anidados (backtracking super-lineal y riesgo de
+     * StackOverflow con entradas largas). Lineal, sin pila.
+     */
+    public static boolean isValidGroupName(String name) {
+        if (name == null || name.isEmpty()) {
+            return false;
+        }
+        boolean prevHyphen = false;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c == '-') {
+                if (i == 0 || prevHyphen) {
+                    return false;
+                }
+                prevHyphen = true;
+            } else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+                prevHyphen = false;
+            } else {
+                return false;
+            }
+        }
+        return !prevHyphen;
+    }
+
+    /** Username: minúsculas/números/._-, 3–32 chars (lineal, sin anidamiento). */
     public static final Pattern USERNAME = Pattern.compile("^[a-z0-9][a-z0-9._-]{2,31}$");
 
     public static final int MAX_GROUPS = 50;   // D5: bloqueo duro (token bloat)
@@ -29,13 +54,39 @@ public final class PanelDirectoryRules {
 
     /** D6 aplicado: nombre de grupo inválido → 400 con mensaje amable. */
     public static void validateGroupName(String name) {
-        if (name == null || !GROUP_NAME.matcher(name).matches()) {
+        if (!isValidGroupName(name)) {
             throw new IllegalArgumentException(
                     "Nombre de grupo inválido: solo minúsculas, números y guiones (ej. soporte-n2)");
         }
         if (name.length() > 64) {
             throw new IllegalArgumentException("Nombre de grupo demasiado largo (máx 64)");
         }
+    }
+
+    /**
+     * Mail válido: un solo @, local no vacío, dominio con punto no en los
+     * bordes, sin espacios. Chequeo MANUAL en vez del regex
+     * `^[^@\s]+@[^@\s]+\.[^@\s]+$` (misma semántica, tiempo lineal).
+     */
+    public static boolean isValidEmail(String email) {
+        if (email == null || email.isEmpty()) {
+            return false;
+        }
+        int at = email.indexOf('@');
+        if (at <= 0 || at != email.lastIndexOf('@')) {
+            return false;
+        }
+        String domain = email.substring(at + 1);
+        int dot = domain.indexOf('.');
+        if (dot <= 0 || dot == domain.length() - 1) {
+            return false;
+        }
+        for (int i = 0; i < email.length(); i++) {
+            if (Character.isWhitespace(email.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Escapado RFC 4515 para filtros LDAP — nunca concatenar crudo. */

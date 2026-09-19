@@ -17,7 +17,7 @@ class PanelDirectoryRulesTest {
     @Test
     void validGroupNames() {
         for (String name : List.of("delegados", "soporte-n2", "a", "analitica-lectura-2024")) {
-            assertThat(PanelDirectoryRules.GROUP_NAME.matcher(name).matches())
+            assertThat(PanelDirectoryRules.isValidGroupName(name))
                     .as(name).isTrue();
         }
     }
@@ -33,7 +33,7 @@ class PanelDirectoryRulesTest {
                 "número",           // no ascii
                 "",                 // vacío
                 "con_underscore")) {
-            assertThat(PanelDirectoryRules.GROUP_NAME.matcher(name).matches())
+            assertThat(PanelDirectoryRules.isValidGroupName(name))
                     .as(name).isFalse();
         }
     }
@@ -70,6 +70,34 @@ class PanelDirectoryRulesTest {
     void modulesMatchTheSeedTree() {
         assertThat(PanelDirectoryRules.MODULES).containsExactlyInAnyOrder(
                 "movilidad", "residuos", "reclamos", "emergencias", "espacios", "analitica");
+    }
+
+    // ---- Mail válido (misma semántica que el regex anterior, lineal) ----
+
+    @Test
+    void validEmails() {
+        for (String mail : List.of("jperez@citypass.local", "a.b@x.co", "u@a.b.c")) {
+            assertThat(PanelDirectoryRules.isValidEmail(mail))
+                    .as(mail).isTrue();
+        }
+    }
+
+    @Test
+    void invalidEmails() {
+        assertThat(PanelDirectoryRules.isValidEmail(null)).isFalse();
+        for (String mail : List.of(
+                "",                 // vacío
+                "not-an-email",     // sin @
+                "a@b",              // dominio sin punto
+                "a@b.",             // punto al final
+                "a@.b",             // punto al inicio del dominio
+                "@b.c",             // local vacío
+                "a@@b.c",           // doble @
+                "a b@c.d",          // espacio en local
+                "a@b c.d")) {       // espacio en dominio
+            assertThat(PanelDirectoryRules.isValidEmail(mail))
+                    .as(mail).isFalse();
+        }
     }
 
     // ---- Escapado RFC 4515 de filtros (inyección LDAP) ----

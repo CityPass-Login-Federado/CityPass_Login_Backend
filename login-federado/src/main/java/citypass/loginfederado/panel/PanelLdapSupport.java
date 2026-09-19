@@ -17,6 +17,7 @@ import javax.naming.directory.DirContext;
 import javax.naming.directory.ModificationItem;
 import javax.naming.directory.SearchControls;
 import javax.naming.ldap.LdapName;
+import javax.naming.ldap.Rdn;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -86,9 +87,14 @@ class PanelLdapSupport {
         return dnOf("ou=Groups,ou=" + capitalize(module));
     }
 
-    /** Nombre de entrada RELATIVO al base: así resuelven las operaciones. */
+    /**
+     * Nombre de entrada RELATIVO al base: así resuelven las operaciones.
+     * El uid se escapa RFC 4514 (Rdn.escapeValue): viene de input de usuario
+     * (path params, formularios) y una coma/cruz sin escapar rompería el DN
+     * o cambiaría la entrada apuntada (inyección LDAP).
+     */
     LdapName personDn(String module, String uid) {
-        return dnOf("uid=" + uid + ",ou=People,ou=" + capitalize(module));
+        return dnOf("uid=" + Rdn.escapeValue(uid) + ",ou=People,ou=" + capitalize(module));
     }
 
     /**
@@ -99,8 +105,9 @@ class PanelLdapSupport {
         return "uid=" + uid + ",ou=People,ou=" + capitalize(module) + ",dc=citypass,dc=local";
     }
 
+    /** Igual que personDn: el cn del grupo también es input de usuario. */
     LdapName groupDn(String module, String cn) {
-        return dnOf("cn=" + cn + ",ou=Groups,ou=" + capitalize(module));
+        return dnOf("cn=" + Rdn.escapeValue(cn) + ",ou=Groups,ou=" + capitalize(module));
     }
 
     static LdapName dnOf(String dn) {

@@ -134,6 +134,17 @@ class PanelPersonServiceTest {
     }
 
     @Test
+    void findPersonEscapesDnSpecialChars() {
+        // Inyección LDAP por DN: una coma sin escapar rompería el RDN
+        // (uid=a,b,... apuntaría a otra entrada). El support la escapa RFC 4514.
+        when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
+        assertThat(service.findPerson("reclamos", "a,b")).isEmpty();
+        var captor = org.mockito.ArgumentCaptor.forClass(LdapName.class);
+        verify(ldap).lookupContext(captor.capture());
+        assertThat(captor.getValue().toString()).isEqualTo("uid=a\\,b,ou=People,ou=Reclamos");
+    }
+
+    @Test
     void findPersonMapsDisabledFlag() {
         DirContextOperations ctx = mock(DirContextOperations.class);
         when(ctx.getStringAttribute("employeeNumber")).thenReturn("U000042");
