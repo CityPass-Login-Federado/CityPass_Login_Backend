@@ -34,6 +34,16 @@ spring:
 server:
   port: 8081
 
+# --- Actuator: el mail es best-effort y async (con fallback a log), así que
+# su indicador NO debe voltear la salud de la app. Sin esto, un entorno sin
+# SMTP (CI) o con SMTP caído deja /actuator/health en DOWN (503) y el
+# healthcheck del contenedor nunca pasa, aunque el login funcione perfecto.
+# El fallo real de envío se sigue logueando en PasswordEmailService.
+management:
+  health:
+    mail:
+      enabled: false
+
 # --- JWT / RS256 ---
 # El kid NO se configura acá: se deriva del contenido de la clave
 # (huella RFC 7638) en JwtKeyConfig — misma clave, mismo kid, siempre.

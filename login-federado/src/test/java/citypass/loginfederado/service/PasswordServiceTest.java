@@ -138,6 +138,56 @@ class PasswordServiceTest {
     }
 
     @Test
+    void requestPasswordResetAsyncFailureIsSilentAndReleasesToken() {
+        // El envío corre en otro hilo: si el mail explota (no solo false) y
+        // hasta el discard falla, la solicitud sigue siendo 204.
+        when(ldap.findByUid("jperez")).thenReturn(Optional.of(person));
+        when(limiter.tryAcquire(anyString(), any())).thenReturn(true);
+        when(emailSender.sendResetLink(anyString(), anyString(), anyString()))
+                .thenThrow(new RuntimeException("smtp roto"));
+        doThrow(new RuntimeException("db caída")).when(tokenStore).discard(anyString());
+
+        assertThatCode(() -> service.requestPasswordReset("jperez", "10.0.0.1"))
+                .doesNotThrowAnyException();
+
+        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void redeemResetTokenSurvivesBrokenDirectoryLookup() {
+        // rejectInvalidToken es a prueba de todo: aunque el dummyBind mismo
+        // explote (ContextSource nulo), el rechazo sigue siendo el 422
+        // uniforme y nunca se escribe ni se revoca nada.
+        org.springframework.ldap.core.LdapTemplate brokenTemplate =
+                mock(org.springframework.ldap.core.LdapTemplate.class);
+        when(brokenTemplate.getContextSource()).thenReturn(null);
+        PasswordService strictService = new PasswordService(
+                new citypass.loginfederado.identity.LdapDirectory(brokenTemplate),
+                directory, emailSender, refresh, limiter, tokenStore, properties, directExecutor);
+        when(tokenStore.findByHash(anyString())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> strictService.redeemResetToken("falso", "nuevaClave123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("inválido o expiró");
+
+        verify(directory, never()).setPassword(anyString(), anyString(), anyString());
+        verify(refresh, never()).revokeAllForSub(anyString());
+    }
+
+    @Test
+    void redeemResetTokenBlankTokenFailsWithoutSideEffects() {
+        assertThatThrownBy(() -> service.redeemResetToken("", "nuevaClave123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("inválido o expiró");
+        assertThatThrownBy(() -> service.redeemResetToken(null, "nuevaClave123"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("inválido o expiró");
+
+        verifyNoInteractions(tokenStore, directory, refresh);
+        verify(ldap, never()).reloadBySub(anyString());
+    }
+
+    @Test
     void requestPasswordResetLookupFailureIsSilent() {
         when(ldap.findByUid("jperez")).thenThrow(new RuntimeException("ldap down"));
         when(limiter.tryAcquire(anyString(), any())).thenReturn(true);
