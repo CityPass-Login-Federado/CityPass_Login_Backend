@@ -11,6 +11,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
@@ -54,10 +55,13 @@ public class JwtKeyConfig {
 
     private final ResourceLoader resourceLoader;
     private final JwtProperties jwtProperties;
+    private final boolean autoGenerateKeys;
 
-    public JwtKeyConfig(ResourceLoader resourceLoader, JwtProperties jwtProperties) {
+    public JwtKeyConfig(ResourceLoader resourceLoader, JwtProperties jwtProperties,
+                        @org.springframework.beans.factory.annotation.Value("${jwt.auto-generate-keys:true}") boolean autoGenerateKeys) {
         this.resourceLoader = resourceLoader;
         this.jwtProperties = jwtProperties;
+        this.autoGenerateKeys = autoGenerateKeys;
     }
 
     @Bean
@@ -98,7 +102,12 @@ public class JwtKeyConfig {
 
     @Bean
     public JwtDecoder jwtDecoder(RSAPublicKey publicKey) {
-        return NimbusJwtDecoder.withPublicKey(publicKey).build();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(publicKey).build();
+        // withPublicKey() solo valida firma y expiración: un token firmado con
+        // un iss ajeno se aceptaría igual. Se fija la validación estándar de
+        // issuer (y claims genéricos) del IdP.
+        decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(jwtProperties.issuer()));
+        return decoder;
     }
 
     static String computeThumbprint(RSAPublicKey publicKey) {
@@ -123,6 +132,15 @@ public class JwtKeyConfig {
 
         if (privateResource.exists() && publicResource.exists()) {
             return;
+        }
+
+        if (!autoGenerateKeys) {
+            // Modo estricto (jwt.auto-generate-keys=false): nunca fabricar
+            // claves en el filesystem de un ambiente real. Fail-fast claro.
+            throw new IllegalStateException(
+                    "Faltan las claves RSA en " + jwtProperties.privateKeyPath() + " / "
+                            + jwtProperties.publicKeyPath()
+                            + " y jwt.auto-generate-keys=false: provéalas como secrets antes de arrancar.");
         }
 
         log.warn("No se encontraron las claves RSA en {} / {} -- generando un par nuevo automáticamente. " +

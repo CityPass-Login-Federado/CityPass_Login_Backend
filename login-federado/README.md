@@ -57,6 +57,30 @@ docker compose up -d openldap postgres anomaly-detection
 
 Swagger UI: <http://localhost:8081/docs>
 
+## Documentación de la API (Swagger)
+
+La documentación interactiva la genera **SpringDoc** (OpenAPI 3.0) a partir de
+los controllers, sin mantenimiento manual.
+
+- **Swagger UI**: <http://localhost:8081/docs> — UI interactiva: explorar cada
+  endpoint, ver cuerpos de request/response y probarlo desde el navegador.
+- **Especificación JSON**: <http://localhost:8081/v3/api-docs> — OpenAPI crudo
+  (mismo contenido que ve la UI). Se puede importar tal cual en
+  [swagger.io](https://swagger.io/) o Postman con "Import from URL".
+- **`swagger.json`** (raíz del repo): snapshot estático de la misma
+  especificación, para quienes quieren importarla sin levantar el servicio.
+
+Usar el botón **Authorize** (arriba a la derecha) y pegar un access token
+(`Bearer <token>`) para probar los endpoints protegidos, p. ej. `/panel/**`,
+que exigen token de delegado (audience `citypass-admin-api`, grupo `delegados`,
+claim `module`) o de **admin global** (grupo `admin-global`, que opera el módulo
+indicado con `?module=` en cada request). Los endpoints `/auth/**`, `/oauth/token`
+y `/jwks` son públicos y no requieren token.
+
+Los 17 endpoints documentados: login/refresh/logout (`/auth`), token de servicio
+(`/oauth/token`), clave pública (`/.well-known/jwks.json`) y el ABM del panel
+(`/panel/**`).
+
 ## Probar con Postman
 
 Importar `citypass-login-federado.postman_collection.json` (raíz del repo).
@@ -70,6 +94,8 @@ Los scripts capturan los tokens automáticamente entre requests.
 |---|---|---|
 | POST | `/auth/login` | Autentica y emite access + refresh token |
 | POST | `/auth/refresh` | Canjea refresh por nuevo par (rotación; reuso ⇒ cadena revocada) |
+| POST | `/auth/forgot-password` | Genera contraseña temporal, la fija en LDAP y la manda por mail |
+| POST | `/me/change-password` | Cambia la propia contraseña (requiere la actual + JWT); revoca sesiones |
 | GET | `/.well-known/jwks.json` | Clave pública para validar firmas |
 | POST | `/oauth/token` | `client_credentials` para servicios (Basic auth) |
 | GET/POST/PUT/DELETE | `/panel/**` | Backend del panel (requiere token delegado) |
@@ -82,10 +108,41 @@ curl -X POST http://localhost:8081/auth/login \
   -d '{"username":"jperez","password":"changeit123","clientId":"citypass-reclamos-web"}'
 ```
 
+### Recupero y cambio de contraseña (self-service)
+
+El flujo: el usuario pide la clave temporal, llega un mail con una contraseña
+aleatoria, entra con esa contraseña y la cambia desde su perfil.
+
+```bash
+# 1) Pide la clave temporal (SIEMPRE 204, exista o no el usuario: anti-enumeración)
+curl -X POST http://localhost:8081/auth/forgot-password \
+  -H "Content-Type: application/json" \
+  -d '{"username":"jperez"}'
+
+# 2) Login con la clave temporal recibida por mail (endpoint de login normal)
+
+# 3) Cambio desde el perfil (requiere access token Bearer)
+curl -X POST http://localhost:8081/me/change-password \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"currentPassword":"temporal123","newPassword":"nuevaClaveFu553"}'
+```
+
+Al cambiar la contraseña se revocan todas las sesiones (refresh tokens) de la
+persona; el access token vigente sigue vivo hasta su expiración (igual que en
+la baja del panel).
+
+**SMTP:** sin `spring.mail.host` el envío cae en modo dev: la clave temporal se
+imprime en consola (`app.password-reset.debug-log: true`, default). Para
+enviar de verdad copiar `.env.example` como `.env` y completar las variables
+`SPRING_MAIL_*` (guía de Gmail adentro); en producción además poner
+`PASSWORD_RESET_DEBUG_LOG=false`. Ninguna falla de envío se propaga al cliente:
+la respuesta es 204 y el detalle va al log.
+
 Token de servicio:
 
 ```bash
-curl -u group1:group1-secret-dev -X POST http://localhost:8081/oauth/token \
+curl -u grupo1:grupo1-secret-dev -X POST http://localhost:8081/oauth/token \
   -H "Content-Type: application/json" \
   -d '{"audience":"citypass-platform"}'
 ```
@@ -109,7 +166,7 @@ Password de todos: `changeit123`
 |---|---|---|
 | citypass-reclamos-web / movilidad-web / residuos-web / emergencias-web / espacios-web / analitica-web | human | `citypass-<módulo>-api` |
 | citypass-admin-web | human transversal | `citypass-admin-api` |
-| group1 / group5 | service | `citypass-platform` |
+| grupo1 / grupo5 | service | `citypass-platform` |
 
 El panel requiere token con audience `citypass-admin-api`, claim `module`,
 grupo `delegados`. El módulo operado sale **siempre del token**: ningún

@@ -28,6 +28,40 @@ class PanelAuthorizationTest {
         assertThat(d.sub()).isEqualTo("U000001");
         assertThat(d.uid()).isEqualTo("admin");
         assertThat(d.module()).isEqualTo("reclamos");
+        assertThat(d.global()).isFalse();
+    }
+
+    @Test
+    void acceptsGlobalAdminWithoutModuleClaim() {
+        var claims = new java.util.HashMap<String, Object>(validClaims());
+        claims.put("groups", List.of("admin-global"));
+        claims.put("module", "Analitica");
+        var d = authorization.requireDelegate(jwt(claims));
+        assertThat(d.global()).isTrue();
+    }
+
+    @Test
+    void globalAdminDoesNotNeedModule() {
+        var claims = new java.util.HashMap<String, Object>(validClaims());
+        claims.put("groups", List.of("admin-global"));
+        claims.remove("module");
+        var d = authorization.requireDelegate(jwt(claims));
+        assertThat(d.global()).isTrue();
+        assertThat(d.module()).isEmpty();
+    }
+
+    @Test
+    void rejectsNoGroupsAtAll() {
+        var claims = new java.util.HashMap<String, Object>(validClaims());
+        claims.put("groups", List.of());
+        assertDenied(claims);
+    }
+
+    @Test
+    void rejectsMissingModuleForNonGlobalDelegate() {
+        var claims = new java.util.HashMap<>(validClaims());
+        claims.remove("module");
+        assertDenied(claims);
     }
 
     @Test
@@ -49,7 +83,7 @@ class PanelAuthorizationTest {
     }
 
     @Test
-    void rejectsMissingDelegateGroup() {
+    void rejectsMissingGroup() {
         var claims = new java.util.HashMap<>(validClaims()); claims.put("groups", List.of("soporte"));
         assertDenied(claims);
     }

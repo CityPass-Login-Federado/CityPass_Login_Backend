@@ -1,1 +1,5 @@
 /Notas-Back/
+.idea/
+# Secretos locales (SMTP real, etc.): jamás commitear
+.env
+login-federado/_env

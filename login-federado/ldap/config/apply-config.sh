@@ -33,17 +33,50 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
 # apply_cfg <archivo> <descripcion> — ldapmodify contra cn=config, tolerando
-# cambios ya aplicados (OpenLDAP responde con errores distintos según el caso,
-# por eso la lista de patrones es amplia y explícita).
+# cambios ya aplicados SOLO cuando el error SEMÁNTICO indica eso (la entrada
+# o el valor ya existen). Cualquier "Object class violation", "no such object"
+# o "undefined attribute" es un fallo REAL del LDIF y debe abortar.
 apply_cfg() {
   local file="$1" desc="$2"
   echo "--> ${desc}"
   if ! ldapmodify -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" -f "$file" >"$TMP/out.log" 2>&1; then
-    if grep -qiE "(already exists|Type or value exists|modifications require|no such attribute|Object class violation|No such object|Undefined attribute|undefined)" "$TMP/out.log"; then
+    if grep -qiE "(already exists|already in list|Type or value exists|modifications require|no such attribute)" "$TMP/out.log"; then
       echo "    ya aplicado — se omite"
     else
       echo "ERROR aplicando: ${desc}"; cat "$TMP/out.log"; exit 1
     fi
+  fi
+}
+
+# apply_overlay <nombre> <archivo> <descripcion> — idempotente de verdad:
+# si ya hay un overlay con ese nombre en cn=config se omite ANTES de
+# intentar el add. Imprescindible porque re-agregar overlays apilables
+# (memberof/refint/unique/constraint) DUPLICA su efecto en silencio, y el
+# singleton ppolicy aborta con error 80 ("already in list").
+apply_overlay() {
+  local name="$1" file="$2" desc="$3"
+  echo "--> ${desc}"
+  if ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+      -b cn=config "(olcOverlay=${name})" dn 2>/dev/null | grep -qi "^dn: "; then
+    echo "    ya aplicado — se omite"
+  else
+    apply_cfg "$file" "${desc}"
+  fi
+}
+
+# apply_dit <archivo> <descripcion> — ldapadd contra el DIT (dc=citypass,dc=local),
+# usando la cuenta admin del DIT (no la de cn=config). Con -c salta las
+# entradas ya existentes y solo aborta si hay un error real.
+apply_dit() {
+  local file="$1" desc="$2"
+  echo "--> ${desc}"
+  if ! ldapadd -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" -c -f "$file" >"$TMP/out.log" 2>&1; then
+    local real
+    real=$(grep -iE "^ldap_add: " "$TMP/out.log" | grep -icvE "Already exists|Type or value exists")
+    if [ "$real" -gt 0 ]; then
+      echo "ERROR aplicando: ${desc}"; cat "$TMP/out.log"; exit 1
+    fi
+    echo "    ya aplicado — se omite"
   fi
 }
 
@@ -57,34 +90,111 @@ if [ -z "$DB_DN" ]; then echo "ERROR: no se encontró la base mdb"; exit 1; fi
 echo "==> Base de datos: ${DB_DN}"
 
 # -----------------------------------------------------------------------------
-# 1) Módulos dinámicos
+# 1) Esquema ppolicy (objeto pwdPolicy / pwdAccountLockedTime)
+#
+# En OpenLDAP 2.4 los módulos NO auto-registran su esquema: si el overlay
+# ppolicy se activa sin la definición de pwdPolicy, el atributo de bloqueo
+# (cualquier update del panel sobre el) y la entrada de política fallan con
+# "undefined object class". Cómo se resuelve sin romper la imagen:
+#   * /config/ppolicy.schema (canónico de OpenLDAP 2.4) se convierte a LDIF
+#     con el propio slaptest de la imagen (no se escribe la conversión a mano)
+#     y se carga por cn=config.
+#   * Si no hay slaptest o falla la conversión, se salta con advertencia: la
+#     app sigue bloqueando en su capa de código (LdapDirectory.mapPerson)
+#     pero se pierde la garantía "el directorio rechaza el bind".
 # -----------------------------------------------------------------------------
-cat >"$TMP/modules.ldif" <<EOF
-dn: cn=module,cn=config
+PP_READY=0
+if ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+    -b cn=schema,cn=config '(cn=*ppolicy*)' dn 2>/dev/null | grep -q '^dn:'; then
+  PP_READY=1
+else
+  if [ -f /config/ppolicy.schema ] && command -v slaptest >/dev/null 2>&1; then
+    echo "==> Esquema ppolicy (conversión vía slaptest)"
+    mkdir -p "$TMP/pp-cfg"
+    printf 'include /etc/ldap/schema/core.schema\ninclude /config/ppolicy.schema\n' > "$TMP/pp-slapd.conf"
+    if slaptest -f "$TMP/pp-slapd.conf" -F "$TMP/pp-out" >"$TMP/pp-slaptest.log" 2>&1; then
+      PP_LDIF=$(find "$TMP/pp-out" -path '*cn=schema*' -name 'cn=*ppolicy.ldif' | head -n1)
+      if [ -n "$PP_LDIF" ]; then
+        sed -i -E '1s/^dn: cn=\{[0-9]+\}ppolicy,/dn: cn=ppolicy,/' "$PP_LDIF"
+        sed -i -E 's/^((olcAttributeTypes|olcObjectClasses|olcMatchingRules|olcSyntaxes): )\{[0-9]+\}/\1/' "$PP_LDIF"
+        apply_cfg "$PP_LDIF" "Esquema ppolicy (pwdPolicy/pwdAccountLockedTime)"
+        PP_READY=1
+      else
+        echo "    ADVERTENCIA: slaptest no generó la entrada ppolicy — se omite"
+      fi
+    else
+      echo "    ADVERTENCIA: no se pudo convertir el esquema ppolicy — se omite (la app igual cubre D7 en código)"
+    fi
+  else
+    echo "    ADVERTENCIA: sin slaptest o sin /config/ppolicy.schema — ppolicy no disponible"
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 2) Módulos dinámicos
+#
+# osixia/openldap:1.5.0 ya crea cn=module{0} con back_mdb, memberof y refint.
+# Si existe, se le agregan los módulos que faltan; si no existe, se crea uno
+# nuevo. La clave es operar SIEMPRE sobre el DN real (cn=module{N}), porque
+# cn=module sin índice es ambiguo cuando hay más de una entrada cn=module*.
+# -----------------------------------------------------------------------------
+MOD_DN=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+  -b cn=config -s one '(objectClass=olcModuleList)' dn 2>/dev/null \
+  | grep '^dn: cn=module{' | head -n1 | sed 's/^dn: //')
+if [ -z "$MOD_DN" ]; then
+  cat >"$TMP/modules.ldif" <<EOF
+dn: cn=module{0},cn=config
 changetype: add
 objectClass: olcModuleList
-cn: module
+cn: module{0}
 olcModulePath: /usr/lib/ldap
 olcModuleLoad: memberof.la
 EOF
-apply_cfg "$TMP/modules.ldif" "Cargando entrada de módulos dinámicos"
+  apply_cfg "$TMP/modules.ldif" "Creando entrada de módulos"
+  MOD_DN="cn=module{0},cn=config"
+fi
+echo "==> Módulos en: ${MOD_DN}"
 
 for mod in refint unique ppolicy constraint; do
-  cat >"$TMP/mod-$mod.ldif" <<EOF
-dn: cn=module,cn=config
+  if ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+      -b "$MOD_DN" -s base "(olcModuleLoad=*${mod}*)" dn 2>/dev/null | grep -q '^dn:'; then
+    echo "--> Módulo ${mod} ya cargado — se omite"
+  else
+    cat >"$TMP/mod-${mod}.ldif" <<EOF
+dn: ${MOD_DN}
 changetype: modify
 add: olcModuleLoad
 olcModuleLoad: ${mod}.la
 EOF
-  apply_cfg "$TMP/mod-$mod.ldif" "Cargando módulo ${mod}"
+    apply_cfg "$TMP/mod-${mod}.ldif" "Cargando módulo ${mod}"
+  fi
 done
 
 # -----------------------------------------------------------------------------
-# 2) Overlays
+# 3) Overlays
 # -----------------------------------------------------------------------------
 
 # --- memberof: referencia inversa persona→grupos (spec §2.7) ---
-cat >"$TMP/ov-memberof.ldif" <<EOF
+# OJO: la imagen trae SU PROPIO memberof ({0}, para groupOfUniqueNames/
+# uniqueMember) y el chequeo de "ya existe" NO alcanza: hay que verificar la
+# CONFIGURACIÓN. Con solo el de la imagen, memberOf viene vacío, los tokens
+# salen sin grupos y el panel devuelve 403 a todos los delegados.
+# Estrategia probada: si YA hay un memberof con groupOfNames se omite; si no,
+# se AGREGA el nuestro junto al de la imagen (coexisten sin problema: el de
+# la imagen no matchea nada nuestro y queda inerte). NO se modifica la
+# entrada existente (el replace en caliente no reconfigura la instancia
+# viva) ni se borra (slapd rechaza el delete con 53).
+ensure_memberof() {
+  echo "--> Overlay memberof"
+  local correct
+  correct=$(ldapsearch -x -H "$URL" -D "$CFG_DN" -w "$CFG_PW" \
+    -b cn=config '(&(olcOverlay=memberof)(olcMemberOfGroupOC=groupOfNames))' dn 2>/dev/null \
+    | grep -c '^dn: ')
+  if [ "$correct" -ge 1 ]; then
+    echo "    ya aplicado — se omite"
+    return
+  fi
+  cat >"$TMP/ov-memberof.ldif" <<EOF
 dn: olcOverlay=memberof,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
@@ -95,7 +205,9 @@ olcMemberOfMemberAD: member
 olcMemberOfMemberofAD: memberOf
 olcMemberOfRefInt: TRUE
 EOF
-apply_cfg "$TMP/ov-memberof.ldif" "Overlay memberof"
+  apply_cfg "$TMP/ov-memberof.ldif" "Overlay memberof"
+}
+ensure_memberof
 
 # --- refint: integridad referencial del atributo member ---
 cat >"$TMP/ov-refint.ldif" <<EOF
@@ -106,19 +218,20 @@ objectClass: olcRefintConfig
 olcOverlay: refint
 olcRefintAttribute: member
 EOF
-apply_cfg "$TMP/ov-refint.ldif" "Overlay refint"
+apply_overlay "refint" "$TMP/ov-refint.ldif" "Overlay refint"
 
 # --- unique: unicidad GLOBAL de uid, mail y employeeNumber (D3/D5 del diseño) ---
 cat >"$TMP/ov-unique.ldif" <<EOF
 dn: olcOverlay=unique,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcUniqueConfig
 olcOverlay: unique
 olcUniqueUri: ldap:///?uid?sub
 olcUniqueUri: ldap:///?mail?sub
 olcUniqueUri: ldap:///?employeeNumber?sub
 EOF
-apply_cfg "$TMP/ov-unique.ldif" "Overlay unique (uid/mail/employeeNumber globales)"
+apply_overlay "unique" "$TMP/ov-unique.ldif" "Overlay unique (uid/mail/employeeNumber globales)"
 
 # --- constraint: anti-anidamiento (D4). Un `member` solo puede ser una
 #     persona bajo algún ou=People o el placeholder técnico ---
@@ -126,30 +239,42 @@ cat >"$TMP/ov-constraint.ldif" <<EOF
 dn: olcOverlay=constraint,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcConstraintConfig
 olcOverlay: constraint
 olcConstraintAttribute: member regex ^(uid=[^,]+,ou=People,ou=[^,]+|cn=empty-group-placeholder,ou=ServiceAccounts),dc=citypass,dc=local$
 EOF
-apply_cfg "$TMP/ov-constraint.ldif" "Overlay constraint (anti-anidamiento de grupos)"
+apply_overlay "constraint" "$TMP/ov-constraint.ldif" "Overlay constraint (anti-anidamiento de grupos)"
 
 # --- ppolicy: habilita pwdAccountLockedTime (baja = bloqueo permanente, D7) ---
 cat >"$TMP/ov-ppolicy.ldif" <<EOF
 dn: olcOverlay=ppolicy,${DB_DN}
 changetype: add
 objectClass: olcOverlayConfig
+objectClass: olcPPolicyConfig
 olcOverlay: ppolicy
 olcPPolicyDefault: cn=default,ou=Policies,dc=citypass,dc=local
 olcPPolicyHashCleartext: TRUE
 EOF
-apply_cfg "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
+apply_overlay "ppolicy" "$TMP/ov-ppolicy.ldif" "Overlay ppolicy"
+
+# La entrada que referencian olcPPolicyDefault/olcPPolicyUseLockout solo se
+# carga si el esquema quedó disponible (evita romper el bootstrap con
+# "undefined object class" si la imagen no pudo cargarlo).
+if [ "$PP_READY" -eq 1 ]; then
+  apply_dit /config/02-ppolicy-policy.ldif "Política de contraseñas por defecto (cn=default)"
+else
+  echo "    ADVERTENCIA: sin esquema ppolicy no se aplica la política — solo aplica la capa de código"
+fi
 
 # -----------------------------------------------------------------------------
-# 3) Hash de contraseñas, índices y ACLs
+# 4) Hash de contraseñas, índices y ACLs
 # -----------------------------------------------------------------------------
 
 # Las contraseñas que lleguen sin esquema (ej. reset desde el panel) se guardan
 # hasheadas con SSHA a nivel servidor: el backend nunca manipula hashes.
+# olcPasswordHash es un MAY de olcGlobal/olcFrontendConfig: va en cn=config.
 cat >"$TMP/hash.ldif" <<EOF
-dn: ${DB_DN}
+dn: cn=config
 changetype: modify
 add: olcPasswordHash
 olcPasswordHash: {SSHA}
@@ -206,8 +331,25 @@ olcAccess: {3}to *
 EOF
 apply_cfg "$TMP/acls.ldif" "ACLs del directorio"
 
+# Si el esquema ppolicy está disponible, se agrega una ACL explícita para
+# pwdAccountLockedTime (atributo operacional que el panel escribe al
+# deshabilitar/habilitar personas). Sin el esquema cargado, el handler
+# de olcAccess rechaza la referencia al atributo.
+if [ "$PP_READY" -eq 1 ]; then
+  cat >"$TMP/acl-ppolicy.ldif" <<EOF
+dn: ${DB_DN}
+changetype: modify
+add: olcAccess
+olcAccess: {4}to attrs=pwdAccountLockedTime
+  by dn.exact="cn=panel-writer,ou=ServiceAccounts,dc=citypass,dc=local" write
+  by self read
+  by * none
+EOF
+  apply_cfg "$TMP/acl-ppolicy.ldif" "ACL pwdAccountLockedTime (panel-writer escribe)"
+fi
+
 # -----------------------------------------------------------------------------
-# 4) Seed de datos — DESPUÉS de los overlays (ver comentario del encabezado)
+# 5) Seed de datos — DESPUÉS de los overlays (ver comentario del encabezado)
 # -----------------------------------------------------------------------------
 echo "--> Cargando seed (01-seed.ldif)"
 if ldapadd -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" -c -f /config/01-seed.ldif >"$TMP/seed.log" 2>&1; then
@@ -219,6 +361,48 @@ else
     echo "ERROR cargando seed:"; cat "$TMP/seed.log"; exit 1
   fi
 fi
+
+# -----------------------------------------------------------------------------
+# 6) Re-touch de membresías (registro memberOf)
+# -----------------------------------------------------------------------------
+# El overlay memberof de esta build (2.4.57) solo registra las membresías que
+# entran por MODIFY sobre un grupo existente: los `member` que vienen inline
+# en la CREACIÓN del grupo (seed) quedan sin referencia inversa -> memberOf
+# vacío -> tokens sin grupos -> 403 en el panel para delegados (y admin).
+# Reescribir cada member (delete+add del MISMO valor) fuerza el registro sin
+# cambiar ningún dato. Idempotente: siempre opera sobre valores existentes;
+# el placeholder técnico se salta a propósito.
+echo "--> Re-touch de membresías (memberOf)"
+retouched=0
+for groupdn in $(ldapsearch -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -b dc=citypass,dc=local '(&(objectClass=groupOfNames))' dn 2>/dev/null \
+    | grep '^dn: ' | sed 's/^dn: //'); do
+  members=$(ldapsearch -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -b "$groupdn" -s base '(objectClass=*)' member 2>/dev/null \
+    | grep '^member: ' | sed 's/^member: //' | grep -v 'empty-group-placeholder' || true)
+  [ -z "$members" ] && continue
+  {
+    echo "dn: $groupdn"
+    echo "changetype: modify"
+    first=1
+    while IFS= read -r m; do
+      [ -z "$m" ] && continue
+      [ "$first" -eq 0 ] && echo "-"
+      echo "delete: member"
+      echo "member: $m"
+      echo "-"
+      echo "add: member"
+      echo "member: $m"
+      first=0
+    done <<< "$members"
+  } >"$TMP/retouch.ldif"
+  if ldapmodify -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" -f "$TMP/retouch.ldif" >"$TMP/retouch.log" 2>&1; then
+    retouched=$((retouched+1))
+  else
+    echo "ERROR en re-touch de ${groupdn}:"; cat "$TMP/retouch.log"; exit 1
+  fi
+done
+echo "    grupos retocados: ${retouched}"
 
 echo ""
 echo "== Directorio configurado correctamente =="

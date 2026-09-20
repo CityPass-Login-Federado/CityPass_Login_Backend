@@ -1,0 +1,14 @@
+services:
+  anomaly-detection:
+    image: ghcr.io/citypass-login-federado/citypass-anomaly-detection:latest
+    container_name: citypass-anomaly-detection
+    ports:
+      - "8000:8000"
+    environment:
+      ANOMALY_DB_URL: "postgresql://postgres.${SUPABASE_PROJECT_REF}:${SUPABASE_DB_PASSWORD}@aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
+      UVICORN_WORKERS: "1"
+    restart: unless-stopped
+    mem_limit: 700m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

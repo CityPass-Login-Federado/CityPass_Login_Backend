@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "b7e3f2a1-4c8d-4e5a-9f6b-1a2c3d4e5f60",
 		"name": "CityPass Login Federado",
-		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout)\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una  mata sus sesiones al instante\n- El panel aísla módulos y exige grupo 'delegados'",
+		"description": "Pruebas manuales del módulo de Login Federado (LDAP + JWT).\n\nPRERREQUISITOS:\n1. docker compose up -d  (openldap + ldap-config + postgres + app + anomaly-detection)\n2. GET {{baseUrl}}/actuator/health debe responder {\"status\":\"UP\"}\n3. Swagger UI en {{baseUrl}}/docs · OpenAPI JSON en {{baseUrl}}/v3/api-docs · JWKS en {{baseUrl}}/.well-known/jwks.json\n\nORDEN DE EJECUCIÓN: correr las carpetas en orden numérico (Collection Runner o manual). Los scripts capturan automáticamente los tokens en variables de colección.\n\nUSUARIOS LDAP (password: changeit123):\n  jperez (reclamos) · mgomez (movilidad) · delegado-rec (panel reclamos)\n  delegado-mov (panel movilidad) · soporte1 (lockout) · consulta1 (fail-closed manual)\n  admin-global (panel GLOBAL, grupo cn=admin-global,ou=admin — opera los 6 módulos vía ?module=)\n\nMÓDULOS (spec §2.2): movilidad, residuos, reclamos, emergencias, espacios, analitica.\nCLIENTES HUMANOS: citypass-{modulo}-web + citypass-admin-web (transversal, aud citypass-admin-api).\nSERVICIOS (client_credentials): group1/group1-secret-dev (ns com.citypass.group1), group5/group5-secret-dev.\n\nINVARIANTES CLAVE QUE VALIDA ESTA COLECCIÓN:\n- Todo fallo de login devuelve el MISMO cuerpo 401 (anti-enumeración), incluido lockout, anomalía BLOCK y anomaly caído (fail-closed)\n- Rotación de refresh tokens + detección de reuso revoca la cadena completa\n- Deshabilitar una persona mata sus sesiones al instante; cambiar la contraseña también revoca todo\n- /auth/forgot-password siempre 204 (exista o no el usuario)\n- El panel aísla módulos y exige grupo 'delegados' (o 'admin-global' como única excepción global con ?module= obligatorio)",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"variable": [
@@ -15,9 +15,17 @@
 		{ "key": "mov_refresh_token", "value": "" },
 		{ "key": "admin_access_token", "value": "" },
 		{ "key": "admin_refresh_token", "value": "" },
+		{ "key": "admin_global_access_token", "value": "" },
+		{ "key": "admin_global_refresh_token", "value": "" },
 		{ "key": "movdel_access_token", "value": "" },
 		{ "key": "service_token", "value": "" },
-		{ "key": "new_uid", "value": "" }
+		{ "key": "new_uid", "value": "" },
+		{ "key": "new_employee_number", "value": "" },
+		{ "key": "created_access_token", "value": "" },
+		{ "key": "created_refresh_token", "value": "" },
+		{ "key": "perfil_uid", "value": "" },
+		{ "key": "perfil_access_token", "value": "" },
+		{ "key": "perfil_refresh_token", "value": "" }
 	],
 	"item": [
 		{
@@ -1004,11 +1012,12 @@
 								"exec": [
 									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
 									"const r = pm.response.json();",
-									"pm.test('Lista de personas del módulo', () => {",
-									"  pm.expect(r).to.be.an('array');",
-									"  const uids = r.map(x => x.uid);",
-									"  pm.expect(uids).to.include('jperez');",
-									"});"
+"pm.test('Lista de personas del módulo (paginada)', () => {",
+								"  pm.expect(r.content).to.be.an('array');",
+								"  const uids = r.content.map(x => x.uid);",
+								"  pm.expect(uids).to.include('jperez');",
+								"  pm.expect(r.totalElements).to.be.a('number');",
+								"});"
 								]
 							}
 						}
@@ -1085,9 +1094,10 @@
 									"pm.test('El sistema asignó el employeeNumber (no lo eligió nadie)', () => {",
 									"  pm.expect(r.employeeNumber).to.match(/^U\\d{6}$/);",
 									"  pm.expect(r.uid).to.eql('test.user');",
-									"  pm.expect(r.disabled).to.eql(false);",
-									"});",
-									"pm.collectionVariables.set('new_uid', r.employeeNumber);"
+"  pm.expect(r.disabled).to.eql(false);",
+								"});",
+								"pm.collectionVariables.set('new_uid', r.uid);",
+								"pm.collectionVariables.set('new_employee_number', r.employeeNumber);"
 								]
 							}
 						}
@@ -1120,9 +1130,10 @@
 									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
 									"const r = pm.response.json();",
 									"pm.test('Renombre aplicado, employeeNumber inmutable (D3)', () => {",
-									"  pm.expect(r.uid).to.eql('test-user');",
-									"  pm.expect(r.employeeNumber).to.eql(pm.collectionVariables.get('new_uid'));",
-									"});"
+"  pm.expect(r.uid).to.eql('test-user');",
+								"  pm.expect(r.employeeNumber).to.eql(pm.collectionVariables.get('new_employee_number'));",
+								"});",
+								"pm.collectionVariables.set('new_uid', r.uid);"
 								]
 							}
 						}
@@ -1431,12 +1442,12 @@
 								"exec": [
 									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
 									"const r = pm.response.json();",
-									"pm.test('Grupos del módulo con reservados marcados', () => {",
-									"  const nombres = r.map(g => g.name);",
-									"  pm.expect(nombres).to.include.members(['delegados','soporte-n2','guardia-finde','consulta']);",
-									"  const delegados = r.find(g => g.name === 'delegados');",
-									"  pm.expect(delegados.reserved).to.eql(true);",
-									"});"
+"pm.test('Grupos del módulo con reservados marcados (paginada)', () => {",
+								"  const nombres = r.content.map(g => g.name);",
+								"  pm.expect(nombres).to.include.members(['delegados','soporte-n2','guardia-finde','consulta']);",
+								"  const delegados = r.content.find(g => g.name === 'delegados');",
+								"  pm.expect(delegados.reserved).to.eql(true);",
+								"});"
 								]
 							}
 						}
@@ -1543,7 +1554,7 @@
 					}
 				},
 				{
-					"name": "05 Agregar miembro (test-user)",
+					"name": "05 Agregar miembro ({{new_uid}})",
 					"event": [
 						{
 							"listen": "test",
@@ -1567,7 +1578,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"memberUid\": \"test-user\"\n}",
+							"raw": "{\n  \"memberUid\": \"{{new_uid}}\"\n}",
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
@@ -1631,9 +1642,9 @@
 					"request": {
 						"method": "DELETE",
 						"url": {
-							"raw": "{{baseUrl}}/panel/groups/guardia-test/members/test-user",
+							"raw": "{{baseUrl}}/panel/groups/guardia-test/members/{{new_uid}}",
 							"host": ["{{baseUrl}}"],
-							"path": ["panel", "groups", "guardia-test", "members", "test-user"]
+							"path": ["panel", "groups", "guardia-test", "members", "{{new_uid}}"]
 						}
 					}
 				},
@@ -1967,7 +1978,27 @@
 		},
 		{
 			"name": "10 Anomalías",
+			"description": "Motor de reglas (anomaly-detection/app/rules.py): IP nueva +0.3, device nuevo +0.2, ≥3 fallos 15min +0.4, horario inusual +0.1. ≥0.7 BLOCK · ≥0.4 REVIEW · <0.4 ALLOW. Fail-closed: con Python caído el login válido da 401 genérico (NO 503).",
 			"item": [
+				{
+					"name": "00 Health anomaly-detection",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"pm.test('Status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": { "raw": "{{anomalyUrl}}/health", "host": ["{{anomalyUrl}}"], "path": ["health"] }
+					}
+				},
 				{
 					"name": "01 Score directo anomaly-detection",
 					"event": [
@@ -2026,6 +2057,623 @@
 							"options": { "raw": { "language": "json" } }
 						},
 						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				}
+			]
+		},
+		{
+			"name": "11 Panel Admin Global",
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{ "key": "token", "value": "{{admin_global_access_token}}", "type": "string" }
+				]
+			},
+			"description": "Rol admin-global (grupo reservado cn=admin-global,ou=admin): gestiona los 6 módulos con los MISMOS endpoints de /panel/** agregando ?module= en cada request. NO hay endpoints propios /admin/.\n\nUsuario seed: admin-global / changeit123 (módulo de ORIGEN analitica, irrelevante: opera sobre el módulo que pase en ?module=).\n\nPRERREQUISITO: correr '01 Login admin-global' primero (captura admin_global_access_token).\n\nPoderes extra vs delegado normal: puede borrar/crear el grupo reservado 'delegados' y dejarlo sin integrantes.",
+			"item": [
+				{
+					"name": "01 Login admin-global (captura token)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"function d64(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return CryptoJS.enc.Base64.parse(s).toString(CryptoJS.enc.Utf8);}",
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"const p = JSON.parse(d64(r.access_token.split('.')[1]));",
+									"pm.test('Claims de admin global (aud panel + grupo admin-global)', () => {",
+									"  pm.expect(p.sub).to.eql('U000007');",
+									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-admin-api');",
+									"  pm.expect(p.token_use).to.eql('human');",
+									"  pm.expect(p.module).to.eql('analitica');",
+									"  pm.expect(p.groups).to.include('admin-global');",
+									"});",
+									"pm.collectionVariables.set('admin_global_access_token', r.access_token);",
+									"pm.collectionVariables.set('admin_global_refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin-global\",\n  \"password\": \"changeit123\",\n  \"clientId\": \"citypass-admin-web\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "02 Listar personas de OTRO módulo (movilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Ve movilidad, no reclamos: cruce de módulos real', () => {",
+									"  const uids = r.content.map(x => x.uid);",
+									"  pm.expect(uids).to.include('mgomez');",
+									"  pm.expect(uids).to.include('delegado-mov');",
+									"  pm.expect(uids).to.not.include('jperez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/people?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "03 Obtener persona de OTRO módulo (mgomez)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Ficha de persona de otro módulo', () => {",
+									"  pm.expect(r.uid).to.eql('mgomez');",
+									"  pm.expect(r.employeeNumber).to.eql('U000002');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/people/mgomez?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people", "mgomez"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "04 Listar grupos de OTRO módulo (movilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Grupos del módulo elegido con reservados marcados', () => {",
+									"  const nombres = r.content.map(g => g.name);",
+									"  pm.expect(nombres).to.include('delegados');",
+									"  const d = r.content.find(g => g.name === 'delegados');",
+									"  pm.expect(d.reserved).to.eql(true);",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "05 Agregar miembro al grupo reservado delegados (movilidad)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Admin global puede tocar el grupo reservado ajeno', () => {",
+									"  pm.expect(r.group.name).to.eql('delegados');",
+									"  pm.expect(r.group.members).to.include('mgomez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"memberUid\": \"mgomez\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups/delegados/members?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups", "delegados", "members"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "06 Quitar miembro de delegados (deja delegado-mov, no lo vacía)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Se revierte el cambio: delegados sin mgomez', () => {",
+									"  pm.expect(r.group.members).to.not.include('mgomez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups/delegados/members/mgomez?module=movilidad",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups", "delegados", "members", "mgomez"],
+							"query": [{ "key": "module", "value": "movilidad" }]
+						}
+					}
+				},
+				{
+					"name": "07 Crear grupo temporal en OTRO módulo (residuos)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+									"const r = pm.response.json();",
+									"pm.expect(r.name).to.eql('global-ops-test');"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"global-ops-test\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups?module=residuos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups"],
+							"query": [{ "key": "module", "value": "residuos" }]
+						}
+					}
+				},
+				{
+					"name": "08 Borrar grupo temporal",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"url": {
+							"raw": "{{baseUrl}}/panel/groups/global-ops-test?module=residuos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "groups", "global-ops-test"],
+							"query": [{ "key": "module", "value": "residuos" }]
+						}
+					}
+},
+			{
+				"name": "09 Listar módulos existentes (6 de la spec §2.2)",
+				"event": [
+					{
+						"listen": "test",
+						"script": {
+							"type": "text/javascript",
+							"exec": [
+								"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+								"const mods = pm.response.json();",
+								"pm.test('Devuelve los 6 módulos en orden de la spec §2.2', () => {",
+								"  pm.expect(mods).to.eql(['movilidad','residuos','reclamos','emergencias','espacios','analitica']);",
+								"});"
+							]
+						}
+					}
+				],
+				"request": {
+					"method": "GET",
+					"url": {
+						"raw": "{{baseUrl}}/panel/modules",
+						"host": ["{{baseUrl}}"],
+						"path": ["panel", "modules"]
+					}
+				}
+			},
+			{
+				"name": "10 Sin ?module= → 400 (obligatorio para global)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 400: el admin global debe indicar el módulo', () => pm.response.to.have.status(400));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/people",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people"]
+						}
+					}
+				},
+				{
+					"name": "11 ?module= inválido → 400",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 400: módulo fuera de los 6', () => pm.response.to.have.status(400));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/people?module=noexiste",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people"],
+							"query": [{ "key": "module", "value": "noexiste" }]
+						}
+					}
+				},
+				{
+					"name": "12 Delegado normal NO cruza con ?module= (aislamiento intacto)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('El param se ignora: sigue viendo SOLO su módulo (movilidad)', () => {",
+									"  const uids = r.content.map(x => x.uid);",
+									"  pm.expect(uids).to.include('delegado-mov');",
+									"  pm.expect(uids).to.not.include('jperez');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{ "key": "token", "value": "{{movdel_access_token}}", "type": "string" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/people?module=reclamos",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "people"],
+							"query": [{ "key": "module", "value": "reclamos" }]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "12 Perfil, Recupero y Filtros",
+			"description": "Cubre los endpoints que faltaban: PUT /panel/people/{uid}, filtros de listado, POST /auth/forgot-password (siempre 204) y POST /me/change-password (revoca sesiones). USA UN USUARIO AISLADO (perfil-qa) para no romper la cadena de test-user de las carpetas 06-07.",
+			"item": [
+				{
+					"name": "01 Crear usuario aislado perfil-qa",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"  const r = pm.response.json();",
+									"  pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+									"  pm.collectionVariables.set('perfil_uid', r.uid);",
+									"} else if (pm.response.code === 422) {",
+									"  pm.test('Ya existía de una corrida anterior (422, reutilizable)', () => pm.response.to.have.status(422));",
+									"  pm.collectionVariables.set('perfil_uid', 'perfil-qa');",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{admin_access_token}}", "type": "string" }] },
+						"body": { "mode": "raw", "raw": "{\n  \"givenName\": \"Perfil\",\n  \"sn\": \"Qa\",\n  \"username\": \"perfil-qa\",\n  \"email\": \"perfil-qa@citypass.local\",\n  \"temporaryPassword\": \"temporal123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/panel/people", "host": ["{{baseUrl}}"], "path": ["panel", "people"] }
+					}
+				},
+				{
+					"name": "02 PUT actualizar datos (givenName/sn/email)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Datos corregidos, employeeNumber inmutable', () => {",
+									"  pm.expect(r.uid).to.eql(pm.collectionVariables.get('perfil_uid') || 'perfil-qa');",
+									"  pm.expect(r.employeeNumber).to.match(/^U\\d{6}$/);",
+									"  pm.expect(r.email).to.eql('perfil.qa2@citypass.local');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{admin_access_token}}", "type": "string" }] },
+						"body": { "mode": "raw", "raw": "{\n  \"givenName\": \"Perfil2\",\n  \"sn\": \"Qa2\",\n  \"email\": \"perfil.qa2@citypass.local\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/panel/people/{{perfil_uid}}", "host": ["{{baseUrl}}"], "path": ["panel", "people", "{{perfil_uid}}"] }
+					}
+				},
+				{
+					"name": "03 GET filtrado search + paginación",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Paginado con content/totalElements', () => {",
+									"  pm.expect(r.content).to.be.an('array');",
+									"  pm.expect(r.totalElements).to.be.a('number');",
+									"  pm.expect(r.currentPage).to.eql(0);",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{admin_access_token}}", "type": "string" }] },
+						"url": { "raw": "{{baseUrl}}/panel/people?search=perfil&page=0&size=5", "host": ["{{baseUrl}}"], "path": ["panel", "people"], "query": [{ "key": "search", "value": "perfil" }, { "key": "page", "value": "0" }, { "key": "size", "value": "5" }] }
+					}
+				},
+				{
+					"name": "04 GET grupos filtrado search",
+					"event": [
+						{
+							"listen": "test",
+							"script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200', () => pm.response.to.have.status(200));", "pm.test('Paginado de grupos', () => { const r = pm.response.json(); pm.expect(r.content).to.be.an('array'); });"] }
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{admin_access_token}}", "type": "string" }] },
+						"url": { "raw": "{{baseUrl}}/panel/groups?search=deleg&page=0&size=10", "host": ["{{baseUrl}}"], "path": ["panel", "groups"], "query": [{ "key": "search", "value": "deleg" }, { "key": "page", "value": "0" }, { "key": "size", "value": "10" }] }
+					}
+				},
+				{
+					"name": "05 Forgot-password usuario existente (siempre 204)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 204 (no revela existencia)', () => pm.response.to.have.status(204));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"uid\": \"jperez\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"] }
+					}
+				},
+				{
+					"name": "06 Forgot-password usuario inexistente (también 204)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 204 idéntico (anti-enumeración)', () => pm.response.to.have.status(204));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"uid\": \"nadie-fantasma-xyz\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"] }
+					}
+				},
+				{
+					"name": "07 Forgot-password vacío (400 validación)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400', () => pm.response.to.have.status(400));", "pm.test('Cuerpo validación', () => pm.expect(pm.response.json().error).to.eql('Petición inválida'));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"uid\": \"\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"] }
+					}
+				},
+				{
+					"name": "07b Forgot-password alias legacy username (también 204)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 204 con alias legacy', () => pm.response.to.have.status(204));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"username\": \"jperez\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"] }
+					}
+				},
+				{
+					"name": "07c Reset-password token inválido (422)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 422 enlace inválido', () => pm.response.to.have.status(422));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"token\": \"token-falso-inexistente\",\n  \"newPassword\": \"nuevaClave123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/reset-password", "host": ["{{baseUrl}}"], "path": ["auth", "reset-password"] }
+					}
+				},
+				{
+					"name": "07d Reset-password token válido (204, revoca sesiones)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 204 canje OK', () => pm.response.to.have.status(204));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"token\": \"{{reset_token}}\",\n  \"newPassword\": \"nuevaClave123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/reset-password", "host": ["{{baseUrl}}"], "path": ["auth", "reset-password"] },
+						"description": "Pegar en {{reset_token}} el token crudo del enlace del mail (o del log [DEV]). Un solo uso: pedir otro forgot-password para reintentar."
+					}
+				},
+				{
+					"name": "08 Login perfil-qa (sesión fresca)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.collectionVariables.set('perfil_access_token', r.access_token);",
+									"pm.collectionVariables.set('perfil_refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"username\": \"perfil-qa\",\n  \"password\": \"temporal123\",\n  \"clientId\": \"citypass-admin-web\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "09 Change-password OK (revoca sesiones)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 204', () => pm.response.to.have.status(204));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{perfil_access_token}}", "type": "string" }] },
+						"body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"temporal123\",\n  \"newPassword\": \"perfilNueva123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/me/change-password", "host": ["{{baseUrl}}"], "path": ["me", "change-password"] }
+					}
+				},
+				{
+					"name": "10 Refresh viejo muere tras change-password",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 401: change-password revocó todo', () => pm.response.to.have.status(401));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"refreshToken\": \"{{perfil_refresh_token}}\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth", "refresh"] }
+					}
+				},
+				{
+					"name": "11 Login con clave nueva OK",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200 con la nueva', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.collectionVariables.set('perfil_access_token', r.access_token);",
+									"pm.collectionVariables.set('perfil_refresh_token', r.refresh_token);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"username\": \"perfil-qa\",\n  \"password\": \"perfilNueva123\",\n  \"clientId\": \"citypass-admin-web\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] }
+					}
+				},
+				{
+					"name": "12 Change-password clave actual mala (422)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 422', () => pm.response.to.have.status(422));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{perfil_access_token}}", "type": "string" }] },
+						"body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"clave-equivocada\",\n  \"newPassword\": \"otraNueva123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/me/change-password", "host": ["{{baseUrl}}"], "path": ["me", "change-password"] }
+					}
+				},
+				{
+					"name": "13 Change-password sin token (401)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 401', () => pm.response.to.have.status(401));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"perfilNueva123\",\n  \"newPassword\": \"otraNueva123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/me/change-password", "host": ["{{baseUrl}}"], "path": ["me", "change-password"] }
+					}
+				},
+				{
+					"name": "14 Change-password con token servicio (403)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 403: solo personas', () => pm.response.to.have.status(403));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{service_token}}", "type": "string" }] },
+						"body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"x\",\n  \"newPassword\": \"otraNueva123\"\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/me/change-password", "host": ["{{baseUrl}}"], "path": ["me", "change-password"] }
 					}
 				}
 			]
