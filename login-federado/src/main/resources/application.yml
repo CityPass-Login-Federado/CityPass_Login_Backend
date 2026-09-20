@@ -133,7 +133,13 @@ anomaly:
 # para mostrar el enlace en consola. Para producción habilitar SMTP con
 # spring.mail.* y poner debug-log en false. IMPORTANTE: nunca exportar
 # SPRING_MAIL_HOST vacío: Boot lo toma como configurado y saltea el fallback.
+# --- CORS del frontend browser-based (orígenes distintos) ---
+# Lista separada por comas. En prod se pisa con CORS_ALLOWED_ORIGINS
+# (dashboard de Render / .env del deploy); el default ya incluye dev
+# y el frontend productivo actual.
 app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,https://citypass-login.pp.ua}
   password-reset:
     from: ${PASSWORD_RESET_FROM:no-reply@citypass.local}
     debug-log: ${PASSWORD_RESET_DEBUG_LOG:true}
