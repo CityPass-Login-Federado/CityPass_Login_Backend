@@ -58,19 +58,27 @@ class AuthControllerTest {
 
     @Test
     void refreshDelegates() {
+        HttpServletRequest http = mock(HttpServletRequest.class);
+        when(http.getHeader("X-Forwarded-For")).thenReturn(null);
+        when(http.getHeader("User-Agent")).thenReturn("JUnit");
+        when(http.getRemoteAddr()).thenReturn("1.2.3.4");
         var request = new RefreshRequest("rt");
         var expected = new LoginResponse("a", "r", "Bearer", 900L);
-        when(authService.refresh(request)).thenReturn(expected);
+        when(authService.refresh(request, "1.2.3.4", "JUnit")).thenReturn(expected);
 
-        assertThat(controller.refresh(request).getBody()).isSameAs(expected);
+        assertThat(controller.refresh(request, http).getBody()).isSameAs(expected);
     }
 
     @Test
     void logoutIsAlways204() {
+        HttpServletRequest http = mock(HttpServletRequest.class);
+        when(http.getHeader("X-Forwarded-For")).thenReturn(null);
+        when(http.getHeader("User-Agent")).thenReturn("JUnit");
+        when(http.getRemoteAddr()).thenReturn("1.2.3.4");
         var request = new RefreshRequest("rt");
 
-        assertThat(controller.logout(request).getStatusCode().value()).isEqualTo(204);
-        verify(authService).logout("rt");
+        assertThat(controller.logout(request, http).getStatusCode().value()).isEqualTo(204);
+        verify(authService).logout("rt", "1.2.3.4", "JUnit");
     }
 
     @Test

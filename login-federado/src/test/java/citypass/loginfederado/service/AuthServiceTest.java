@@ -128,7 +128,7 @@ class AuthServiceTest {
         assertThat(response.tokenType()).isEqualTo("Bearer");
         assertThat(response.expiresIn()).isEqualTo(900);
         verify(attempts).recordAttempt("jperez", "ip", "ua", true);
-        verify(events).publish(eq("usuario.autenticado"), any());
+        verify(events).publish(eq("identidad.login"), any());
     }
 
     @Test
@@ -168,7 +168,7 @@ class AuthServiceTest {
         when(issuer.issueHuman(person, client)).thenReturn("new-access");
         when(refresh.issueNext(person, chain, client)).thenReturn("new-refresh");
 
-        var response = service.refresh(new RefreshRequest("old"));
+        var response = service.refresh(new RefreshRequest("old"), "ip", "ua");
         assertThat(response.accessToken()).isEqualTo("new-access");
         assertThat(response.refreshToken()).isEqualTo("new-refresh");
         verify(refresh).issueNext(person, chain, client);
@@ -176,7 +176,7 @@ class AuthServiceTest {
 
     @Test
     void logoutDelegatesToRefreshService() {
-        service.logout("refresh");
+        service.logout("refresh", "ip", "ua");
         verify(refresh).revokeSingle("refresh");
     }
 }

@@ -11,12 +11,15 @@ import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
+import citypass.loginfederado.event.EventPublisher;
+import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import citypass.loginfederado.service.RefreshTokenService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -55,19 +58,22 @@ public class PanelController {
     private final PanelAuthorization authorization;
     private final PanelAuditService audit;
     private final RefreshTokenService refreshTokens;
+        private final EventPublisher eventPublisher;
 
     public PanelController(PanelPersonService persons,
                         PanelGroupService groups,
                         PanelAccountService accounts,
                         PanelAuthorization authorization,
                         PanelAuditService audit,
-                        RefreshTokenService refreshTokens) {
+                        RefreshTokenService refreshTokens,
+                        EventPublisher eventPublisher) {
         this.persons = persons;
         this.groups = groups;
         this.accounts = accounts;
         this.authorization = authorization;
         this.audit = audit;
         this.refreshTokens = refreshTokens;
+        this.eventPublisher = eventPublisher;
     }
 
     // ------------------------------------------------------------------
@@ -169,15 +175,32 @@ public class PanelController {
     @PostMapping("/people/{uid}/disable")
     public ResponseEntity<Void> disablePerson(@AuthenticationPrincipal Jwt jwt,
                                             @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
-                                            @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid) {
+                                            @Parameter(description = "UID (preferred_username) de la persona") @PathVariable String uid,
+                                            HttpServletRequest httpRequest) {
         var delegate = delegate(jwt, module);
         PersonView person = persons.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
         accounts.disablePerson(delegate, delegate.module(), uid);
-        refreshTokens.revokeAllForSub(person.employeeNumber());
+        int revoked = refreshTokens.revokeAllForSub(person.employeeNumber());
+        if (revoked > 0) {
+            eventPublisher.publish(
+                    "identidad.logout",
+                    RawAuthenticationEvent.logout(
+                            person.employeeNumber(), null, null, null,
+                            resolveClientIp(httpRequest), httpRequest.getHeader("User-Agent"))
+            );
+        }
         audit.record(delegate, "SESSIONS_REVOKED", person.uid(), "baja de persona");
         return ResponseEntity.noContent().build();
     }
+
+        private String resolveClientIp(HttpServletRequest request) {
+                String forwardedFor = request.getHeader("X-Forwarded-For");
+                if (forwardedFor != null && !forwardedFor.isBlank()) {
+                        return forwardedFor.split(",")[0].trim();
+                }
+                return request.getRemoteAddr();
+        }
 
     @Operation(summary = "Rehabilitar persona",
             description = "Recupera identidad, historial y grupos intactos.",

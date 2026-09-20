@@ -18,6 +18,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -62,6 +63,9 @@ public class RefreshTokenService {
             UUID chainId,
             CitypassProperties.Client client
     ) {
+    }
+
+    public record RevokedToken(String sub, String clientId, UUID chainId) {
     }
 
     public String issueInitial(LdapDirectoryPerson person, CitypassProperties.Client client) {
@@ -147,13 +151,14 @@ public class RefreshTokenService {
      * silencioso (no se revela si alguna vez existió).
      */
     @Transactional
-    public void revokeSingle(String rawToken) {
+    public Optional<RevokedToken> revokeSingle(String rawToken) {
         if (rawToken == null || rawToken.isBlank()) {
-            return;
+            return Optional.empty();
         }
-        repository.findByTokenHash(hash(rawToken)).ifPresent(stored -> {
+        return repository.findByTokenHash(hash(rawToken)).map(stored -> {
             stored.revoke(Instant.now());
             repository.save(stored);
+            return new RevokedToken(stored.getSub(), stored.getClientId(), stored.getChainId());
         });
     }
 

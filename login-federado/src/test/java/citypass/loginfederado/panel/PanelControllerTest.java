@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -51,7 +52,7 @@ class PanelControllerTest {
         accounts = mock(PanelAccountService.class);
         authorization = mock(PanelAuthorization.class);
         controller = new PanelController(persons, groups, accounts, authorization, mock(PanelAuditService.class),
-                mock(RefreshTokenService.class));
+            mock(RefreshTokenService.class), mock(citypass.loginfederado.event.EventPublisher.class));
     }
 
     @Test
@@ -86,7 +87,7 @@ class PanelControllerTest {
         assertThat(controller.getPerson(jwt, "MOVILIDAD", "jperez")).isEqualTo(person);
         controller.createPerson(jwt, "movilidad", new NewPersonRequest("Juan", "Perez", "jperez", "j@x.com", "password1"));
         controller.updatePerson(jwt, "movilidad", "jperez", new UpdatePersonRequest(null, null, null, null));
-        controller.disablePerson(jwt, "movilidad", "jperez");
+        controller.disablePerson(jwt, "movilidad", "jperez", new MockHttpServletRequest());
         controller.enablePerson(jwt, "movilidad", "jperez");
         controller.resetPassword(jwt, "movilidad", "jperez", new PasswordResetRequest("password1"));
         controller.listGroups(jwt, "movilidad", 0, 10, null, null);
@@ -119,7 +120,7 @@ class PanelControllerTest {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
         when(persons.findPerson("movilidad", "nobody")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> controller.disablePerson(jwt, "movilidad", "nobody"))
+        assertThatThrownBy(() -> controller.disablePerson(jwt, "movilidad", "nobody", new MockHttpServletRequest()))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
                         .isEqualTo(HttpStatus.NOT_FOUND));
