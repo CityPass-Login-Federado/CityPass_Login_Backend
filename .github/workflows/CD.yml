@@ -124,6 +124,13 @@ jobs:
                       SVC_GROUP1_SECRET=${{ secrets.SVC_GROUP1_SECRET }}
                       SVC_GROUP5_SECRET=${{ secrets.SVC_GROUP5_SECRET }}
                       ANOMALY_SERVICE_URL=${{ secrets.ANOMALY_SERVICE_URL }}
+                      SPRING_MAIL_HOST=${{ secrets.SPRING_MAIL_HOST }}
+                      SPRING_MAIL_PORT=${{ secrets.SPRING_MAIL_PORT }}
+                      SPRING_MAIL_USERNAME=${{ secrets.SPRING_MAIL_USERNAME }}
+                      SPRING_MAIL_PASSWORD=${{ secrets.SPRING_MAIL_PASSWORD }}
+                      SPRING_MAIL_SMTP_AUTH=true
+                      SPRING_MAIL_SMTP_STARTTLS=true
+                      PASSWORD_RESET_FROM=${{ secrets.PASSWORD_RESET_FROM }}
                       ENVEOF
                       docker compose -f docker-compose.prod.yml pull
                       docker compose -f docker-compose.prod.yml up -d
