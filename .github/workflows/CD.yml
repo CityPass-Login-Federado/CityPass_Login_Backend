@@ -131,6 +131,7 @@ jobs:
                       SPRING_MAIL_SMTP_AUTH=true
                       SPRING_MAIL_SMTP_STARTTLS=true
                       PASSWORD_RESET_FROM=${{ secrets.PASSWORD_RESET_FROM }}
+                      PASSWORD_RESET_LINK_BASE=${{ secrets.PASSWORD_RESET_LINK_BASE }}
                       ENVEOF
                       docker compose -f docker-compose.prod.yml pull
                       docker compose -f docker-compose.prod.yml up -d
