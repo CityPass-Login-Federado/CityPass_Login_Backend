@@ -23,6 +23,8 @@ import org.springframework.security.web.access.ExceptionTranslationFilter;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -104,6 +106,23 @@ class SecurityConfigTest {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getErrorMessage()).isEqualTo("No tiene permisos para acceder a este recurso");
+    }
+
+    @Test
+    void preflightFromAllowedOriginSucceedsWithCorsHeaders() throws Exception {
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", "https://citypass-login.pp.ua")
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://citypass-login.pp.ua"));
+    }
+
+    @Test
+    void preflightFromUnknownOriginIsRejected() throws Exception {
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", "https://evil.example.com")
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
