@@ -78,4 +78,43 @@ class OAuthTokenControllerTest {
                     assertThat(error.error()).isEqualTo("invalid_client");
                 });
     }
+
+    @Test
+    void acceptsFormParametersWhenBasicHeaderIsMissing() {
+        CitypassProperties.Client client = new CitypassProperties.Client(
+                "eda-client",
+                null,
+                "citypass-eda-api",
+                "reclamos",
+                false,
+                "service",
+                null);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getHeader("Authorization")).thenReturn(null);
+        when(request.getParameter("client_id")).thenReturn("eda-client");
+        when(request.getParameter("client_secret")).thenReturn("secret");
+        when(clientRegistry.authenticateService("eda-client", "secret")).thenReturn(client);
+        when(accessTokenIssuer.issueService(client)).thenReturn("form-token");
+
+        var response = controller.token("client_credentials", request);
+
+        assertThat(response.accessToken()).isEqualTo("form-token");
+        assertThat(response.tokenType()).isEqualTo("Bearer");
+    }
+
+    @Test
+    void rejectsMissingCredentialsWhenHeaderAndFormAreAbsent() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getHeader("Authorization")).thenReturn(null);
+        when(request.getParameter("client_id")).thenReturn(null);
+        when(request.getParameter("client_secret")).thenReturn(null);
+
+        assertThatThrownBy(() -> controller.token("client_credentials", request))
+                .isInstanceOf(EdaOAuthException.class)
+                .satisfies(ex -> {
+                    EdaOAuthException error = (EdaOAuthException) ex;
+                    assertThat(error.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(error.error()).isEqualTo("invalid_request");
+                });
+    }
 }
