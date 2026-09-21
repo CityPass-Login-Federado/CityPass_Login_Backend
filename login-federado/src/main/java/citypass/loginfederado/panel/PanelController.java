@@ -9,7 +9,6 @@ import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PasswordResetRequest;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
-import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
@@ -33,7 +32,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
 import java.util.Locale;
@@ -174,53 +172,26 @@ public class PanelController {
             }
         
             if (module == null || module.isBlank()) {
-                return directory.listAllPeopleGlobal();
+                return persons.listAllPeopleGlobal();
             }
         
-            return directory.listPeople(module).stream()
-                    .map(person -> new GlobalPersonView(
-                            module.toLowerCase(),
-                            person.employeeNumber(),
-                            person.uid(),
-                            person.givenName(),
-                            person.sn(),
-                            person.email(),
-                            person.disabled()
-                    ))
-                    .sorted(java.util.Comparator.comparing(GlobalPersonView::uid))
-                    .toList();
-    }
+            String selectedModule = module.toLowerCase(Locale.ROOT);
 
-    //Lista a toda las personas
-    @GetMapping("/people/all")
-        public List<GlobalPersonView> listAllPeople(
-                @AuthenticationPrincipal Jwt jwt,
-                @RequestParam(required = false) String module) {
-                
-            PanelAuthorization.Delegate delegate =
-                    authorization.requireDelegate(jwt);
-                
-            if (!delegate.global()) {
-                throw new org.springframework.security.access.AccessDeniedException(
-                        "Solo un admin global puede listar todos los módulos");
-            }
-        
-            if (module == null || module.isBlank()) {
-                return directory.listAllPeopleGlobal();
-            }
-        
-            return directory.listPeople(module).stream()
-                    .map(person -> new GlobalPersonView(
-                            module.toLowerCase(),
-                            person.employeeNumber(),
-                            person.uid(),
-                            person.givenName(),
-                            person.sn(),
-                            person.email(),
-                            person.disabled()
-                    ))
-                    .sorted(java.util.Comparator.comparing(GlobalPersonView::uid))
-                    .toList();
+            return persons.listPeople(
+                selectedModule,
+                new PeopleSearchCriteria(0, Integer.MAX_VALUE, null, null, null)
+                ).content().stream()
+                        .map(person -> new GlobalPersonView(
+                                selectedModule,
+                                person.employeeNumber(),
+                                person.uid(),
+                                person.givenName(),
+                                person.sn(),
+                                person.email(),
+                                person.disabled()
+                        ))
+                        .sorted(java.util.Comparator.comparing(GlobalPersonView::uid))
+                        .toList();
     }
 
     @Operation(summary = "Deshabilitar persona (baja D7)",
@@ -241,7 +212,10 @@ public class PanelController {
         PersonView person = persons.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
         accounts.disablePerson(delegate, delegate.module(), uid);
-        refreshTokens.revokeAllForSub(person.employeeNumber());
+        refreshTokens.revokeAllForSub(
+                person.employeeNumber(),
+                delegate.module()
+        );
         audit.record(delegate, "SESSIONS_REVOKED", person.uid(), "baja de persona");
         return ResponseEntity.noContent().build();
     }
@@ -402,51 +376,6 @@ public class PanelController {
     // Helpers
     // ------------------------------------------------------------------
 
-    private PanelAuthorization.Delegate delegate(Jwt jwt, String requestedModule) {
-        PanelAuthorization.Delegate delegate = authorization.requireDelegate(jwt);
-
-        if (delegate.global()) {
-            if (requestedModule == null || requestedModule.isBlank()) {
-                return delegate;
-            }
-
-        return new PanelAuthorization.Delegate(
-            delegate.sub(),
-            delegate.uid(),                
-            requestedModule.toLowerCase()
-        );
-        }
-
-        if (requestedModule != null && !requestedModule.isBlank()) {
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "Un delegado no puede seleccionar otro módulo");
-        }
-
-        return delegate;
-    }
-
-    private PanelAuthorization.Delegate delegate(Jwt jwt, String requestedModule) {
-        PanelAuthorization.Delegate delegate = authorization.requireDelegate(jwt);
-
-        if (delegate.global()) {
-            if (requestedModule == null || requestedModule.isBlank()) {
-                return delegate;
-            }
-
-        return new PanelAuthorization.Delegate(
-            delegate.sub(),
-            delegate.uid(),                
-            requestedModule.toLowerCase()
-        );
-        }
-
-        if (requestedModule != null && !requestedModule.isBlank()) {
-            throw new org.springframework.security.access.AccessDeniedException(
-                    "Un delegado no puede seleccionar otro módulo");
-        }
-
-        return delegate;
-    }
 
     /**
      * Resuelve quién opera y sobre qué módulo. Un delegado NORMAL solo puede

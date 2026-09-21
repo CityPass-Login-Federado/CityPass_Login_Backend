@@ -172,7 +172,7 @@ class PasswordServiceTest {
                 .hasMessageContaining("inválido o expiró");
 
         verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
-        verify(refresh, never()).revokeAllForSub(anyString());
+        verify(refresh, never()).revokeAllForSub(anyString(), anyString());
     }
 
     @Test
@@ -208,13 +208,13 @@ class PasswordServiceTest {
         when(tokenStore.findByHash(anyString())).thenReturn(Optional.of(usableToken()));
         when(ldap.reloadBySub("U000042")).thenReturn(Optional.of(person));
         when(tokenStore.consumeIfUsable(anyString(), any(Instant.class))).thenReturn(true);
-        when(refresh.revokeAllForSub("U000042")).thenReturn(3);
+        when(refresh.revokeAllForSub("U000042", "reclamos")).thenReturn(3);
 
         assertThatCode(() -> service.redeemResetToken("token-crudo-del-enlace", "nuevaClave123"))
                 .doesNotThrowAnyException();
 
         verify(accounts).setPassword("reclamos", "jperez", "nuevaClave123");
-        verify(refresh).revokeAllForSub("U000042");
+        verify(refresh).revokeAllForSub("U000042", "reclamos");
     }
 
     @Test
@@ -226,7 +226,7 @@ class PasswordServiceTest {
                 .hasMessageContaining("inválido o expiró");
 
         verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
-        verify(refresh, never()).revokeAllForSub(anyString());
+        verify(refresh, never()).revokeAllForSub(anyString(), anyString());
     }
 
     @Test
@@ -240,7 +240,7 @@ class PasswordServiceTest {
                 .hasMessageContaining("inválido o expiró");
 
         verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
-        verify(refresh, never()).revokeAllForSub(anyString());
+        verify(refresh, never()).revokeAllForSub(anyString(), anyString());
         verify(ldap, never()).reloadBySub(anyString());
     }
 
@@ -254,7 +254,7 @@ class PasswordServiceTest {
                 .hasMessageContaining("inválido o expiró");
 
         verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
-        verify(refresh, never()).revokeAllForSub(anyString());
+        verify(refresh, never()).revokeAllForSub(anyString(), anyString());
     }
 
     @Test
@@ -268,7 +268,7 @@ class PasswordServiceTest {
                 .hasMessageContaining("inválido o expiró");
 
         verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
-        verify(refresh, never()).revokeAllForSub(anyString());
+        verify(refresh, never()).revokeAllForSub(anyString(), anyString());
     }
 
     @Test
@@ -305,16 +305,16 @@ class PasswordServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("actual es incorrecta");
         verify(accounts, never()).setPassword(anyString(), anyString(), anyString());
-        verify(refresh, never()).revokeAllForSub(anyString());
+        verify(refresh, never()).revokeAllForSub(anyString(), anyString());
     }
 
     @Test
     void changePasswordSuccessWritesAndRevokesSessions() throws Exception {
         when(ldap.reloadBySub("U000042")).thenReturn(Optional.of(person));
-        when(refresh.revokeAllForSub("U000042")).thenReturn(3);
+        when(refresh.revokeAllForSub("U000042", "reclamos")).thenReturn(3);
         service.changePassword("U000042", "actual", "12345678");
         verify(ldap).bind(person.dn(), "actual");
         verify(accounts).setPassword("reclamos", "jperez", "12345678");
-        verify(refresh).revokeAllForSub("U000042");
+        verify(refresh).revokeAllForSub("U000042", "reclamos");
     }
 }
