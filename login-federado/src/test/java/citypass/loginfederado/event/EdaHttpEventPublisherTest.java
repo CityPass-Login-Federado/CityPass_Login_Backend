@@ -33,7 +33,7 @@ class EdaHttpEventPublisherTest {
     @Test
     void parsesServiceTokenClaimsAndExpiresAt() throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
-        String token = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzZXJ2aWNlIiwibmFtZXNwYWNlIjoiY29tLmNpdHlwYXNzLmF1dGgiLCJqdGkiOiJ0b2tlbi0xIn0.signature";
+        String token = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzZXJ2aWNlIiwibmFtZXNwYWNlIjoiY29tLmNpdHlwYXNzLmF1dGgiLCJqdGkiOiJ0b2tlbi0xIn0.dummy-signature";
 
         Class<?> serviceTokenClass = Arrays.stream(EdaHttpEventPublisher.class.getDeclaredClasses())
                 .filter(c -> c.getSimpleName().equals("ServiceToken"))
