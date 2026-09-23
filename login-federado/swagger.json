@@ -368,6 +368,40 @@
         }
       }
     },
+    "/panel/admin/people": {
+      "get": {
+        "tags": ["Panel — Personas"],
+        "summary": "Listar TODAS las personas (admin global)",
+        "description": "Agrega las personas de los 6 módulos en una sola página global, ordenadas por uid. Cada fila lleva su módulo. Filtros opcionales: search, group y disabled (se aplican por módulo). Solo admin global: un delegado normal recibe 403.",
+        "operationId": "listAllPeople",
+        "parameters": [
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "default": 0 }, "description": "Número de página (base 0)" },
+          { "name": "size", "in": "query", "required": false, "schema": { "type": "integer", "default": 10 }, "description": "Tamaño de página" },
+          { "name": "search", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Texto libre en nombre, apellido, uid o mail" },
+          { "name": "group", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Nombre de grupo para filtrar por membresía" },
+          { "name": "disabled", "in": "query", "required": false, "schema": { "type": "boolean" }, "description": "true: solo deshabilitadas; false: solo habilitadas" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página global de personas",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaginatedAdminPersonResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
+        }
+      }
+    },
     "/panel/people": {
       "get": {
         "tags": ["Panel — Personas"],
@@ -672,6 +706,39 @@
               }
             }
           }
+        }
+      }
+    },
+    "/panel/admin/groups": {
+      "get": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Listar TODOS los grupos (admin global)",
+        "description": "Agrega los grupos de los 6 módulos en una sola página global, ordenados por nombre. Cada fila lleva su módulo. Filtros opcionales: search y reserved (se aplican por módulo). Solo admin global: un delegado normal recibe 403.",
+        "operationId": "listAllGroups",
+        "parameters": [
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "default": 0 }, "description": "Número de página (base 0)" },
+          { "name": "size", "in": "query", "required": false, "schema": { "type": "integer", "default": 10 }, "description": "Tamaño de página" },
+          { "name": "search", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Texto libre en el nombre del grupo" },
+          { "name": "reserved", "in": "query", "required": false, "schema": { "type": "boolean" }, "description": "true: solo grupos reservados; false: solo no reservados" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página global de grupos",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaginatedAdminGroupResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
         }
       }
     },
@@ -1164,6 +1231,29 @@
           "size": { "type": "integer", "description": "Tamaño de página" }
         }
       },
+      "AdminPersonView": {
+        "type": "object",
+        "required": ["module", "employeeNumber", "uid", "givenName", "sn", "disabled"],
+        "properties": {
+          "module": { "type": "string", "description": "Módulo de la ficha", "example": "reclamos" },
+          "employeeNumber": { "type": "string", "description": "ID estable, formato U000000 (inmutable, D3)", "example": "U000042" },
+          "uid": { "type": "string", "description": "Nombre de usuario (uid)", "example": "jperez" },
+          "givenName": { "type": "string", "description": "Nombre", "example": "Juan" },
+          "sn": { "type": "string", "description": "Apellido", "example": "Perez" },
+          "email": { "type": "string", "description": "Mail", "example": "jperez@citypass.local" },
+          "disabled": { "type": "boolean", "description": "true si la cuenta está bloqueada vía ppolicy (D7)" }
+        }
+      },
+      "PaginatedAdminPersonResponse": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "array", "items": { "$ref": "#/components/schemas/AdminPersonView" }, "description": "Elementos de la página actual" },
+          "totalElements": { "type": "integer", "format": "int64", "description": "Total de elementos en los 6 módulos" },
+          "totalPages": { "type": "integer", "description": "Total de páginas" },
+          "currentPage": { "type": "integer", "description": "Página actual (base 0)" },
+          "size": { "type": "integer", "description": "Tamaño de página" }
+        }
+      },
       "GroupCreateRequest": {
         "type": "object",
         "required": ["name"],
@@ -1184,6 +1274,26 @@
         "properties": {
           "content": { "type": "array", "items": { "$ref": "#/components/schemas/GroupView" }, "description": "Elementos de la página actual" },
           "totalElements": { "type": "integer", "format": "int64", "description": "Total de elementos en el módulo" },
+          "totalPages": { "type": "integer", "description": "Total de páginas" },
+          "currentPage": { "type": "integer", "description": "Página actual (base 0)" },
+          "size": { "type": "integer", "description": "Tamaño de página" }
+        }
+      },
+      "AdminGroupView": {
+        "type": "object",
+        "required": ["module", "name", "members"],
+        "properties": {
+          "module": { "type": "string", "description": "Módulo del grupo", "example": "reclamos" },
+          "name": { "type": "string", "description": "Nombre del grupo", "example": "soporte-n2" },
+          "members": { "type": "array", "items": { "type": "string" }, "description": "UIDs de las personas miembros (el placeholder técnico nunca aparece)" },
+          "reserved": { "type": "boolean", "description": "true si es el grupo reservado 'delegados'" }
+        }
+      },
+      "PaginatedAdminGroupResponse": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "array", "items": { "$ref": "#/components/schemas/AdminGroupView" }, "description": "Elementos de la página actual" },
+          "totalElements": { "type": "integer", "format": "int64", "description": "Total de elementos en los 6 módulos" },
           "totalPages": { "type": "integer", "description": "Total de páginas" },
           "currentPage": { "type": "integer", "description": "Página actual (base 0)" },
           "size": { "type": "integer", "description": "Tamaño de página" }
