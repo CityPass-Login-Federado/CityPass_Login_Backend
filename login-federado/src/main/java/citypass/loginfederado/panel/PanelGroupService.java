@@ -13,6 +13,7 @@ import citypass.loginfederado.panel.dto.MembershipWarning;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.ldap.AttributeInUseException;
 import org.springframework.ldap.NoSuchAttributeException;
 import org.springframework.ldap.core.AttributesMapper;
@@ -24,6 +25,7 @@ import org.springframework.ldap.filter.LikeFilter;
 import org.springframework.ldap.query.LdapQuery;
 import static org.springframework.ldap.query.LdapQueryBuilder.query;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttributes;
@@ -247,8 +249,10 @@ public class PanelGroupService {
             DirContextOperations group;
             try {
                 group = support.requireContext(groupDn);
-            } catch (IllegalStateException ex) {
-                throw new IllegalStateException(
+            } catch (ResponseStatusException ex) {
+                // requireContext devuelve 404 (contrato): se conserva el mensaje
+                // específico del grupo sin cambiar el status.
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "No existe el grupo '%s' en el módulo".formatted(groupName), ex);
             }
             groupDns.put(groupName, groupDn);
