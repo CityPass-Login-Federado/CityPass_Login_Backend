@@ -161,7 +161,7 @@ app:
   password-reset:
     from: ${PASSWORD_RESET_FROM:no-reply@citypass.local}
     debug-log: ${PASSWORD_RESET_DEBUG_LOG:true}
-    reset-link-base: ${PASSWORD_RESET_LINK_BASE:http://localhost:3000/reset-password}
+    reset-link-base: ${PASSWORD_RESET_LINK_BASE:https://api.citypass-login.pp.ua/reset-password}
     token-ttl-minutes: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:30}
     cooldown-minutes: ${PASSWORD_RESET_COOLDOWN_MINUTES:5}
     max-per-account-per-hour: ${PASSWORD_RESET_MAX_PER_ACCOUNT_PER_HOUR:3}
