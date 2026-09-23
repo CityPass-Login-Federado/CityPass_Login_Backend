@@ -93,7 +93,7 @@ class AccessTokenIssuerTest {
         var claims = SignedJWT.parse(issuer.issueService(serviceClient)).getJWTClaimsSet();
 
         assertThat(claims.getSubject()).isEqualTo("svc-grupo1");
-        assertThat(claims.getAudience()).containsExactly("citypass-bus");
+        assertThat(claims.getAudience()).containsExactly("citypass");
         assertThat(claims.getStringClaim("token_use")).isEqualTo("service");
         assertThat(claims.getLongClaim("ver")).isEqualTo(1L);
         assertThat(claims.getStringClaim("namespace")).isEqualTo("grupo1");

@@ -2,6 +2,8 @@ package citypass.loginfederado.panel;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
@@ -35,6 +37,7 @@ import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.PersonView;
@@ -137,6 +140,30 @@ class PanelPersonServiceTest {
     void findPersonReturnsEmptyWhenMissing() {
         when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
         assertThat(service.findPerson("reclamos", "nobody")).isEmpty();
+    }
+
+    @Test
+    void listAllPeopleGlobalAggregatesAcrossModulesAndSorts() {
+        AtomicInteger callIndex = new AtomicInteger();
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
+                    if (callIndex.getAndIncrement() == 0) {
+                        return List.of(
+                                mapper.mapFromAttributes(person("zeta")),
+                                mapper.mapFromAttributes(person("alpha")));
+                    }
+                    return List.of();
+                });
+
+        var result = service.listAllPeopleGlobal();
+
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(GlobalPersonView::uid)
+                .containsExactly("alpha", "zeta");
+        assertThat(result).extracting(GlobalPersonView::module)
+                .containsExactly("movilidad", "movilidad");
     }
 
     @Test
@@ -361,6 +388,42 @@ class PanelPersonServiceTest {
         assertThatThrownBy(() -> service.createPerson(actor, "reclamos", req))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(ldap);
+    }
+
+    @Test
+    void findGlobalByUidOrMailReturnsEmptyWhenNoCriteriaProvided() throws Exception {
+        var method = PanelPersonService.class.getDeclaredMethod(
+                "findGlobalByUidOrMail", String.class, String.class, String.class);
+        method.setAccessible(true);
+
+        var result = (Optional<String>) method.invoke(service, null, null, null);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void findGlobalByUidOrMailRejectsCollisionsOnRenamesAndMails() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        when(ldap.search(any(LdapName.class), contains("uid=juan.perez"),
+                ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenReturn(List.of("juan.perez"));
+        when(ldap.search(any(LdapName.class), contains("mail=other@x.com"),
+                ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenReturn(List.of("other@x.com"));
+
+        assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "jperez",
+                new UpdatePersonRequest(null, null, "other@x.com", "juan.perez")))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void createPersonRejectsInvalidUsernameAndShortPassword() {
+        assertThatThrownBy(() -> service.createPerson(actor, "reclamos",
+                new NewPersonRequest("Juan", "Perez", "bad_name", "j@x.com", "short")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.createPerson(actor, "reclamos",
+                new NewPersonRequest("Juan", "Perez", "jperez", "j@x.com", "short")))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

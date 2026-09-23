@@ -6,6 +6,7 @@ import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 import org.springframework.http.HttpStatus;
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import org.springframework.ldap.AttributeInUseException;
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.LdapTemplate;
@@ -290,5 +291,26 @@ public class PanelPersonService {
             throw new IllegalArgumentException(
                     "Nombre de usuario inválido: use 3-32 caracteres de a-z, 0-9, punto, guion o guion bajo");
         }
+    }
+
+    public List<GlobalPersonView> listAllPeopleGlobal() {
+        return PanelDirectoryRules.MODULES.stream()
+            .flatMap(module -> listPeople(
+                    module,
+                    new PeopleSearchCriteria(0, Integer.MAX_VALUE, null, null, null)
+            ).content().stream()
+            .map(person -> new GlobalPersonView(
+                    module,
+                    person.employeeNumber(),
+                    person.uid(),
+                    person.givenName(),
+                    person.sn(),
+                    person.email(),
+                    person.disabled()
+            )))
+            .sorted(java.util.Comparator
+                    .comparing(GlobalPersonView::module)
+                    .thenComparing(GlobalPersonView::uid))
+            .toList();
     }
 }
