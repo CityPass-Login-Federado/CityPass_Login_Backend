@@ -15,7 +15,7 @@ public final class PanelDirectoryRules {
 
     /** Módulos fijos — mismas OUs que crea el seed (spec §2.2). */
     public static final List<String> MODULES =
-            List.of("movilidad", "residuos", "reclamos", "emergencias", "espacios", "analitica");
+            List.of("movilidad", "residuos", "reclamos", "emergencias", "espacios", "analitica", "eda");
 
     public static final String DELEGADOS = "delegados";
 

@@ -70,7 +70,7 @@ class PanelDirectoryRulesTest {
     @Test
     void modulesMatchTheSeedTree() {
         assertThat(PanelDirectoryRules.MODULES).containsExactlyInAnyOrder(
-                "movilidad", "residuos", "reclamos", "emergencias", "espacios", "analitica");
+                "movilidad", "residuos", "reclamos", "emergencias", "espacios", "analitica", "eda");
     }
 
     // ---- Mail válido (misma semántica que el regex anterior, lineal) ----

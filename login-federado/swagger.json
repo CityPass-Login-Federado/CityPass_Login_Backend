@@ -1025,7 +1025,7 @@
       "get": {
         "tags": ["Panel — Grupos"],
         "summary": "Listar módulos existentes",
-        "description": "Los 6 módulos del directorio. Pensado para que el admin global sepa qué valores acepta ?module=?; un delegado normal solo recuerda que su módulo viene de su token.",
+        "description": "Los 7 módulos del directorio. Pensado para que el admin global sepa qué valores acepta ?module=?; un delegado normal solo recuerda que su módulo viene de su token.",
         "operationId": "listModules",
         "responses": {
           "200": {
