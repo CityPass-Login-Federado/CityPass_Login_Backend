@@ -5,10 +5,13 @@ import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
+import citypass.loginfederado.event.EventPublisher;
+import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import citypass.loginfederado.model.RefreshToken;
 import citypass.loginfederado.repository.RefreshTokenRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,15 +48,27 @@ public class RefreshTokenService {
     private final LdapDirectory ldapDirectory;
     private final ClientRegistry clientRegistry;
     private final JwtProperties jwtProperties;
+    private final EventPublisher eventPublisher;
+
+    @Autowired
+    public RefreshTokenService(RefreshTokenRepository repository,
+                               LdapDirectory ldapDirectory,
+                               ClientRegistry clientRegistry,
+                               JwtProperties jwtProperties,
+                               EventPublisher eventPublisher) {
+        this.repository = repository;
+        this.ldapDirectory = ldapDirectory;
+        this.clientRegistry = clientRegistry;
+        this.jwtProperties = jwtProperties;
+        this.eventPublisher = eventPublisher;
+    }
 
     public RefreshTokenService(RefreshTokenRepository repository,
                                LdapDirectory ldapDirectory,
                                ClientRegistry clientRegistry,
                                JwtProperties jwtProperties) {
-        this.repository = repository;
-        this.ldapDirectory = ldapDirectory;
-        this.clientRegistry = clientRegistry;
-        this.jwtProperties = jwtProperties;
+        this(repository, ldapDirectory, clientRegistry, jwtProperties, (eventType, payload) -> {
+        });
     }
 
     /** El resultado de un canje exitoso: persona REVALIDADA + cadena viva. */
@@ -147,20 +162,38 @@ public class RefreshTokenService {
      * silencioso (no se revela si alguna vez existió).
      */
     @Transactional
-    public void revokeSingle(String rawToken) {
+    public void revokeSingle(String rawToken, String ipAddress, String userAgent) {
         if (rawToken == null || rawToken.isBlank()) {
             return;
         }
         repository.findByTokenHash(hash(rawToken)).ifPresent(stored -> {
             stored.revoke(Instant.now());
             repository.save(stored);
+            CitypassProperties.Client client = clientRegistry.requireHuman(stored.getClientId());
+            eventPublisher.publish(
+                    "identidad.logout",
+                    RawAuthenticationEvent.logout(
+                            stored.getSub(), client.module(), stored.getClientId(),
+                            stored.getChainId(), ipAddress, userAgent)
+            );
         });
+    }
+
+    public void revokeSingle(String rawToken) {
+        revokeSingle(rawToken, null, null);
     }
 
     /** Logout masivo / deshabilitación: mata todas las sesiones de una persona. */
     @Transactional
-    public int revokeAllForSub(String sub) {
-        return repository.revokeAllForSub(sub, Instant.now());
+    public int revokeAllForSub(String sub, String department) {
+        int revoked = repository.revokeAllForSub(sub, Instant.now());
+        if (revoked > 0) {
+            eventPublisher.publish(
+                    "identidad.logout",
+                    RawAuthenticationEvent.logout(sub, department, null, null, null, null)
+            );
+        }
+        return revoked;
     }
 
     private String persist(LdapDirectoryPerson person, CitypassProperties.Client client, UUID chainId) {

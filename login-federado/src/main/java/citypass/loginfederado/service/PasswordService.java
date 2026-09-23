@@ -193,7 +193,10 @@ public class PasswordService {
         // sesiones vigentes: quien tuviera un refresh anterior al recupero
         // no puede seguir refrescando (mismo orden que changePassword).
         directory.setPassword(person.module(), person.uid(), newPassword);
-        int revoked = refreshTokenService.revokeAllForSub(person.sub());
+        int revoked = refreshTokenService.revokeAllForSub(
+            person.sub(),
+            person.module()
+        );
         securityLog.info("Contraseña restablecida vía token para sub={} (sesiones revocadas={})",
                 person.sub(), revoked);
     }
@@ -238,7 +241,10 @@ public class PasswordService {
         }
 
         directory.setPassword(person.module(), person.uid(), newPassword);
-        int revoked = refreshTokenService.revokeAllForSub(person.sub());
+        int revoked = refreshTokenService.revokeAllForSub(
+            person.sub(),
+            person.module()
+        );
         securityLog.info("Contraseña cambiada por el usuario sub={} (sesiones revocadas={})",
                 person.sub(), revoked);
     }

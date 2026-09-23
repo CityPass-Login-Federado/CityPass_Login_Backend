@@ -51,7 +51,7 @@ jwt:
   issuer: https://idp.citypass.local
   access-token-expiration-minutes: 15
   refresh-token-expiration-hours: 8
-  service-token-expiration-minutes: 60
+  service-token-expiration-minutes: 15
   private-key-path: file:./keys/private_key.pem
   public-key-path: file:./keys/public_key.pem
   # Dev: si faltan los PEM, se generan solos al arrancar. En staging/prod
@@ -109,13 +109,27 @@ citypass:
     - client-id: group1
       type: service
       client-secret: ${SVC_GROUP1_SECRET:group1-secret-dev}
-      audience: citypass-platform
-      namespace: com.citypass.group1
+      audience: citypass
+      namespace: com.citypass.bus
     - client-id: group5
       type: service
       client-secret: ${SVC_GROUP5_SECRET:group5-secret-dev}
-      audience: citypass-platform
+      audience: citypass
       namespace: com.citypass.analitica
+    - client-id: grupo2
+      type: service
+      client-secret: ${SVC_GRUPO2_SECRET:grupo2-secret-dev}
+      audience: citypass
+      namespace: com.citypass.auth
+
+eda:
+  publisher: ${EDA_PUBLISHER:logging}
+  gateway-url: ${EDA_GATEWAY_URL:}
+  token-url: ${EDA_TOKEN_URL:http://localhost:8081}
+  event-path: ${EDA_EVENT_PATH:/api/v1/events}
+  token-path: ${EDA_TOKEN_PATH:/oauth/token}
+  client-id: ${EDA_CLIENT_ID:grupo2}
+  client-secret: ${EDA_CLIENT_SECRET:${SVC_GRUPO2_SECRET:grupo2-secret-dev}}
 
 springdoc:
   swagger-ui:

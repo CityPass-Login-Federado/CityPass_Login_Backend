@@ -1,17 +1,5 @@
 package citypass.loginfederado.service;
 
-import citypass.loginfederado.config.CitypassProperties;
-import citypass.loginfederado.config.JwtProperties;
-import citypass.loginfederado.identity.ClientRegistry;
-import citypass.loginfederado.identity.LdapDirectory;
-import citypass.loginfederado.identity.LdapDirectoryPerson;
-import citypass.loginfederado.model.RefreshToken;
-import citypass.loginfederado.repository.RefreshTokenRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.security.authentication.BadCredentialsException;
-
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
@@ -20,12 +8,24 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.springframework.security.authentication.BadCredentialsException;
+
+import citypass.loginfederado.config.CitypassProperties;
+import citypass.loginfederado.config.JwtProperties;
+import citypass.loginfederado.identity.ClientRegistry;
+import citypass.loginfederado.identity.LdapDirectory;
+import citypass.loginfederado.identity.LdapDirectoryPerson;
+import citypass.loginfederado.model.RefreshToken;
+import citypass.loginfederado.repository.RefreshTokenRepository;
 
 /**
  * Las tres reglas innegociables del refresh (D9 / spec §4.2):
@@ -167,7 +167,6 @@ class RefreshTokenServiceTest {
 
     @Test
     void logoutActuallyPersistsTheRevocation() {
-        // Regresión del bug del main anterior: revokeAllFor sin save() = logout fantasma
         RefreshToken alive = storedToken(false);
         when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(alive));
 
@@ -179,11 +178,30 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    void revokeAllForSubPublishesLogoutEventWhenRowsAreRevoked() {
+        when(repository.revokeAllForSub(eq("U000042"), any(Instant.class))).thenReturn(2);
+
+        int revoked = service.revokeAllForSub("U000042", "reclamos");
+
+        assertThat(revoked).isEqualTo(2);
+        verify(repository).revokeAllForSub(eq("U000042"), any(Instant.class));
+    }
+
+    @Test
     void logoutOfUnknownTokenIsSilent204Behavior() {
         when(repository.findByTokenHash(any())).thenReturn(Optional.empty());
 
         service.revokeSingle(RAW_TOKEN);
 
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void blankInputDoesNothingOnSingleLogout() {
+        service.revokeSingle("   ");
+        service.revokeSingle(null);
+
+        verify(repository, never()).findByTokenHash(any());
         verify(repository, never()).save(any());
     }
 

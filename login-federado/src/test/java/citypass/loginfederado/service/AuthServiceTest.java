@@ -128,7 +128,7 @@ class AuthServiceTest {
         assertThat(response.tokenType()).isEqualTo("Bearer");
         assertThat(response.expiresIn()).isEqualTo(900);
         verify(attempts).recordAttempt("jperez", "ip", "ua", true);
-        verify(events).publish(eq("usuario.autenticado"), any());
+        verify(events).publish(eq("identidad.login"), any());
     }
 
     @Test

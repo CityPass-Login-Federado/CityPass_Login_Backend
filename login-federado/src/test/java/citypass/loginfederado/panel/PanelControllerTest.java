@@ -1,5 +1,6 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupView;
@@ -101,6 +102,33 @@ class PanelControllerTest {
         verify(groups).deleteGroup(any(), eq("movilidad"), eq("ops"));
         verify(groups).addMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));
         verify(groups).removeMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));
+    }
+
+    @Test
+    void listAllPeopleReturnsEveryModuleForGlobalAdmin() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var people = List.of(
+                new GlobalPersonView("reclamos", "U000001", "jperez", "Juan", "Perez", "j@x.com", false),
+                new GlobalPersonView("movilidad", "U000002", "mlopez", "Maria", "Lopez", "m@x.com", true)
+        );
+        when(persons.listAllPeopleGlobal()).thenReturn(people);
+
+        assertThat(controller.listAllPeople(jwt, null)).containsExactlyElementsOf(people);
+    }
+
+    @Test
+    void listAllPeopleForSelectedModuleUsesLowercaseModuleAndSortsByUid() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var person = new PersonView("U000021", "zperez", "Zoe", "Perez", "z@x.com", false);
+        when(persons.listPeople(eq("reclamos"), any(PeopleSearchCriteria.class)))
+                .thenReturn(new PaginatedResponse<>(List.of(person), 1, 1, 0, 10));
+
+        var response = controller.listAllPeople(jwt, "RECLAMOS");
+
+        assertThat(response)
+                .extracting(GlobalPersonView::uid)
+                .containsExactly("zperez");
+        assertThat(response.getFirst().module()).isEqualTo("reclamos");
     }
 
     @Test

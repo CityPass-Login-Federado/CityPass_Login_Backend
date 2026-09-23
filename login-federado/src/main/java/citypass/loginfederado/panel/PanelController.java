@@ -1,5 +1,6 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupView;
 import citypass.loginfederado.panel.dto.MemberRequest;
@@ -156,6 +157,43 @@ public class PanelController {
         return persons.updatePerson(delegate, delegate.module(), uid, request);
     }
 
+    //Lista a toda las personas
+    @GetMapping("/people/all")
+        public List<GlobalPersonView> listAllPeople(
+                @AuthenticationPrincipal Jwt jwt,
+                @RequestParam(required = false) String module) {
+                
+            PanelAuthorization.Delegate delegate =
+                    authorization.requireDelegate(jwt);
+                
+            if (!delegate.global()) {
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "Solo un admin global puede listar todos los módulos");
+            }
+        
+            if (module == null || module.isBlank()) {
+                return persons.listAllPeopleGlobal();
+            }
+        
+            String selectedModule = module.toLowerCase(Locale.ROOT);
+
+            return persons.listPeople(
+                selectedModule,
+                new PeopleSearchCriteria(0, Integer.MAX_VALUE, null, null, null)
+                ).content().stream()
+                        .map(person -> new GlobalPersonView(
+                                selectedModule,
+                                person.employeeNumber(),
+                                person.uid(),
+                                person.givenName(),
+                                person.sn(),
+                                person.email(),
+                                person.disabled()
+                        ))
+                        .sorted(java.util.Comparator.comparing(GlobalPersonView::uid))
+                        .toList();
+    }
+
     @Operation(summary = "Deshabilitar persona (baja D7)",
             description = "Nunca borra la ficha: bloquea vía ppolicy Y mata todas las sesiones "
                     + "vivas (refresh tokens) al instante.",
@@ -174,7 +212,10 @@ public class PanelController {
         PersonView person = persons.findPerson(delegate.module(), uid)
                 .orElseThrow(() -> notFound("No existe esa persona en su módulo"));
         accounts.disablePerson(delegate, delegate.module(), uid);
-        refreshTokens.revokeAllForSub(person.employeeNumber());
+        refreshTokens.revokeAllForSub(
+                person.employeeNumber(),
+                delegate.module()
+        );
         audit.record(delegate, "SESSIONS_REVOKED", person.uid(), "baja de persona");
         return ResponseEntity.noContent().build();
     }
@@ -334,6 +375,7 @@ public class PanelController {
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
+
 
     /**
      * Resuelve quién opera y sobre qué módulo. Un delegado NORMAL solo puede
