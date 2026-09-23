@@ -51,6 +51,7 @@ public final class PanelDirectoryRules {
 
     public static final int MAX_GROUPS = 50;   // D5: bloqueo duro (token bloat)
     public static final int WARN_GROUPS = 30;  // D5: aviso preventivo
+    public static final int MAX_BULK_MEMBERSHIPS = 1000;
 
     /** D6 aplicado: nombre de grupo inválido → 400 con mensaje amable. */
     public static void validateGroupName(String name) {

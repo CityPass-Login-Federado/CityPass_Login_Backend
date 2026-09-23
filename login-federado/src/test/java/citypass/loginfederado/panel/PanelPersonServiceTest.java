@@ -29,7 +29,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import org.springframework.http.HttpStatus;
 import org.springframework.ldap.NameNotFoundException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
@@ -320,6 +322,17 @@ class PanelPersonServiceTest {
     }
 
     @Test
+    void updatePersonMissingPersonReturns404() {
+        // Contrato: persona inexistente -> 404, no 409 (era IllegalStateException).
+        when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
+        assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "nobody",
+                new UpdatePersonRequest("X", null, null, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
     void updatePersonRejectsDuplicateEmail() {
                 doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
                 when(ldap.search(any(LdapName.class), contains("mail="), ArgumentMatchers.<AttributesMapper<String>>any()))
@@ -361,8 +374,12 @@ class PanelPersonServiceTest {
                 .when(ldap).lookupContext(any(LdapName.class));
         assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "jperez",
                 new UpdatePersonRequest("Juan Carlos", null, null, null)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("desapareció");
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> {
+                    assertThat(((ResponseStatusException) error).getStatusCode())
+                            .isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(error).hasMessageContaining("desapareció");
+                });
     }
 
     @Test

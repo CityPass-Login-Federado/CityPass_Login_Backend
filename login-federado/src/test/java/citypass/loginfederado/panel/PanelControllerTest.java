@@ -1,5 +1,9 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.exception.GlobalExceptionHandler;
+import citypass.loginfederado.panel.dto.BulkMembershipRequest;
+import citypass.loginfederado.panel.dto.BulkMembershipResponse;
+import citypass.loginfederado.panel.dto.BulkMembershipStatus;
 import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
@@ -16,7 +20,11 @@ import citypass.loginfederado.service.RefreshTokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -29,7 +37,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class PanelControllerTest {
 
@@ -172,6 +183,71 @@ class PanelControllerTest {
         assertThat(controller.listModules(jwt)).containsExactlyElementsOf(PanelDirectoryRules.MODULES);
 
         verify(authorization).requireDelegate(jwt);
+    }
+
+    @Test
+    void bulkMembershipEndpointUsesNormalDelegateModuleAndPropagatesResponse() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+        var request = new BulkMembershipRequest(List.of(" usuario1 "), List.of(" grupo-a "));
+        var expected = new BulkMembershipResponse(BulkMembershipStatus.SUCCESS, 1, 1, 0, 0,
+                List.of(), List.of());
+        when(groups.addMembersBulk(normalDelegate, "reclamos", request)).thenReturn(expected);
+
+        assertThat(controller.addMembersBulk(jwt, "movilidad", request)).isSameAs(expected);
+
+        verify(groups).addMembersBulk(normalDelegate, "reclamos", request);
+    }
+
+    @Test
+    void bulkMembershipEndpointUsesNormalizedModuleForGlobalAdmin() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var request = new BulkMembershipRequest(List.of("usuario1"), List.of("grupo-a"));
+        var expected = new BulkMembershipResponse(BulkMembershipStatus.SUCCESS, 1, 1, 0, 0,
+                List.of(), List.of());
+        when(groups.addMembersBulk(any(), eq("movilidad"), eq(request))).thenReturn(expected);
+
+        assertThat(controller.addMembersBulk(jwt, " Movilidad ", request)).isSameAs(expected);
+
+        verify(groups).addMembersBulk(
+                eq(new PanelAuthorization.Delegate("U000007", "admin-global", "movilidad", true)),
+                eq("movilidad"), eq(request));
+    }
+
+    @Test
+    void bulkMembershipEndpointRejectsMissingOrUnknownModuleForGlobalAdmin() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var request = new BulkMembershipRequest(List.of("usuario1"), List.of("grupo-a"));
+
+        assertBadRequest(() -> controller.addMembersBulk(jwt, null, request), "Módulo requerido");
+        assertBadRequest(() -> controller.addMembersBulk(jwt, "desconocido", request), "Módulo inválido");
+
+        verify(groups, never()).addMembersBulk(any(), any(), any());
+    }
+
+    @Test
+    void bulkMembershipBeanValidationReturns400ForMissingEmptyNullAndBlankLists() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
+                .build();
+        List<String> invalidBodies = List.of(
+                "{}",
+                "{\"memberUids\":[],\"groupNames\":[\"grupo-a\"]}",
+                "{\"memberUids\":[\"usuario1\"],\"groupNames\":[]}",
+                "{\"memberUids\":[null],\"groupNames\":[\"grupo-a\"]}",
+                "{\"memberUids\":[\"   \"],\"groupNames\":[\"grupo-a\"]}",
+                "{\"memberUids\":[\"usuario1\"],\"groupNames\":[null]}",
+                "{\"memberUids\":[\"usuario1\"],\"groupNames\":[\"   \"]}"
+        );
+
+        for (String body : invalidBodies) {
+            mockMvc.perform(post("/panel/group-memberships/bulk")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+        }
+
+        verifyNoInteractions(groups);
     }
 
     private static void assertBadRequest(org.assertj.core.api.ThrowableAssert.ThrowingCallable call,
