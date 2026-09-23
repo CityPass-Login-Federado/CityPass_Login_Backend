@@ -829,6 +829,56 @@
         }
       }
     },
+    "/panel/group-memberships/bulk": {
+      "post": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Asignar múltiples usuarios a múltiples grupos",
+        "description": "Aplica el producto cartesiano de usuarios y grupos. Recorta espacios y deduplica ambas listas preservando el orden; admite hasta 1000 combinaciones. Antes de escribir prevalida el módulo, la existencia de todas las personas y grupos, las membresías actuales y el máximo de 50 grupos por persona. Cada grupo se modifica de forma atómica con una única operación LDAP, pero no existe una transacción entre grupos distintos; una falla LDAP se informa por relación y no impide procesar otros grupos. El endpoint individual POST /panel/groups/{name}/members continúa disponible.",
+        "operationId": "addMembersBulk",
+        "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (obligatorio solo para admin global; un delegado normal usa el módulo de su token)" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BulkMembershipRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lote procesado. El cuerpo indica SUCCESS, PARTIAL o FAILED y detalla cada combinación.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BulkMembershipResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Body inválido, listas ausentes/vacías o admin global sin módulo",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BusinessError" } } }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthErrorResponse" } } }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "409": {
+            "description": "Persona/grupo inexistente, más de 1000 combinaciones o máximo de 50 grupos excedido",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BusinessError" } } }
+          },
+          "422": {
+            "description": "Nombre de grupo o regla de formato inválida",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BusinessError" } } }
+          },
+          "500": {
+            "description": "Error inesperado que impide construir una respuesta segura",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthErrorResponse" } } }
+          }
+        }
+      }
+    },
     "/panel/groups/{name}/members/{uid}": {
       "delete": {
         "tags": ["Panel — Grupos"],
@@ -1097,6 +1147,74 @@
         "required": ["memberUid"],
         "properties": {
           "memberUid": { "type": "string", "description": "UID de la persona a agregar", "example": "test-user" }
+        }
+      },
+      "BulkMembershipRequest": {
+        "type": "object",
+        "required": ["memberUids", "groupNames"],
+        "description": "Listas que forman el producto cartesiano de membresías.",
+        "properties": {
+          "memberUids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "description": "UIDs; se recortan espacios y se eliminan duplicados preservando el orden.",
+            "items": { "type": "string", "minLength": 1 },
+            "example": ["usuario1", "usuario2"]
+          },
+          "groupNames": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "description": "Grupos; se recortan espacios y se eliminan duplicados preservando el orden.",
+            "items": { "type": "string", "minLength": 1 },
+            "example": ["grupo-a", "grupo-b"]
+          }
+        }
+      },
+      "MembershipOperationStatus": {
+        "type": "string",
+        "enum": ["ASSIGNED", "ALREADY_MEMBER", "FAILED"]
+      },
+      "BulkMembershipStatus": {
+        "type": "string",
+        "enum": ["SUCCESS", "PARTIAL", "FAILED"]
+      },
+      "MembershipOperationResult": {
+        "type": "object",
+        "properties": {
+          "memberUid": { "type": "string", "example": "usuario1" },
+          "groupName": { "type": "string", "example": "grupo-a" },
+          "status": { "$ref": "#/components/schemas/MembershipOperationStatus" },
+          "message": { "type": "string", "nullable": true, "example": "El usuario ya pertenecía al grupo" }
+        }
+      },
+      "MembershipWarning": {
+        "type": "object",
+        "properties": {
+          "memberUid": { "type": "string", "example": "usuario1" },
+          "totalGroups": { "type": "integer", "example": 30 },
+          "message": { "type": "string", "example": "La persona acumula 30 grupos (aviso desde 30): revise membresías viejas antes de llegar al límite" }
+        }
+      },
+      "BulkMembershipResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "$ref": "#/components/schemas/BulkMembershipStatus" },
+          "requested": { "type": "integer", "example": 4, "description": "Combinaciones tras normalizar y deduplicar" },
+          "assigned": { "type": "integer", "example": 2 },
+          "skipped": { "type": "integer", "example": 1 },
+          "failed": { "type": "integer", "example": 1 },
+          "results": {
+            "type": "array",
+            "description": "Detalle en orden de grupo recibido y, dentro de cada grupo, usuario recibido.",
+            "items": { "$ref": "#/components/schemas/MembershipOperationResult" }
+          },
+          "warnings": {
+            "type": "array",
+            "description": "A lo sumo una advertencia por usuario, calculada con asignaciones efectivamente aplicadas.",
+            "items": { "$ref": "#/components/schemas/MembershipWarning" }
+          }
         }
       },
       "MembershipChangeResponse": {

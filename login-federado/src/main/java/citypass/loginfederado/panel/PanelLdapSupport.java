@@ -19,6 +19,7 @@ import javax.naming.directory.SearchControls;
 import javax.naming.ldap.LdapName;
 import javax.naming.ldap.Rdn;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -133,6 +134,12 @@ class PanelLdapSupport {
 
     static ModificationItem addValue(String attr, String value) {
         return new ModificationItem(DirContext.ADD_ATTRIBUTE, new BasicAttribute(attr, value));
+    }
+
+    static ModificationItem addValues(String attr, Collection<String> values) {
+        BasicAttribute attribute = new BasicAttribute(attr);
+        values.forEach(attribute::add);
+        return new ModificationItem(DirContext.ADD_ATTRIBUTE, attribute);
     }
 
     static ModificationItem removeValue(String attr, String value) {
