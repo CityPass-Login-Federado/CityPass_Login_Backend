@@ -44,6 +44,11 @@ services:
       DB_PASSWORD: "${SUPABASE_DB_PASSWORD}"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
+      # NUNCA init de schema en prod: schema.sql hace DROP TABLE y borraría
+      # sesiones, intentos y auditoría en cada arranque. El schema se crea
+      # una sola vez a mano (ver docs/runbooks/schema-prod.md); de ahí en
+      # más solo migraciones controladas. ddl-auto: validate sigue activo.
+      SPRING_SQL_INIT_MODE: "never"
       SPRING_LDAP_URLS: "ldap://openldap:389"
       SPRING_LDAP_USERNAME: "cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local"
       SPRING_LDAP_PASSWORD: "${LDAP_READONLY_PASSWORD}"
@@ -73,6 +78,13 @@ services:
       JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60.0 -XX:+UseSerialGC -Xss256k"
       SPRINGDOC_API_DOCS_ENABLED: "false"
       SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+    volumes:
+      # Claves JWT persistentes: el primer arranque las genera una sola vez
+      # (auto-generate) y de ahí en más sobreviven redeploys. Sin esto, cada
+      # deploy cambia el kid e invalida TODOS los tokens (7 grupos con 401).
+      # OJO: `down -v` borra el volumen y recrea el incidente: respaldar o
+      # pasar a secrets provisionados (ver docs/runbooks/schema-prod.md).
+      - keysdata:/app/keys
     depends_on:
       openldap:
         condition: service_healthy
@@ -84,3 +96,6 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  keysdata:
