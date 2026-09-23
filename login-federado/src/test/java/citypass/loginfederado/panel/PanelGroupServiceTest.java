@@ -417,8 +417,12 @@ class PanelGroupServiceTest {
 
         assertThatThrownBy(() -> service.addMembersBulk(actor, "reclamos",
                 bulk(List.of("usuario1"), List.of("grupo-a", "grupo-inexistente"))))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("grupo-inexistente");
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(ex -> {
+                    ResponseStatusException status = (ResponseStatusException) ex;
+                    assertThat(status.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(status.getReason()).contains("No existe en su módulo");
+                });
 
         verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
         verifyNoInteractions(audit);
