@@ -102,6 +102,10 @@ citypass:
       audience: citypass-analitica-api
       module: analitica
       type: human
+    - client-id: citypass-eda-web
+      audience: citypass-eda-api
+      module: eda
+      type: human
     - client-id: citypass-admin-web
       audience: citypass-admin-api
       type: human

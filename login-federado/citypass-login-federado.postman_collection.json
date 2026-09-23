@@ -2069,7 +2069,7 @@
 					{ "key": "token", "value": "{{admin_global_access_token}}", "type": "string" }
 				]
 			},
-			"description": "Rol admin-global (grupo reservado cn=admin-global,ou=admin): gestiona los 6 módulos con los MISMOS endpoints de /panel/** agregando ?module= en cada request. NO hay endpoints propios /admin/.\n\nUsuario seed: admin-global / changeit123 (módulo de ORIGEN analitica, irrelevante: opera sobre el módulo que pase en ?module=).\n\nPRERREQUISITO: correr '01 Login admin-global' primero (captura admin_global_access_token).\n\nPoderes extra vs delegado normal: puede borrar/crear el grupo reservado 'delegados' y dejarlo sin integrantes.",
+			"description": "Rol admin-global (grupo reservado cn=admin-global,ou=admin): gestiona los 7 módulos con los MISMOS endpoints de /panel/** agregando ?module= en cada request. NO hay endpoints propios /admin/.\n\nUsuario seed: admin-global / changeit123 (módulo de ORIGEN analitica, irrelevante: opera sobre el módulo que pase en ?module=).\n\nPRERREQUISITO: correr '01 Login admin-global' primero (captura admin_global_access_token).\n\nPoderes extra vs delegado normal: puede borrar/crear el grupo reservado 'delegados' y dejarlo sin integrantes.",
 			"item": [
 				{
 					"name": "01 Login admin-global (captura token)",
@@ -2311,7 +2311,7 @@
 					}
 },
 			{
-				"name": "09 Listar módulos existentes (6 de la spec §2.2)",
+					"name": "09 Listar módulos existentes (7 con eda, spec §2.2)",
 				"event": [
 					{
 						"listen": "test",
@@ -2320,8 +2320,8 @@
 							"exec": [
 								"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
 								"const mods = pm.response.json();",
-								"pm.test('Devuelve los 6 módulos en orden de la spec §2.2', () => {",
-								"  pm.expect(mods).to.eql(['movilidad','residuos','reclamos','emergencias','espacios','analitica']);",
+								"pm.test('Devuelve los 7 módulos en orden (con eda)', () => {",
+								"  pm.expect(mods).to.eql(['movilidad','residuos','reclamos','emergencias','espacios','analitica','eda']);",
 								"});"
 							]
 						}

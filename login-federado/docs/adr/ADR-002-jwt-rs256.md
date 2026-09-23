@@ -8,7 +8,7 @@
 
 ## Consideraciones
 
-El módulo de login necesita emitir tokens de acceso que los otros 6 módulos puedan validar sin llamar al servicio de autenticación en cada request. El token debe contener información del usuario (roles, nombre, email) y tener un tiempo de vida corto.
+El módulo de login necesita emitir tokens de acceso que los otros 7 módulos puedan validar sin llamar al servicio de autenticación en cada request. El token debe contener información del usuario (roles, nombre, email) y tener un tiempo de vida corto.
 
 Restricciones y supuestos adicionales:
 - La clave de firma nunca debe salir del módulo de autenticación
