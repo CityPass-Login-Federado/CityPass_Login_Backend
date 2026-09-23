@@ -5,6 +5,7 @@ import citypass.loginfederado.panel.dto.PaginatedResponse;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.ldap.AttributeInUseException;
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.LdapTemplate;
@@ -13,6 +14,7 @@ import org.springframework.ldap.filter.EqualsFilter;
 import org.springframework.ldap.filter.LikeFilter;
 import org.springframework.ldap.filter.OrFilter;
 import org.springframework.ldap.query.LdapQuery;
+import org.springframework.web.server.ResponseStatusException;
 import static org.springframework.ldap.query.LdapQueryBuilder.query;
 import org.springframework.stereotype.Service;
 
@@ -189,7 +191,9 @@ public class PanelPersonService {
         if (sn != null) mods.add(replace("sn", sn));
         if (givenName != null) mods.add(replace("givenName", givenName));
         if (givenName != null || sn != null) {
-            var current = findPerson(module, uid).orElseThrow();
+            var current = findPerson(module, uid)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                            "No existe esa persona en su módulo"));
             String newGiven = givenName != null ? givenName : current.givenName();
             String newSn = sn != null ? sn : current.sn();
             mods.add(replace("cn", (newGiven + " " + newSn).trim()));
@@ -217,7 +221,8 @@ public class PanelPersonService {
             audit.record(actor, "PERSON_UPDATED", support.absPersonDn(module, uid),
                     "campos actualizados");
         }
-        return findPerson(module, uid).orElseThrow(() -> new IllegalStateException("Persona desapareció tras actualizar"));
+        return findPerson(module, uid).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                "Persona desapareció tras actualizar"));
     }
 
     /**
