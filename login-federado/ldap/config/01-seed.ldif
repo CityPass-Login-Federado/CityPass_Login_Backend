@@ -89,6 +89,18 @@ dn: ou=Groups,ou=Analitica,dc=citypass,dc=local
 objectClass: organizationalUnit
 ou: Groups
 
+dn: ou=Eda,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Eda
+
+dn: ou=People,ou=Eda,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,ou=Eda,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
 # -----------------------------------------------------------------------------
 # ou=admin — rol reservado "admin-global". A nivel raíz (NO dentro de un módulo):
 # opera los 6 módulos vía ?module= en el panel. El grupo no lo administra el
@@ -227,6 +239,18 @@ mail: admin-global@citypass.local
 employeeNumber: U000007
 userPassword: {SSHA}LiH1xCJrWzf7h09XEWHQntO6i+fc/bR04t21Yg==
 
+# Delegado del módulo Eda (siguiente employeeNumber libre: U000008).
+# Reusa el hash de delegado-rec = misma clave de desarrollo (changeit123).
+dn: uid=delegado-eda,ou=People,ou=Eda,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: delegado-eda
+cn: Delegado Eda
+sn: Eda
+givenName: Delegado
+mail: delegado-eda@citypass.local
+employeeNumber: U000008
+userPassword: {SSHA}LiH1xCJrWzf7h09XEWHQntO6i+fc/bR04t21Yg==
+
 # Grupo del rol admin-global. Se define DESPUÉS de la persona (ver nota en la
 # sección ou=admin): el overlay memberof necesita el miembro existente para
 # calcular memberOf, y el panel exige ese grupo en el claim `groups` del token.
@@ -292,3 +316,9 @@ dn: cn=delegados,ou=Groups,ou=Analitica,dc=citypass,dc=local
 objectClass: groupOfNames
 cn: delegados
 member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+
+dn: cn=delegados,ou=Groups,ou=Eda,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: delegados
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=delegado-eda,ou=People,ou=Eda,dc=citypass,dc=local
