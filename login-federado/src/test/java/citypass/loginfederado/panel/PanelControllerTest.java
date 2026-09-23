@@ -1,11 +1,8 @@
 package citypass.loginfederado.panel;
 
-<<<<<<< Updated upstream
-import citypass.loginfederado.panel.dto.GlobalPersonView;
-=======
 import citypass.loginfederado.panel.dto.AdminGroupView;
 import citypass.loginfederado.panel.dto.AdminPersonView;
->>>>>>> Stashed changes
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupView;
@@ -112,7 +109,6 @@ class PanelControllerTest {
     }
 
     @Test
-<<<<<<< Updated upstream
     void listAllPeopleReturnsEveryModuleForGlobalAdmin() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
         var people = List.of(
@@ -137,7 +133,9 @@ class PanelControllerTest {
                 .extracting(GlobalPersonView::uid)
                 .containsExactly("zperez");
         assertThat(response.getFirst().module()).isEqualTo("reclamos");
-=======
+    }
+
+    @Test
     void adminGlobalListsAllPeopleWithoutModule() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
         var expected = new PaginatedResponse<AdminPersonView>(List.of(), 0, 0, 0, 10);
@@ -177,7 +175,6 @@ class PanelControllerTest {
         assertThatThrownBy(() -> controller.listAllGroups(jwt, 0, 10, null, null))
                 .isInstanceOf(AccessDeniedException.class);
         verify(groups, never()).listAllGroups(any());
->>>>>>> Stashed changes
     }
 
     @Test

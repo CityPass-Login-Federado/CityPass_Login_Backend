@@ -1,11 +1,8 @@
 package citypass.loginfederado.panel;
 
-<<<<<<< Updated upstream
-import citypass.loginfederado.panel.dto.GlobalPersonView;
-=======
 import citypass.loginfederado.panel.dto.AdminGroupView;
 import citypass.loginfederado.panel.dto.AdminPersonView;
->>>>>>> Stashed changes
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupView;
 import citypass.loginfederado.panel.dto.MemberRequest;
