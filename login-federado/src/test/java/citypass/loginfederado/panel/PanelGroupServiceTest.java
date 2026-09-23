@@ -1,6 +1,10 @@
 package citypass.loginfederado.panel;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.IntStream;
 
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
@@ -13,15 +17,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -30,12 +37,17 @@ import org.springframework.ldap.NameAlreadyBoundException;
 import org.springframework.ldap.NameNotFoundException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.ldap.core.AttributesMapper;
+import org.springframework.ldap.core.ContextMapper;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
+import citypass.loginfederado.panel.dto.AdminGroupView;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupView;
+import citypass.loginfederado.panel.dto.BulkMembershipRequest;
+import citypass.loginfederado.panel.dto.BulkMembershipStatus;
+import citypass.loginfederado.panel.dto.MembershipOperationStatus;
 
 class PanelGroupServiceTest {
     private LdapTemplate ldap;
@@ -191,6 +203,34 @@ class PanelGroupServiceTest {
     }
 
     @Test
+    void listAllGroupsAggregatesEveryModuleWithModuleTag() {
+        Attributes a = new BasicAttributes(true);
+        a.put("cn", "zeta");
+        a.put("member", "uid=zeta,ou=People,ou=Reclamos,dc=citypass,dc=local");
+        Attributes b = new BasicAttributes(true);
+        b.put("cn", "alpha");
+        b.put("member", "uid=alpha,ou=People,ou=Reclamos,dc=citypass,dc=local");
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class), ArgumentMatchers.<AttributesMapper<GroupView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<GroupView> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapFromAttributes(a), mapper.mapFromAttributes(b));
+                });
+
+        var first = service.listAllGroups(new GroupSearchCriteria(0, 10, null, null));
+        assertThat(first.totalElements()).isEqualTo(12);
+        assertThat(first.content()).hasSize(10);
+        assertThat(first.content()).extracting(AdminGroupView::name)
+                .containsExactly("alpha", "alpha", "alpha", "alpha", "alpha", "alpha",
+                        "zeta", "zeta", "zeta", "zeta");
+        assertThat(first.content().subList(0, 6)).extracting(AdminGroupView::module)
+                .containsExactlyInAnyOrderElementsOf(PanelDirectoryRules.MODULES);
+
+        var second = service.listAllGroups(new GroupSearchCriteria(1, 10, null, null));
+        assertThat(second.content()).extracting(AdminGroupView::name)
+                .containsExactly("zeta", "zeta");
+    }
+
+    @Test
     void listGroupsSortsAndHidesPlaceholder() {
         Attributes a = new BasicAttributes(true);
         a.put("cn", "zeta");
@@ -319,6 +359,261 @@ class PanelGroupServiceTest {
                 .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
         assertThatThrownBy(() -> service.removeMember(actor, "reclamos", "ops", "jperez"))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void bulkAssignsOneUserToOneGroup() {
+        stubBulkDirectory(Map.of("grupo-a", List.of()), Map.of("usuario1", 3));
+
+        var response = service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1"), List.of("grupo-a")));
+
+        assertThat(response.status()).isEqualTo(BulkMembershipStatus.SUCCESS);
+        assertThat(response.requested()).isEqualTo(1);
+        assertThat(response.assigned()).isEqualTo(1);
+        assertThat(response.skipped()).isZero();
+        assertThat(response.failed()).isZero();
+        assertThat(response.results()).singleElement().satisfies(result -> {
+            assertThat(result.memberUid()).isEqualTo("usuario1");
+            assertThat(result.groupName()).isEqualTo("grupo-a");
+            assertThat(result.status()).isEqualTo(MembershipOperationStatus.ASSIGNED);
+        });
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verify(audit).record(eq(actor), eq("MEMBER_ADDED"), anyString(), eq("uid=usuario1"));
+    }
+
+    @Test
+    void bulkBuildsDeduplicatedCartesianProductInGroupThenUserOrder() {
+        Map<String, List<String>> groups = new LinkedHashMap<>();
+        groups.put("grupo-b", List.of());
+        groups.put("grupo-a", List.of());
+        stubBulkDirectory(groups, Map.of("usuario1", 0, "usuario2", 0));
+
+        var response = service.addMembersBulk(actor, "reclamos", bulk(
+                List.of(" usuario2 ", "usuario1", "usuario2"),
+                List.of(" grupo-b ", "grupo-a", "grupo-b")));
+
+        assertThat(response.requested()).isEqualTo(4);
+        assertThat(response.results())
+                .extracting(result -> result.memberUid() + "/" + result.groupName())
+                .containsExactly("usuario2/grupo-b", "usuario1/grupo-b",
+                        "usuario2/grupo-a", "usuario1/grupo-a");
+        assertConsistentCounters(response);
+
+        ArgumentCaptor<ModificationItem[]> modifications = ArgumentCaptor.forClass(ModificationItem[].class);
+        verify(ldap, times(2)).modifyAttributes(any(LdapName.class), modifications.capture());
+        assertThat(modifications.getAllValues())
+                .allSatisfy(items -> {
+                    assertThat(items).hasSize(1);
+                    assertThat(items[0].getAttribute().size()).isEqualTo(2);
+                });
+        verify(audit, times(4)).record(eq(actor), eq("MEMBER_ADDED"), anyString(), anyString());
+    }
+
+    @Test
+    void bulkTreatsExistingRelationsAsSkippedAndDoesNotConsumeCapacity() {
+        stubBulkDirectory(Map.of("grupo-a", List.of("usuario1")), Map.of("usuario1", 50));
+
+        var response = service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1"), List.of("grupo-a")));
+
+        assertThat(response.status()).isEqualTo(BulkMembershipStatus.SUCCESS);
+        assertThat(response.assigned()).isZero();
+        assertThat(response.skipped()).isEqualTo(1);
+        assertThat(response.failed()).isZero();
+        assertThat(response.results().getFirst().status()).isEqualTo(MembershipOperationStatus.ALREADY_MEMBER);
+        assertThat(response.results().getFirst().message()).isEqualTo("El usuario ya pertenecía al grupo");
+        verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void bulkRejectsMissingUserBeforeAnyWriteOrAudit() {
+        stubBulkDirectory(Map.of("grupo-a", List.of()), Map.of("usuario1", 0));
+
+        assertThatThrownBy(() -> service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1", "inexistente"), List.of("grupo-a"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("inexistente");
+
+        verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void bulkRejectsMissingGroupBeforeAnyWriteOrAudit() {
+        stubBulkDirectory(Map.of("grupo-a", List.of()), Map.of("usuario1", 0));
+
+        assertThatThrownBy(() -> service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1"), List.of("grupo-a", "grupo-inexistente"))))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> {
+                    assertThat(((ResponseStatusException) error).getStatusCode())
+                            .isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(error).hasMessageContaining("grupo-inexistente");
+                });
+
+        verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void bulkRejectsInvalidGroupNameBeforeLdap() {
+        assertThatThrownBy(() -> service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1"), List.of("Grupo inválido"))))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        verifyNoInteractions(ldap, audit);
+    }
+
+    @Test
+    void bulkRejectsProductOverMaximumBeforeLdap() {
+        List<String> groups = IntStream.range(0, 501).mapToObj(i -> "grupo-" + i).toList();
+
+        assertThatThrownBy(() -> service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1", "usuario2"), groups)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("1002")
+                .hasMessageContaining("1000");
+
+        verifyNoInteractions(ldap, audit);
+    }
+
+    @Test
+    void bulkAllowsUserToReachExactlyFiftyGroups() {
+        stubBulkDirectory(Map.of("grupo-a", List.of()), Map.of("usuario1", 49));
+
+        var response = service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1"), List.of("grupo-a")));
+
+        assertThat(response.assigned()).isEqualTo(1);
+        assertThat(response.warnings()).isEmpty();
+        verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+    }
+
+    @Test
+    void bulkRejectsProjectedMembershipsOverFiftyWithoutWriting() {
+        stubBulkDirectory(Map.of("grupo-a", List.of(), "grupo-b", List.of()), Map.of("usuario1", 49));
+
+        assertThatThrownBy(() -> service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1"), List.of("grupo-a", "grupo-b"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("usuario1")
+                .hasMessageContaining("51");
+
+        verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void bulkEmitsOneWarningPerUserWhenEffectiveTotalReachesThirty() {
+        stubBulkDirectory(Map.of("grupo-a", List.of(), "grupo-b", List.of()), Map.of("usuario1", 28));
+
+        var response = service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1"), List.of("grupo-a", "grupo-b")));
+
+        assertThat(response.warnings()).singleElement().satisfies(warning -> {
+            assertThat(warning.memberUid()).isEqualTo("usuario1");
+            assertThat(warning.totalGroups()).isEqualTo(30);
+            assertThat(warning.message()).contains("30 grupos");
+        });
+    }
+
+    @Test
+    void bulkContinuesAfterOneGroupFailsAndUsesOnlySuccessfulAssignmentsForWarnings() {
+        Map<String, List<String>> groups = new LinkedHashMap<>();
+        groups.put("grupo-falla", List.of());
+        groups.put("grupo-ok", List.of());
+        stubBulkDirectory(groups, Map.of("usuario1", 28));
+        doAnswer(invocation -> {
+            LdapName dn = invocation.getArgument(0);
+            if (dn.toString().startsWith("cn=grupo-falla,")) {
+                throw new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("detalle LDAP sensible"));
+            }
+            return null;
+        }).when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+
+        var response = service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1"), List.of("grupo-falla", "grupo-ok")));
+
+        assertThat(response.status()).isEqualTo(BulkMembershipStatus.PARTIAL);
+        assertThat(response.assigned()).isEqualTo(1);
+        assertThat(response.failed()).isEqualTo(1);
+        assertThat(response.warnings()).isEmpty();
+        assertThat(response.results()).extracting(result -> result.status())
+                .containsExactly(MembershipOperationStatus.FAILED, MembershipOperationStatus.ASSIGNED);
+        assertThat(response.results().getFirst().message()).isEqualTo("No se pudo actualizar el grupo");
+        verify(ldap, times(2)).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+        verify(audit).record(eq(actor), eq("MEMBER_ADDED"), anyString(), eq("uid=usuario1"));
+        assertConsistentCounters(response);
+    }
+
+    @Test
+    void bulkReturnsFailedWhenNoRelationCouldBeAssigned() {
+        stubBulkDirectory(Map.of("grupo-falla", List.of()), Map.of("usuario1", 2, "usuario2", 4));
+        doThrow(new org.springframework.ldap.UncategorizedLdapException(new RuntimeException("directory down")))
+                .when(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+
+        var response = service.addMembersBulk(actor, "reclamos",
+                bulk(List.of("usuario1", "usuario2"), List.of("grupo-falla")));
+
+        assertThat(response.status()).isEqualTo(BulkMembershipStatus.FAILED);
+        assertThat(response.assigned()).isZero();
+        assertThat(response.skipped()).isZero();
+        assertThat(response.failed()).isEqualTo(2);
+        verifyNoInteractions(audit);
+        assertConsistentCounters(response);
+    }
+
+    private void stubBulkDirectory(Map<String, List<String>> groupMembers,
+                                   Map<String, Integer> membershipCounts) {
+        when(ldap.lookupContext(any(LdapName.class))).thenAnswer(invocation -> {
+            String dn = invocation.<LdapName>getArgument(0).toString();
+            if (dn.startsWith("cn=")) {
+                String groupName = dn.substring(3, dn.indexOf(','));
+                if (!groupMembers.containsKey(groupName)) {
+                    throw new NameNotFoundException("missing group");
+                }
+                DirContextOperations group = mock(DirContextOperations.class);
+                List<String> members = groupMembers.get(groupName).stream()
+                        .map(PanelGroupServiceTest::absolutePersonDn)
+                        .toList();
+                when(group.getStringAttributes("member")).thenReturn(members.toArray(String[]::new));
+                return group;
+            }
+            if (dn.startsWith("uid=")) {
+                String uid = dn.substring(4, dn.indexOf(','));
+                if (!membershipCounts.containsKey(uid)) {
+                    throw new NameNotFoundException("missing person");
+                }
+                return personContext(uid);
+            }
+            throw new NameNotFoundException("unexpected dn");
+        });
+        when(ldap.search(any(LdapName.class), anyString(), any(javax.naming.directory.SearchControls.class),
+                ArgumentMatchers.<ContextMapper<Integer>>any())).thenAnswer(invocation -> {
+                    String filter = invocation.getArgument(1);
+                    String uid = filter.substring(filter.indexOf("(uid=") + 5, filter.lastIndexOf("))"));
+                    return List.of(membershipCounts.get(uid));
+                });
+    }
+
+    private static BulkMembershipRequest bulk(List<String> memberUids, List<String> groupNames) {
+        return new BulkMembershipRequest(memberUids, groupNames);
+    }
+
+    private static String absolutePersonDn(String uid) {
+        return "uid=" + uid + ",ou=People,ou=Reclamos,dc=citypass,dc=local";
+    }
+
+    private static void assertConsistentCounters(citypass.loginfederado.panel.dto.BulkMembershipResponse response) {
+        assertThat(response.results()).hasSize(response.requested());
+        assertThat(response.results().stream().filter(r -> r.status() == MembershipOperationStatus.ASSIGNED).count())
+                .isEqualTo(response.assigned());
+        assertThat(response.results().stream().filter(r -> r.status() == MembershipOperationStatus.ALREADY_MEMBER).count())
+                .isEqualTo(response.skipped());
+        assertThat(response.results().stream().filter(r -> r.status() == MembershipOperationStatus.FAILED).count())
+                .isEqualTo(response.failed());
     }
 
 

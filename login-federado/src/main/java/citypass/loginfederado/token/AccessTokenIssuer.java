@@ -72,7 +72,7 @@ public class AccessTokenIssuer {
 
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .issuer(jwtProperties.issuer())
-                .audience(List.of(client.audience()))
+                .audience(List.of("citypass"))
                 .subject(client.clientId())
                 .issuedAt(now)
                 .expiresAt(expiry)

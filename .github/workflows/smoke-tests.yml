@@ -116,6 +116,7 @@ jobs:
                   LDAP_READONLY_PASSWORD=readonly-secret
                   LDAP_PANEL_WRITER_PASSWORD=panel-writer-secret
                   SVC_GROUP1_SECRET=grupo1-test
+                  SVC_GROUP2_SECRET=grupo2-test
                   SVC_GROUP5_SECRET=grupo5-test
                   ANOMALY_SERVICE_URL=http://anomaly-detection:8000
                   SPRING_MAIL_HOST=mailpit

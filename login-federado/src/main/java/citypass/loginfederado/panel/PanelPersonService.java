@@ -1,11 +1,13 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.panel.dto.AdminPersonView;
 import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 import org.springframework.http.HttpStatus;
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import org.springframework.ldap.AttributeInUseException;
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.LdapTemplate;
@@ -101,6 +103,45 @@ public class PanelPersonService {
 
         List<PersonView> pageContent = fromIndex < totalElements
                 ? allFiltered.subList(fromIndex, toIndex)
+                : List.of();
+
+        return new PaginatedResponse<>(
+                pageContent,
+                totalElements,
+                totalPages,
+                page,
+                size
+        );
+    }
+
+    /**
+     * Listado TRANSVERSAL (solo admin global): agrega las personas de los 6
+     * módulos en una sola página global. Reusa el listado por módulo (con sus
+     * filtros search/group/disabled) y re-pagina el resultado mezclado,
+     * ordenado por uid. Cada fila lleva su módulo.
+     */
+    public PaginatedResponse<AdminPersonView> listAllPeople(PeopleSearchCriteria criteria) {
+        List<AdminPersonView> all = new ArrayList<>();
+        for (String module : PanelDirectoryRules.MODULES) {
+            PaginatedResponse<PersonView> page = listPeople(module,
+                    new PeopleSearchCriteria(0, Integer.MAX_VALUE,
+                            criteria.search(), criteria.group(), criteria.disabled()));
+            for (PersonView person : page.content()) {
+                all.add(AdminPersonView.of(module, person));
+            }
+        }
+        all.sort(java.util.Comparator.comparing(AdminPersonView::uid));
+
+        int totalElements = all.size();
+        int size = criteria.size() > 0 ? criteria.size() : 10;
+        int page = criteria.page() >= 0 ? criteria.page() : 0;
+
+        int totalPages = (int) Math.ceil((double) totalElements / size);
+        int fromIndex = page * size;
+        int toIndex = Math.min(fromIndex + size, totalElements);
+
+        List<AdminPersonView> pageContent = fromIndex < totalElements
+                ? all.subList(fromIndex, toIndex)
                 : List.of();
 
         return new PaginatedResponse<>(
@@ -290,5 +331,26 @@ public class PanelPersonService {
             throw new IllegalArgumentException(
                     "Nombre de usuario inválido: use 3-32 caracteres de a-z, 0-9, punto, guion o guion bajo");
         }
+    }
+
+    public List<GlobalPersonView> listAllPeopleGlobal() {
+        return PanelDirectoryRules.MODULES.stream()
+            .flatMap(module -> listPeople(
+                    module,
+                    new PeopleSearchCriteria(0, Integer.MAX_VALUE, null, null, null)
+            ).content().stream()
+            .map(person -> new GlobalPersonView(
+                    module,
+                    person.employeeNumber(),
+                    person.uid(),
+                    person.givenName(),
+                    person.sn(),
+                    person.email(),
+                    person.disabled()
+            )))
+            .sorted(java.util.Comparator
+                    .comparing(GlobalPersonView::module)
+                    .thenComparing(GlobalPersonView::uid))
+            .toList();
     }
 }

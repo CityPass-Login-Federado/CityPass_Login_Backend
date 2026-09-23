@@ -77,8 +77,10 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Refresh token inválido, revocado o cadena muerta")
     })
     @PostMapping("/refresh")
-    public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(authService.refresh(request));
+    public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshRequest request,
+                                                 HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.refresh(
+                request, resolveClientIp(httpRequest), httpRequest.getHeader("User-Agent")));
     }
 
     @Operation(summary = "Logout",
@@ -89,8 +91,10 @@ public class AuthController {
             @ApiResponse(responseCode = "204", description = "Sesión invalidada (token inexistente devuelve lo mismo)")
     })
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request) {
-        authService.logout(request.refreshToken());
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request,
+                                       HttpServletRequest httpRequest) {
+        authService.logout(request.refreshToken(), resolveClientIp(httpRequest),
+                httpRequest.getHeader("User-Agent"));
         return ResponseEntity.noContent().build();
     }
 
