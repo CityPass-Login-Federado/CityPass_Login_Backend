@@ -2,6 +2,8 @@ package citypass.loginfederado.panel;
 
 import citypass.loginfederado.panel.dto.AdminGroupView;
 import citypass.loginfederado.panel.dto.AdminPersonView;
+import citypass.loginfederado.panel.dto.BulkMembershipRequest;
+import citypass.loginfederado.panel.dto.BulkMembershipResponse;
 import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupView;
@@ -18,6 +20,8 @@ import citypass.loginfederado.service.RefreshTokenService;
 import org.springframework.security.access.AccessDeniedException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
@@ -339,6 +343,32 @@ public class PanelController {
                                             @Valid @RequestBody MemberRequest request) {
         var delegate = delegate(jwt, module);
         return groups.addMember(delegate, delegate.module(), name, request.memberUid());
+    }
+
+    @Operation(
+            summary = "Asignar múltiples usuarios a múltiples grupos",
+            description = "Aplica el producto cartesiano de usuarios y grupos después de recortar y deduplicar "
+                    + "ambas listas. Prevalida existencias y el máximo de 50 grupos antes de escribir. "
+                    + "Cada grupo se modifica de forma atómica, pero no existe una transacción entre grupos distintos.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200",
+                    description = "Lote procesado; puede contener resultados SUCCESS, PARTIAL o FAILED",
+                    content = @Content(schema = @Schema(implementation = BulkMembershipResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Body inválido o listas vacías"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin permisos o módulo fuera de alcance"),
+            @ApiResponse(responseCode = "409", description = "Usuario/grupo inexistente, límite o conflicto de negocio"),
+            @ApiResponse(responseCode = "422", description = "Nombre de grupo o regla de formato inválida"),
+            @ApiResponse(responseCode = "500", description = "Error inesperado al procesar una respuesta segura")
+    })
+    @PostMapping("/group-memberships/bulk")
+    public BulkMembershipResponse addMembersBulk(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
+            @Valid @RequestBody BulkMembershipRequest request) {
+        var delegate = delegate(jwt, module);
+        return groups.addMembersBulk(delegate, delegate.module(), request);
     }
 
     @Operation(summary = "Quitar miembro de grupo",

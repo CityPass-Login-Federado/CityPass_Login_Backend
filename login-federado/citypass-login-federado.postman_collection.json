@@ -25,7 +25,9 @@
 		{ "key": "created_refresh_token", "value": "" },
 		{ "key": "perfil_uid", "value": "" },
 		{ "key": "perfil_access_token", "value": "" },
-		{ "key": "perfil_refresh_token", "value": "" }
+		{ "key": "perfil_refresh_token", "value": "" },
+		{ "key": "bulk_limit_uid", "value": "" },
+		{ "key": "bulkPartialBaseUrl", "value": "" }
 	],
 	"item": [
 		{
@@ -2767,6 +2769,109 @@
 						"body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"x\",\n  \"newPassword\": \"otraNueva123\"\n}", "options": { "raw": { "language": "json" } } },
 						"url": { "raw": "{{baseUrl}}/me/change-password", "host": ["{{baseUrl}}"], "path": ["me", "change-password"] }
 					}
+				}
+			]
+		},
+		{
+			"name": "13 Membresías Masivas",
+			"description": "POST /panel/group-memberships/bulk aplica memberUids × groupNames. Recorta y deduplica preservando orden, admite hasta 1000 combinaciones y prevalida todas las existencias y el límite de 50 antes de escribir. Cada grupo es atómico, pero no hay transacción entre grupos. El endpoint individual continúa disponible. Ejecutar 01 antes de 02 para comprobar ALREADY_MEMBER.",
+			"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{admin_access_token}}", "type": "string" }] },
+			"item": [
+				{
+					"name": "01 Asignación masiva exitosa (2 usuarios × 2 grupos)",
+					"event": [{
+						"listen": "test",
+						"script": { "type": "text/javascript", "exec": [
+							"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+							"const r = pm.response.json();",
+							"pm.test('Producto cartesiano y contadores consistentes', () => {",
+							"  pm.expect(r.status).to.eql('SUCCESS');",
+							"  pm.expect(r.requested).to.eql(4);",
+							"  pm.expect(r.results).to.have.lengthOf(4);",
+							"  pm.expect(r.assigned + r.skipped + r.failed).to.eql(r.requested);",
+							"  pm.expect(r.failed).to.eql(0);",
+							"});"
+						] }
+					}],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"memberUids\": [\"soporte1\", \"consulta1\"],\n  \"groupNames\": [\"guardia-finde\", \"consulta\"]\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/panel/group-memberships/bulk", "host": ["{{baseUrl}}"], "path": ["panel", "group-memberships", "bulk"] }
+					}
+				},
+				{
+					"name": "02 Todas las relaciones ya existentes",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+						"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+						"const r = pm.response.json();",
+						"pm.test('SUCCESS con cuatro omisiones', () => { pm.expect(r.status).to.eql('SUCCESS'); pm.expect(r.skipped).to.eql(4); pm.expect(r.assigned).to.eql(0); pm.expect(r.failed).to.eql(0); });"
+					] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"memberUids\": [\" soporte1 \", \"consulta1\", \"soporte1\"],\n  \"groupNames\": [\"guardia-finde\", \" consulta \", \"consulta\"]\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/panel/group-memberships/bulk", "host": ["{{baseUrl}}"], "path": ["panel", "group-memberships", "bulk"] }
+					}
+				},
+				{
+					"name": "03 Límite de 50 grupos (requiere fixture)",
+					"description": "Definir bulk_limit_uid con un usuario de Reclamos que ya pertenezca a 50 grupos y no pertenezca a guardia-finde. Sin esa variable el request se omite. Debe responder 409 sin escrituras ni auditoría.",
+					"event": [
+						{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["if (!pm.collectionVariables.get('bulk_limit_uid')) { pm.execution.skipRequest(); }"] } },
+						{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 409: total proyectado supera 50', () => pm.response.to.have.status(409));", "pm.expect(pm.response.json().message).to.include('50');"] } }
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"memberUids\": [\"{{bulk_limit_uid}}\"],\n  \"groupNames\": [\"guardia-finde\"]\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/panel/group-memberships/bulk", "host": ["{{baseUrl}}"], "path": ["panel", "group-memberships", "bulk"] }
+					}
+				},
+				{
+					"name": "04 Request inválido (elemento en blanco)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 400 Bean Validation', () => pm.response.to.have.status(400));"] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"memberUids\": [\"   \"],\n  \"groupNames\": []\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/panel/group-memberships/bulk", "host": ["{{baseUrl}}"], "path": ["panel", "group-memberships", "bulk"] }
+					}
+				},
+				{
+					"name": "05 Admin global con module=movilidad",
+					"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{admin_global_access_token}}", "type": "string" }] },
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+						"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+						"const r = pm.response.json(); pm.test('Opera movilidad', () => { pm.expect(r.status).to.eql('SUCCESS'); pm.expect(r.requested).to.eql(2); });"
+					] } }],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"memberUids\": [\"mgomez\", \"delegado-mov\"],\n  \"groupNames\": [\"delegados\"]\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{baseUrl}}/panel/group-memberships/bulk?module=movilidad", "host": ["{{baseUrl}}"], "path": ["panel", "group-memberships", "bulk"], "query": [{ "key": "module", "value": "movilidad" }] }
+					}
+				},
+				{
+					"name": "06 Resultado parcial (mock o falla LDAP inyectada)",
+					"description": "Definir bulkPartialBaseUrl con la URL de un mock/entorno que haga fallar la modificación de grupo-falla y permita grupo-ok. Sin esa variable el request se omite. El ejemplo guardado muestra el contrato PARTIAL sin filtrar detalles LDAP.",
+					"event": [
+						{ "listen": "prerequest", "script": { "type": "text/javascript", "exec": ["if (!pm.collectionVariables.get('bulkPartialBaseUrl')) { pm.execution.skipRequest(); }"] } },
+						{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 con PARTIAL', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().status).to.eql('PARTIAL'); });"] } }
+					],
+					"request": {
+						"method": "POST",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": { "mode": "raw", "raw": "{\n  \"memberUids\": [\"usuario1\"],\n  \"groupNames\": [\"grupo-falla\", \"grupo-ok\"]\n}", "options": { "raw": { "language": "json" } } },
+						"url": { "raw": "{{bulkPartialBaseUrl}}/panel/group-memberships/bulk", "host": ["{{bulkPartialBaseUrl}}"], "path": ["panel", "group-memberships", "bulk"] }
+					},
+					"response": [{
+						"name": "Ejemplo PARTIAL",
+						"status": "OK",
+						"code": 200,
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"body": "{\n  \"status\": \"PARTIAL\",\n  \"requested\": 2,\n  \"assigned\": 1,\n  \"skipped\": 0,\n  \"failed\": 1,\n  \"results\": [\n    {\"memberUid\": \"usuario1\", \"groupName\": \"grupo-falla\", \"status\": \"FAILED\", \"message\": \"No se pudo actualizar el grupo\"},\n    {\"memberUid\": \"usuario1\", \"groupName\": \"grupo-ok\", \"status\": \"ASSIGNED\", \"message\": null}\n  ],\n  \"warnings\": []\n}"
+					}]
 				}
 			]
 		}
