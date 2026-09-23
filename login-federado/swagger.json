@@ -198,6 +198,41 @@
         }
       }
     },
+    "/me": {
+      "get": {
+        "tags": ["Perfil"],
+        "summary": "Mi perfil",
+        "description": "Datos de la persona autenticada (uid, nombre, mail, módulo y grupos), releídos del directorio en cada llamada. Requiere token_use=human (un token de servicio devuelve 403).",
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "Perfil de la persona autenticada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MeResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "404": {
+            "description": "La cuenta ya no existe o está deshabilitada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/change-password": {
       "post": {
         "tags": ["Perfil"],
@@ -936,6 +971,18 @@
       }
     },
     "schemas": {
+      "MeResponse": {
+        "type": "object",
+        "required": ["uid", "employeeNumber", "fullName", "module", "groups"],
+        "properties": {
+          "uid": { "type": "string", "description": "UID (preferred_username)", "example": "jperez" },
+          "employeeNumber": { "type": "string", "description": "Identificador estable (sub del JWT)", "example": "U000042" },
+          "fullName": { "type": "string", "description": "Nombre completo (cn)", "example": "Juan Perez" },
+          "email": { "type": "string", "description": "Mail", "example": "jperez@citypass.local" },
+          "module": { "type": "string", "description": "Módulo de origen", "example": "reclamos" },
+          "groups": { "type": "array", "items": { "type": "string" }, "description": "Grupos actuales (nombres pelados)", "example": ["delegados"] }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": ["username", "password", "clientId"],

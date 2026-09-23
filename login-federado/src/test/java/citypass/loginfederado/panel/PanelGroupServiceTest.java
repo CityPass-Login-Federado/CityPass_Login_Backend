@@ -25,8 +25,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import org.springframework.http.HttpStatus;
 import org.springframework.ldap.NameAlreadyBoundException;
 import org.springframework.ldap.NameNotFoundException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
@@ -160,8 +162,9 @@ class PanelGroupServiceTest {
     void deleteGroupMissingGroupFails() {
         when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
         assertThatThrownBy(() -> service.deleteGroup(actor, "reclamos", "ops"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("No existe en su módulo");
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
         verify(ldap, never()).unbind(any(LdapName.class));
     }
 

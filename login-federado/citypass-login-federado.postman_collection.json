@@ -2601,6 +2601,16 @@
 					}
 				},
 				{
+					"name": "08b Mi perfil (GET /me)",
+					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 200 con perfil', () => pm.response.to.have.status(200));", "pm.test('Trae uid, mail, módulo y grupos', () => { const r = pm.response.json(); pm.expect(r.uid).to.eql('perfil-qa'); pm.expect(r.groups).to.be.an('array'); });"] } }],
+					"request": {
+						"method": "GET",
+						"header": [{ "key": "Content-Type", "value": "application/json" }],
+						"auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{perfil_access_token}}", "type": "string" }] },
+						"url": { "raw": "{{baseUrl}}/me", "host": ["{{baseUrl}}"], "path": ["me"] }
+					}
+				},
+				{
 					"name": "09 Change-password OK (revoca sesiones)",
 					"event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('HTTP 204', () => pm.response.to.have.status(204));"] } }],
 					"request": {

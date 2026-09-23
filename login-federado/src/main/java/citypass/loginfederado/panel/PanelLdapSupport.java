@@ -6,9 +6,11 @@ import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.ContextMapper;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.ldap.support.LdapUtils;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import javax.naming.directory.Attribute;
 import javax.naming.directory.Attributes;
@@ -59,11 +61,16 @@ class PanelLdapSupport {
         }
     }
 
+    /**
+     * Exige que la entrada exista. Si no está, 404 (no 409): el handler ya
+     * propaga el status de ResponseStatusException, así todos los endpoints
+     * devuelven el "inexistente" que documentan en su contrato.
+     */
     DirContextOperations requireContext(LdapName dn) {
         try {
             return ldap.lookupContext(dn);
         } catch (org.springframework.ldap.NameNotFoundException ex) {
-            throw new IllegalStateException("No existe en su módulo");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No existe en su módulo");
         }
     }
 

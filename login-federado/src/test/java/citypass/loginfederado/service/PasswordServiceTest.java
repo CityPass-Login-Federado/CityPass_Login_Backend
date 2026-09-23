@@ -13,7 +13,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -276,6 +279,32 @@ class PasswordServiceTest {
         assertThatThrownBy(() -> service.redeemResetToken("cualquiera", "corta"))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(ldap, accounts, refresh, tokenStore);
+    }
+
+    // --- Perfil propio ---
+
+    @Test
+    void getProfileMapsDirectoryPerson() {
+        when(ldap.reloadBySub("U000042")).thenReturn(Optional.of(person));
+
+        var profile = service.getProfile("U000042");
+
+        assertThat(profile.uid()).isEqualTo("jperez");
+        assertThat(profile.employeeNumber()).isEqualTo("U000042");
+        assertThat(profile.fullName()).isEqualTo("Juan Perez");
+        assertThat(profile.email()).isEqualTo("jperez@citypass.local");
+        assertThat(profile.module()).isEqualTo("reclamos");
+        assertThat(profile.groups()).containsExactly("soporte-n2");
+    }
+
+    @Test
+    void getProfileMissingOrDisabledAccountIs404() {
+        when(ldap.reloadBySub("U000042")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getProfile("U000042"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
     }
 
     // --- Cambio desde perfil (sin cambios de comportamiento) ---
