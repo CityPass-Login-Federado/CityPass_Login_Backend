@@ -204,6 +204,8 @@ class PanelGroupServiceTest {
 
     @Test
     void listAllGroupsAggregatesEveryModuleWithModuleTag() {
+        // Agnóstico a la cantidad de módulos: vale para 6, 7 o los que vengan.
+        int modules = PanelDirectoryRules.MODULES.size();
         Attributes a = new BasicAttributes(true);
         a.put("cn", "zeta");
         a.put("member", "uid=zeta,ou=People,ou=Reclamos,dc=citypass,dc=local");
@@ -216,18 +218,19 @@ class PanelGroupServiceTest {
                     return List.of(mapper.mapFromAttributes(a), mapper.mapFromAttributes(b));
                 });
 
-        var first = service.listAllGroups(new GroupSearchCriteria(0, 10, null, null));
-        assertThat(first.totalElements()).isEqualTo(12);
-        assertThat(first.content()).hasSize(10);
-        assertThat(first.content()).extracting(AdminGroupView::name)
-                .containsExactly("alpha", "alpha", "alpha", "alpha", "alpha", "alpha",
-                        "zeta", "zeta", "zeta", "zeta");
-        assertThat(first.content().subList(0, 6)).extracting(AdminGroupView::module)
+        var all = service.listAllGroups(new GroupSearchCriteria(0, 2 * modules, null, null));
+        assertThat(all.totalElements()).isEqualTo(2L * modules);
+        assertThat(all.content()).hasSize(2 * modules);
+        assertThat(all.content().subList(0, modules)).extracting(AdminGroupView::name)
+                .containsOnly("alpha");
+        assertThat(all.content().subList(0, modules)).extracting(AdminGroupView::module)
                 .containsExactlyInAnyOrderElementsOf(PanelDirectoryRules.MODULES);
+        assertThat(all.content().subList(modules, 2 * modules)).extracting(AdminGroupView::name)
+                .containsOnly("zeta");
 
-        var second = service.listAllGroups(new GroupSearchCriteria(1, 10, null, null));
-        assertThat(second.content()).extracting(AdminGroupView::name)
-                .containsExactly("zeta", "zeta");
+        var page = service.listAllGroups(new GroupSearchCriteria(0, 10, null, null));
+        assertThat(page.totalElements()).isEqualTo(2L * modules);
+        assertThat(page.content()).hasSize(Math.min(10, 2 * modules));
     }
 
     @Test

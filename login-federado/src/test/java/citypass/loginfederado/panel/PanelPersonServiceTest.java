@@ -76,6 +76,8 @@ class PanelPersonServiceTest {
 
     @Test
     void listAllPeopleAggregatesEveryModuleWithModuleTag() {
+        // Agnóstico a la cantidad de módulos: vale para 6, 7 o los que vengan.
+        int modules = PanelDirectoryRules.MODULES.size();
         when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
                 ArgumentMatchers.<AttributesMapper<PersonView>>any()))
                 .thenAnswer(invocation -> {
@@ -84,18 +86,19 @@ class PanelPersonServiceTest {
                             mapper.mapFromAttributes(person("alpha")));
                 });
 
-        var first = service.listAllPeople(new PeopleSearchCriteria(0, 10, null, null, null));
-        assertThat(first.totalElements()).isEqualTo(12);
-        assertThat(first.content()).hasSize(10);
-        assertThat(first.content()).extracting(AdminPersonView::uid)
-                .containsExactly("alpha", "alpha", "alpha", "alpha", "alpha", "alpha",
-                        "zeta", "zeta", "zeta", "zeta");
-        assertThat(first.content().subList(0, 6)).extracting(AdminPersonView::module)
+        var all = service.listAllPeople(new PeopleSearchCriteria(0, 2 * modules, null, null, null));
+        assertThat(all.totalElements()).isEqualTo(2L * modules);
+        assertThat(all.content()).hasSize(2 * modules);
+        assertThat(all.content().subList(0, modules)).extracting(AdminPersonView::uid)
+                .containsOnly("alpha");
+        assertThat(all.content().subList(0, modules)).extracting(AdminPersonView::module)
                 .containsExactlyInAnyOrderElementsOf(PanelDirectoryRules.MODULES);
+        assertThat(all.content().subList(modules, 2 * modules)).extracting(AdminPersonView::uid)
+                .containsOnly("zeta");
 
-        var second = service.listAllPeople(new PeopleSearchCriteria(1, 10, null, null, null));
-        assertThat(second.content()).extracting(AdminPersonView::uid)
-                .containsExactly("zeta", "zeta");
+        var page = service.listAllPeople(new PeopleSearchCriteria(0, 10, null, null, null));
+        assertThat(page.totalElements()).isEqualTo(2L * modules);
+        assertThat(page.content()).hasSize(Math.min(10, 2 * modules));
     }
 
     @Test
