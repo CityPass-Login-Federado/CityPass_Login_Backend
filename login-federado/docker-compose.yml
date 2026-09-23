@@ -87,6 +87,9 @@ services:
       SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "${SPRING_MAIL_SMTP_STARTTLS:-true}"
       PASSWORD_RESET_FROM: "${PASSWORD_RESET_FROM:-no-reply@citypass.local}"
       PASSWORD_RESET_DEBUG_LOG: "${PASSWORD_RESET_DEBUG_LOG:-true}"
+      # Orígenes CORS (frontend). Pisarlo con CORS_ALLOWED_ORIGINS si el
+      # front corre en otro puerto/host.
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000,https://citypass-login.pp.ua}"
     depends_on:
       openldap:
         condition: service_healthy

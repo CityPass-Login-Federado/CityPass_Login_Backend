@@ -1,5 +1,9 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.panel.dto.AdminGroupView;
+import citypass.loginfederado.panel.dto.AdminPersonView;
+import citypass.loginfederado.panel.dto.BulkMembershipRequest;
+import citypass.loginfederado.panel.dto.BulkMembershipResponse;
 import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupView;
@@ -13,8 +17,11 @@ import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
 import citypass.loginfederado.service.RefreshTokenService;
+import org.springframework.security.access.AccessDeniedException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
@@ -338,6 +345,32 @@ public class PanelController {
         return groups.addMember(delegate, delegate.module(), name, request.memberUid());
     }
 
+    @Operation(
+            summary = "Asignar múltiples usuarios a múltiples grupos",
+            description = "Aplica el producto cartesiano de usuarios y grupos después de recortar y deduplicar "
+                    + "ambas listas. Prevalida existencias y el máximo de 50 grupos antes de escribir. "
+                    + "Cada grupo se modifica de forma atómica, pero no existe una transacción entre grupos distintos.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200",
+                    description = "Lote procesado; puede contener resultados SUCCESS, PARTIAL o FAILED",
+                    content = @Content(schema = @Schema(implementation = BulkMembershipResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Body inválido o listas vacías"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin permisos o módulo fuera de alcance"),
+            @ApiResponse(responseCode = "409", description = "Usuario/grupo inexistente, límite o conflicto de negocio"),
+            @ApiResponse(responseCode = "422", description = "Nombre de grupo o regla de formato inválida"),
+            @ApiResponse(responseCode = "500", description = "Error inesperado al procesar una respuesta segura")
+    })
+    @PostMapping("/group-memberships/bulk")
+    public BulkMembershipResponse addMembersBulk(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Módulo a operar (solo admin global)") @RequestParam(required = false) String module,
+            @Valid @RequestBody BulkMembershipRequest request) {
+        var delegate = delegate(jwt, module);
+        return groups.addMembersBulk(delegate, delegate.module(), request);
+    }
+
     @Operation(summary = "Quitar miembro de grupo",
             description = "Si el grupo es 'delegados', no puede quedar vacío.",
             tags = "Panel — Grupos")
@@ -373,6 +406,56 @@ public class PanelController {
     }
 
     // ------------------------------------------------------------------
+    // Vista transversal (solo admin global)
+    // ------------------------------------------------------------------
+
+    @Operation(
+            summary = "Listar TODAS las personas (admin global)",
+            description = "Agrega las personas de los 6 módulos en una sola página global, "
+                    + "ordenadas por uid. Cada fila lleva su módulo. Filtros opcionales: search, "
+                    + "group y disabled (se aplican por módulo). Solo admin global: un delegado "
+                    + "normal recibe 403.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página global de personas"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "No es admin global")
+    })
+    @GetMapping("/admin/people")
+    public PaginatedResponse<AdminPersonView> listAllPeople(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Número de página (base 0)") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Tamaño de página") @RequestParam(defaultValue = "10") int size,
+            @Parameter(description = "Texto libre en nombre, apellido, uid o mail") @RequestParam(required = false) String search,
+            @Parameter(description = "Nombre de grupo para filtrar por membresía") @RequestParam(required = false) String group,
+            @Parameter(description = "true: solo deshabilitadas; false: solo habilitadas") @RequestParam(required = false) Boolean disabled) {
+        adminGlobal(jwt);
+        return persons.listAllPeople(new PeopleSearchCriteria(page, size, search, group, disabled));
+    }
+
+    @Operation(summary = "Listar TODOS los grupos (admin global)",
+            description = "Agrega los grupos de los 6 módulos en una sola página global, "
+                    + "ordenados por nombre. Cada fila lleva su módulo. Filtros opcionales: "
+                    + "search y reserved (se aplican por módulo). Solo admin global: un delegado "
+                    + "normal recibe 403.",
+            tags = "Panel — Grupos")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página global de grupos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "No es admin global")
+    })
+    @GetMapping("/admin/groups")
+    public PaginatedResponse<AdminGroupView> listAllGroups(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Número de página (base 0)") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Tamaño de página") @RequestParam(defaultValue = "10") int size,
+            @Parameter(description = "Texto libre en el nombre del grupo") @RequestParam(required = false) String search,
+            @Parameter(description = "true: solo grupos reservados; false: solo no reservados") @RequestParam(required = false) Boolean reserved) {
+        adminGlobal(jwt);
+        return groups.listAllGroups(new GroupSearchCriteria(page, size, search, reserved));
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
@@ -395,6 +478,19 @@ public class PanelController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo inválido: " + moduleParam);
         }
         return new PanelAuthorization.Delegate(base.sub(), base.uid(), module, true);
+    }
+
+    /**
+     * Exige admin GLOBAL (para la vista transversal). A diferencia de
+     * {@link #delegate}, acá no hay ?module= que resolver: el scope son
+     * todos los módulos y un delegado normal no entra.
+     */
+    private PanelAuthorization.Delegate adminGlobal(Jwt jwt) {
+        PanelAuthorization.Delegate base = authorization.requireDelegate(jwt);
+        if (!base.global()) {
+            throw new AccessDeniedException("Solo admin global");
+        }
+        return base;
     }
 
     private static ResponseStatusException notFound(String message) {

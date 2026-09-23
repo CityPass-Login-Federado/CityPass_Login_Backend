@@ -2,6 +2,8 @@ package citypass.loginfederado.panel;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttribute;
@@ -27,14 +29,18 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import org.springframework.http.HttpStatus;
 import org.springframework.ldap.NameNotFoundException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.ldap.core.AttributesMapper;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
+import citypass.loginfederado.panel.dto.AdminPersonView;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 
@@ -66,6 +72,33 @@ class PanelPersonServiceTest {
                                 });
         assertThat(service.listPeople("reclamos", new PeopleSearchCriteria(0, 10, null, null, null)).content()).extracting(PersonView::uid)
                 .containsExactly("alpha", "zeta");
+    }
+
+    @Test
+    void listAllPeopleAggregatesEveryModuleWithModuleTag() {
+        // Agnóstico a la cantidad de módulos: vale para 6, 7 o los que vengan.
+        int modules = PanelDirectoryRules.MODULES.size();
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapFromAttributes(person("zeta")),
+                            mapper.mapFromAttributes(person("alpha")));
+                });
+
+        var all = service.listAllPeople(new PeopleSearchCriteria(0, 2 * modules, null, null, null));
+        assertThat(all.totalElements()).isEqualTo(2L * modules);
+        assertThat(all.content()).hasSize(2 * modules);
+        assertThat(all.content().subList(0, modules)).extracting(AdminPersonView::uid)
+                .containsOnly("alpha");
+        assertThat(all.content().subList(0, modules)).extracting(AdminPersonView::module)
+                .containsExactlyInAnyOrderElementsOf(PanelDirectoryRules.MODULES);
+        assertThat(all.content().subList(modules, 2 * modules)).extracting(AdminPersonView::uid)
+                .containsOnly("zeta");
+
+        var page = service.listAllPeople(new PeopleSearchCriteria(0, 10, null, null, null));
+        assertThat(page.totalElements()).isEqualTo(2L * modules);
+        assertThat(page.content()).hasSize(Math.min(10, 2 * modules));
     }
 
     @Test
@@ -135,6 +168,30 @@ class PanelPersonServiceTest {
     void findPersonReturnsEmptyWhenMissing() {
         when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
         assertThat(service.findPerson("reclamos", "nobody")).isEmpty();
+    }
+
+    @Test
+    void listAllPeopleGlobalAggregatesAcrossModulesAndSorts() {
+        AtomicInteger callIndex = new AtomicInteger();
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
+                    if (callIndex.getAndIncrement() == 0) {
+                        return List.of(
+                                mapper.mapFromAttributes(person("zeta")),
+                                mapper.mapFromAttributes(person("alpha")));
+                    }
+                    return List.of();
+                });
+
+        var result = service.listAllPeopleGlobal();
+
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(GlobalPersonView::uid)
+                .containsExactly("alpha", "zeta");
+        assertThat(result).extracting(GlobalPersonView::module)
+                .containsExactly("movilidad", "movilidad");
     }
 
     @Test
@@ -293,6 +350,17 @@ class PanelPersonServiceTest {
     }
 
     @Test
+    void updatePersonMissingPersonReturns404() {
+        // Contrato: persona inexistente -> 404, no 409 (era IllegalStateException).
+        when(ldap.lookupContext(any(LdapName.class))).thenThrow(new NameNotFoundException("missing"));
+        assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "nobody",
+                new UpdatePersonRequest("X", null, null, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
     void updatePersonRejectsDuplicateEmail() {
                 doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
                 when(ldap.search(any(LdapName.class), contains("mail="), ArgumentMatchers.<AttributesMapper<String>>any()))
@@ -334,8 +402,12 @@ class PanelPersonServiceTest {
                 .when(ldap).lookupContext(any(LdapName.class));
         assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "jperez",
                 new UpdatePersonRequest("Juan Carlos", null, null, null)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("desapareció");
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> {
+                    assertThat(((ResponseStatusException) error).getStatusCode())
+                            .isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(error).hasMessageContaining("desapareció");
+                });
     }
 
     @Test
@@ -344,6 +416,42 @@ class PanelPersonServiceTest {
         assertThatThrownBy(() -> service.createPerson(actor, "reclamos", req))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(ldap);
+    }
+
+    @Test
+    void findGlobalByUidOrMailReturnsEmptyWhenNoCriteriaProvided() throws Exception {
+        var method = PanelPersonService.class.getDeclaredMethod(
+                "findGlobalByUidOrMail", String.class, String.class, String.class);
+        method.setAccessible(true);
+
+        var result = (Optional<String>) method.invoke(service, null, null, null);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void findGlobalByUidOrMailRejectsCollisionsOnRenamesAndMails() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+        when(ldap.search(any(LdapName.class), contains("uid=juan.perez"),
+                ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenReturn(List.of("juan.perez"));
+        when(ldap.search(any(LdapName.class), contains("mail=other@x.com"),
+                ArgumentMatchers.<AttributesMapper<String>>any()))
+                .thenReturn(List.of("other@x.com"));
+
+        assertThatThrownBy(() -> service.updatePerson(actor, "reclamos", "jperez",
+                new UpdatePersonRequest(null, null, "other@x.com", "juan.perez")))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void createPersonRejectsInvalidUsernameAndShortPassword() {
+        assertThatThrownBy(() -> service.createPerson(actor, "reclamos",
+                new NewPersonRequest("Juan", "Perez", "bad_name", "j@x.com", "short")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.createPerson(actor, "reclamos",
+                new NewPersonRequest("Juan", "Perez", "jperez", "j@x.com", "short")))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

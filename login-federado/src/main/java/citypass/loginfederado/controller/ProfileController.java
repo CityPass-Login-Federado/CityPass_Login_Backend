@@ -1,6 +1,7 @@
 package citypass.loginfederado.controller;
 
 import citypass.loginfederado.dto.ChangePasswordRequest;
+import citypass.loginfederado.dto.MeResponse;
 import citypass.loginfederado.service.PasswordService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -11,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +33,23 @@ public class ProfileController {
 
     public ProfileController(PasswordService passwordService) {
         this.passwordService = passwordService;
+    }
+
+    @Operation(summary = "Mi perfil",
+            description = "Datos de la persona autenticada (uid, nombre, mail, módulo y grupos), "
+                    + "releídos del directorio en cada llamada.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Perfil de la persona autenticada"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token de servicio: el perfil es solo para personas"),
+            @ApiResponse(responseCode = "404", description = "La cuenta ya no existe o está deshabilitada")
+    })
+    @GetMapping
+    public MeResponse getProfile(@AuthenticationPrincipal Jwt jwt) {
+        if (!"human".equals(jwt.getClaimAsString("token_use"))) {
+            throw new AccessDeniedException("El perfil requiere un token de persona");
+        }
+        return passwordService.getProfile(jwt.getSubject());
     }
 
     @Operation(summary = "Cambiar mi contraseña",

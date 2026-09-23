@@ -198,6 +198,41 @@
         }
       }
     },
+    "/me": {
+      "get": {
+        "tags": ["Perfil"],
+        "summary": "Mi perfil",
+        "description": "Datos de la persona autenticada (uid, nombre, mail, módulo y grupos), releídos del directorio en cada llamada. Requiere token_use=human (un token de servicio devuelve 403).",
+        "operationId": "getProfile",
+        "responses": {
+          "200": {
+            "description": "Perfil de la persona autenticada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MeResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "404": {
+            "description": "La cuenta ya no existe o está deshabilitada",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/change-password": {
       "post": {
         "tags": ["Perfil"],
@@ -330,6 +365,40 @@
               }
             }
           }
+        }
+      }
+    },
+    "/panel/admin/people": {
+      "get": {
+        "tags": ["Panel — Personas"],
+        "summary": "Listar TODAS las personas (admin global)",
+        "description": "Agrega las personas de los 6 módulos en una sola página global, ordenadas por uid. Cada fila lleva su módulo. Filtros opcionales: search, group y disabled (se aplican por módulo). Solo admin global: un delegado normal recibe 403.",
+        "operationId": "listAllPeople",
+        "parameters": [
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "default": 0 }, "description": "Número de página (base 0)" },
+          { "name": "size", "in": "query", "required": false, "schema": { "type": "integer", "default": 10 }, "description": "Tamaño de página" },
+          { "name": "search", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Texto libre en nombre, apellido, uid o mail" },
+          { "name": "group", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Nombre de grupo para filtrar por membresía" },
+          { "name": "disabled", "in": "query", "required": false, "schema": { "type": "boolean" }, "description": "true: solo deshabilitadas; false: solo habilitadas" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página global de personas",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaginatedAdminPersonResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
         }
       }
     },
@@ -640,6 +709,39 @@
         }
       }
     },
+    "/panel/admin/groups": {
+      "get": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Listar TODOS los grupos (admin global)",
+        "description": "Agrega los grupos de los 6 módulos en una sola página global, ordenados por nombre. Cada fila lleva su módulo. Filtros opcionales: search y reserved (se aplican por módulo). Solo admin global: un delegado normal recibe 403.",
+        "operationId": "listAllGroups",
+        "parameters": [
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "default": 0 }, "description": "Número de página (base 0)" },
+          { "name": "size", "in": "query", "required": false, "schema": { "type": "integer", "default": 10 }, "description": "Tamaño de página" },
+          { "name": "search", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Texto libre en el nombre del grupo" },
+          { "name": "reserved", "in": "query", "required": false, "schema": { "type": "boolean" }, "description": "true: solo grupos reservados; false: solo no reservados" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página global de grupos",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaginatedAdminGroupResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
+        }
+      }
+    },
     "/panel/groups": {
       "get": {
         "tags": ["Panel — Grupos"],
@@ -829,6 +931,56 @@
         }
       }
     },
+    "/panel/group-memberships/bulk": {
+      "post": {
+        "tags": ["Panel — Grupos"],
+        "summary": "Asignar múltiples usuarios a múltiples grupos",
+        "description": "Aplica el producto cartesiano de usuarios y grupos. Recorta espacios y deduplica ambas listas preservando el orden; admite hasta 1000 combinaciones. Antes de escribir prevalida el módulo, la existencia de todas las personas y grupos, las membresías actuales y el máximo de 50 grupos por persona. Cada grupo se modifica de forma atómica con una única operación LDAP, pero no existe una transacción entre grupos distintos; una falla LDAP se informa por relación y no impide procesar otros grupos. El endpoint individual POST /panel/groups/{name}/members continúa disponible.",
+        "operationId": "addMembersBulk",
+        "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar (obligatorio solo para admin global; un delegado normal usa el módulo de su token)" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BulkMembershipRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lote procesado. El cuerpo indica SUCCESS, PARTIAL o FAILED y detalla cada combinación.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BulkMembershipResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Body inválido, listas ausentes/vacías o admin global sin módulo",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BusinessError" } } }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthErrorResponse" } } }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "409": {
+            "description": "Persona/grupo inexistente, más de 1000 combinaciones o máximo de 50 grupos excedido",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BusinessError" } } }
+          },
+          "422": {
+            "description": "Nombre de grupo o regla de formato inválida",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BusinessError" } } }
+          },
+          "500": {
+            "description": "Error inesperado que impide construir una respuesta segura",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthErrorResponse" } } }
+          }
+        }
+      }
+    },
     "/panel/groups/{name}/members/{uid}": {
       "delete": {
         "tags": ["Panel — Grupos"],
@@ -873,7 +1025,7 @@
       "get": {
         "tags": ["Panel — Grupos"],
         "summary": "Listar módulos existentes",
-        "description": "Los 6 módulos del directorio. Pensado para que el admin global sepa qué valores acepta ?module=?; un delegado normal solo recuerda que su módulo viene de su token.",
+        "description": "Los 7 módulos del directorio. Pensado para que el admin global sepa qué valores acepta ?module=?; un delegado normal solo recuerda que su módulo viene de su token.",
         "operationId": "listModules",
         "responses": {
           "200": {
@@ -936,6 +1088,18 @@
       }
     },
     "schemas": {
+      "MeResponse": {
+        "type": "object",
+        "required": ["uid", "employeeNumber", "fullName", "module", "groups"],
+        "properties": {
+          "uid": { "type": "string", "description": "UID (preferred_username)", "example": "jperez" },
+          "employeeNumber": { "type": "string", "description": "Identificador estable (sub del JWT)", "example": "U000042" },
+          "fullName": { "type": "string", "description": "Nombre completo (cn)", "example": "Juan Perez" },
+          "email": { "type": "string", "description": "Mail", "example": "jperez@citypass.local" },
+          "module": { "type": "string", "description": "Módulo de origen", "example": "reclamos" },
+          "groups": { "type": "array", "items": { "type": "string" }, "description": "Grupos actuales (nombres pelados)", "example": ["delegados"] }
+        }
+      },
       "LoginRequest": {
         "type": "object",
         "required": ["username", "password", "clientId"],
@@ -1067,6 +1231,29 @@
           "size": { "type": "integer", "description": "Tamaño de página" }
         }
       },
+      "AdminPersonView": {
+        "type": "object",
+        "required": ["module", "employeeNumber", "uid", "givenName", "sn", "disabled"],
+        "properties": {
+          "module": { "type": "string", "description": "Módulo de la ficha", "example": "reclamos" },
+          "employeeNumber": { "type": "string", "description": "ID estable, formato U000000 (inmutable, D3)", "example": "U000042" },
+          "uid": { "type": "string", "description": "Nombre de usuario (uid)", "example": "jperez" },
+          "givenName": { "type": "string", "description": "Nombre", "example": "Juan" },
+          "sn": { "type": "string", "description": "Apellido", "example": "Perez" },
+          "email": { "type": "string", "description": "Mail", "example": "jperez@citypass.local" },
+          "disabled": { "type": "boolean", "description": "true si la cuenta está bloqueada vía ppolicy (D7)" }
+        }
+      },
+      "PaginatedAdminPersonResponse": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "array", "items": { "$ref": "#/components/schemas/AdminPersonView" }, "description": "Elementos de la página actual" },
+          "totalElements": { "type": "integer", "format": "int64", "description": "Total de elementos en los 6 módulos" },
+          "totalPages": { "type": "integer", "description": "Total de páginas" },
+          "currentPage": { "type": "integer", "description": "Página actual (base 0)" },
+          "size": { "type": "integer", "description": "Tamaño de página" }
+        }
+      },
       "GroupCreateRequest": {
         "type": "object",
         "required": ["name"],
@@ -1092,11 +1279,99 @@
           "size": { "type": "integer", "description": "Tamaño de página" }
         }
       },
+      "AdminGroupView": {
+        "type": "object",
+        "required": ["module", "name", "members"],
+        "properties": {
+          "module": { "type": "string", "description": "Módulo del grupo", "example": "reclamos" },
+          "name": { "type": "string", "description": "Nombre del grupo", "example": "soporte-n2" },
+          "members": { "type": "array", "items": { "type": "string" }, "description": "UIDs de las personas miembros (el placeholder técnico nunca aparece)" },
+          "reserved": { "type": "boolean", "description": "true si es el grupo reservado 'delegados'" }
+        }
+      },
+      "PaginatedAdminGroupResponse": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "array", "items": { "$ref": "#/components/schemas/AdminGroupView" }, "description": "Elementos de la página actual" },
+          "totalElements": { "type": "integer", "format": "int64", "description": "Total de elementos en los 6 módulos" },
+          "totalPages": { "type": "integer", "description": "Total de páginas" },
+          "currentPage": { "type": "integer", "description": "Página actual (base 0)" },
+          "size": { "type": "integer", "description": "Tamaño de página" }
+        }
+      },
       "MemberRequest": {
         "type": "object",
         "required": ["memberUid"],
         "properties": {
           "memberUid": { "type": "string", "description": "UID de la persona a agregar", "example": "test-user" }
+        }
+      },
+      "BulkMembershipRequest": {
+        "type": "object",
+        "required": ["memberUids", "groupNames"],
+        "description": "Listas que forman el producto cartesiano de membresías.",
+        "properties": {
+          "memberUids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "description": "UIDs; se recortan espacios y se eliminan duplicados preservando el orden.",
+            "items": { "type": "string", "minLength": 1 },
+            "example": ["usuario1", "usuario2"]
+          },
+          "groupNames": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000,
+            "description": "Grupos; se recortan espacios y se eliminan duplicados preservando el orden.",
+            "items": { "type": "string", "minLength": 1 },
+            "example": ["grupo-a", "grupo-b"]
+          }
+        }
+      },
+      "MembershipOperationStatus": {
+        "type": "string",
+        "enum": ["ASSIGNED", "ALREADY_MEMBER", "FAILED"]
+      },
+      "BulkMembershipStatus": {
+        "type": "string",
+        "enum": ["SUCCESS", "PARTIAL", "FAILED"]
+      },
+      "MembershipOperationResult": {
+        "type": "object",
+        "properties": {
+          "memberUid": { "type": "string", "example": "usuario1" },
+          "groupName": { "type": "string", "example": "grupo-a" },
+          "status": { "$ref": "#/components/schemas/MembershipOperationStatus" },
+          "message": { "type": "string", "nullable": true, "example": "El usuario ya pertenecía al grupo" }
+        }
+      },
+      "MembershipWarning": {
+        "type": "object",
+        "properties": {
+          "memberUid": { "type": "string", "example": "usuario1" },
+          "totalGroups": { "type": "integer", "example": 30 },
+          "message": { "type": "string", "example": "La persona acumula 30 grupos (aviso desde 30): revise membresías viejas antes de llegar al límite" }
+        }
+      },
+      "BulkMembershipResponse": {
+        "type": "object",
+        "properties": {
+          "status": { "$ref": "#/components/schemas/BulkMembershipStatus" },
+          "requested": { "type": "integer", "example": 4, "description": "Combinaciones tras normalizar y deduplicar" },
+          "assigned": { "type": "integer", "example": 2 },
+          "skipped": { "type": "integer", "example": 1 },
+          "failed": { "type": "integer", "example": 1 },
+          "results": {
+            "type": "array",
+            "description": "Detalle en orden de grupo recibido y, dentro de cada grupo, usuario recibido.",
+            "items": { "$ref": "#/components/schemas/MembershipOperationResult" }
+          },
+          "warnings": {
+            "type": "array",
+            "description": "A lo sumo una advertencia por usuario, calculada con asignaciones efectivamente aplicadas.",
+            "items": { "$ref": "#/components/schemas/MembershipWarning" }
+          }
         }
       },
       "MembershipChangeResponse": {

@@ -1,5 +1,12 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.panel.dto.AdminGroupView;
+import citypass.loginfederado.panel.dto.AdminPersonView;
+import citypass.loginfederado.exception.GlobalExceptionHandler;
+import citypass.loginfederado.panel.dto.BulkMembershipRequest;
+import citypass.loginfederado.panel.dto.BulkMembershipResponse;
+import citypass.loginfederado.panel.dto.BulkMembershipStatus;
+import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.GroupCreateRequest;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupView;
@@ -15,7 +22,12 @@ import citypass.loginfederado.service.RefreshTokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -24,11 +36,15 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class PanelControllerTest {
 
@@ -104,6 +120,75 @@ class PanelControllerTest {
     }
 
     @Test
+    void listAllPeopleReturnsEveryModuleForGlobalAdmin() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var people = List.of(
+                new GlobalPersonView("reclamos", "U000001", "jperez", "Juan", "Perez", "j@x.com", false),
+                new GlobalPersonView("movilidad", "U000002", "mlopez", "Maria", "Lopez", "m@x.com", true)
+        );
+        when(persons.listAllPeopleGlobal()).thenReturn(people);
+
+        assertThat(controller.listAllPeople(jwt, null)).containsExactlyElementsOf(people);
+    }
+
+    @Test
+    void listAllPeopleForSelectedModuleUsesLowercaseModuleAndSortsByUid() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var person = new PersonView("U000021", "zperez", "Zoe", "Perez", "z@x.com", false);
+        when(persons.listPeople(eq("reclamos"), any(PeopleSearchCriteria.class)))
+                .thenReturn(new PaginatedResponse<>(List.of(person), 1, 1, 0, 10));
+
+        var response = controller.listAllPeople(jwt, "RECLAMOS");
+
+        assertThat(response)
+                .extracting(GlobalPersonView::uid)
+                .containsExactly("zperez");
+        assertThat(response.getFirst().module()).isEqualTo("reclamos");
+    }
+
+    @Test
+    void adminGlobalListsAllPeopleWithoutModule() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var expected = new PaginatedResponse<AdminPersonView>(List.of(), 0, 0, 0, 10);
+        when(persons.listAllPeople(any(PeopleSearchCriteria.class))).thenReturn(expected);
+
+        assertThat(controller.listAllPeople(jwt, 0, 10, null, null, null)).isSameAs(expected);
+
+        verify(persons).listAllPeople(argThat(criteria ->
+                criteria.page() == 0 && criteria.size() == 10));
+    }
+
+    @Test
+    void normalDelegateCannotListAllPeople() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+
+        assertThatThrownBy(() -> controller.listAllPeople(jwt, 0, 10, null, null, null))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(persons, never()).listAllPeople(any());
+    }
+
+    @Test
+    void adminGlobalListsAllGroupsWithoutModule() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var expected = new PaginatedResponse<AdminGroupView>(List.of(), 0, 0, 0, 10);
+        when(groups.listAllGroups(any(GroupSearchCriteria.class))).thenReturn(expected);
+
+        assertThat(controller.listAllGroups(jwt, 0, 10, null, null)).isSameAs(expected);
+
+        verify(groups).listAllGroups(argThat(criteria ->
+                criteria.page() == 0 && criteria.size() == 10));
+    }
+
+    @Test
+    void normalDelegateCannotListAllGroups() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+
+        assertThatThrownBy(() -> controller.listAllGroups(jwt, 0, 10, null, null))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(groups, never()).listAllGroups(any());
+    }
+
+    @Test
     void getPersonMissingReturns404() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
         when(persons.findPerson("movilidad", "nobody")).thenReturn(Optional.empty());
@@ -144,6 +229,71 @@ class PanelControllerTest {
         assertThat(controller.listModules(jwt)).containsExactlyElementsOf(PanelDirectoryRules.MODULES);
 
         verify(authorization).requireDelegate(jwt);
+    }
+
+    @Test
+    void bulkMembershipEndpointUsesNormalDelegateModuleAndPropagatesResponse() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+        var request = new BulkMembershipRequest(List.of(" usuario1 "), List.of(" grupo-a "));
+        var expected = new BulkMembershipResponse(BulkMembershipStatus.SUCCESS, 1, 1, 0, 0,
+                List.of(), List.of());
+        when(groups.addMembersBulk(normalDelegate, "reclamos", request)).thenReturn(expected);
+
+        assertThat(controller.addMembersBulk(jwt, "movilidad", request)).isSameAs(expected);
+
+        verify(groups).addMembersBulk(normalDelegate, "reclamos", request);
+    }
+
+    @Test
+    void bulkMembershipEndpointUsesNormalizedModuleForGlobalAdmin() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var request = new BulkMembershipRequest(List.of("usuario1"), List.of("grupo-a"));
+        var expected = new BulkMembershipResponse(BulkMembershipStatus.SUCCESS, 1, 1, 0, 0,
+                List.of(), List.of());
+        when(groups.addMembersBulk(any(), eq("movilidad"), eq(request))).thenReturn(expected);
+
+        assertThat(controller.addMembersBulk(jwt, " Movilidad ", request)).isSameAs(expected);
+
+        verify(groups).addMembersBulk(
+                eq(new PanelAuthorization.Delegate("U000007", "admin-global", "movilidad", true)),
+                eq("movilidad"), eq(request));
+    }
+
+    @Test
+    void bulkMembershipEndpointRejectsMissingOrUnknownModuleForGlobalAdmin() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var request = new BulkMembershipRequest(List.of("usuario1"), List.of("grupo-a"));
+
+        assertBadRequest(() -> controller.addMembersBulk(jwt, null, request), "Módulo requerido");
+        assertBadRequest(() -> controller.addMembersBulk(jwt, "desconocido", request), "Módulo inválido");
+
+        verify(groups, never()).addMembersBulk(any(), any(), any());
+    }
+
+    @Test
+    void bulkMembershipBeanValidationReturns400ForMissingEmptyNullAndBlankLists() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
+                .build();
+        List<String> invalidBodies = List.of(
+                "{}",
+                "{\"memberUids\":[],\"groupNames\":[\"grupo-a\"]}",
+                "{\"memberUids\":[\"usuario1\"],\"groupNames\":[]}",
+                "{\"memberUids\":[null],\"groupNames\":[\"grupo-a\"]}",
+                "{\"memberUids\":[\"   \"],\"groupNames\":[\"grupo-a\"]}",
+                "{\"memberUids\":[\"usuario1\"],\"groupNames\":[null]}",
+                "{\"memberUids\":[\"usuario1\"],\"groupNames\":[\"   \"]}"
+        );
+
+        for (String body : invalidBodies) {
+            mockMvc.perform(post("/panel/group-memberships/bulk")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest());
+        }
+
+        verifyNoInteractions(groups);
     }
 
     private static void assertBadRequest(org.assertj.core.api.ThrowableAssert.ThrowingCallable call,

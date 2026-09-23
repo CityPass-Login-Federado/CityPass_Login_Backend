@@ -116,8 +116,16 @@ jobs:
                   LDAP_READONLY_PASSWORD=readonly-secret
                   LDAP_PANEL_WRITER_PASSWORD=panel-writer-secret
                   SVC_GROUP1_SECRET=grupo1-test
+                  SVC_GROUP2_SECRET=grupo2-test
                   SVC_GROUP5_SECRET=grupo5-test
                   ANOMALY_SERVICE_URL=http://anomaly-detection:8000
+                  SPRING_MAIL_HOST=mailpit
+                  SPRING_MAIL_PORT=1025
+                  SPRING_MAIL_USERNAME=dummy-ci-user
+                  SPRING_MAIL_PASSWORD=dummy-ci-password
+                  SPRING_MAIL_SMTP_AUTH=false
+                  SPRING_MAIL_SMTP_STARTTLS=false
+                  PASSWORD_RESET_FROM=no-reply@citypass.local
                   ENVEOF
 
             - name: Validar sintaxis/variables del compose de prod (sin conectarse a nada externo)
