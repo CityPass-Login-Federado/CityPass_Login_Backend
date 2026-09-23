@@ -2069,7 +2069,7 @@
 					{ "key": "token", "value": "{{admin_global_access_token}}", "type": "string" }
 				]
 			},
-			"description": "Rol admin-global (grupo reservado cn=admin-global,ou=admin): gestiona los 6 módulos con los MISMOS endpoints de /panel/** agregando ?module= en cada request. NO hay endpoints propios /admin/.\n\nUsuario seed: admin-global / changeit123 (módulo de ORIGEN analitica, irrelevante: opera sobre el módulo que pase en ?module=).\n\nPRERREQUISITO: correr '01 Login admin-global' primero (captura admin_global_access_token).\n\nPoderes extra vs delegado normal: puede borrar/crear el grupo reservado 'delegados' y dejarlo sin integrantes.",
+			"description": "Rol admin-global (grupo reservado cn=admin-global,ou=admin): gestiona los 6 módulos con los MISMOS endpoints de /panel/** agregando ?module= en cada request, MÁS los transversales /panel/admin/people y /panel/admin/groups (todos los módulos juntos, sin ?module=).\n\nUsuario seed: admin-global / changeit123 (módulo de ORIGEN analitica, irrelevante: opera sobre el módulo que pase en ?module=).\n\nPRERREQUISITO: correr '01 Login admin-global' primero (captura admin_global_access_token).\n\nPoderes extra vs delegado normal: puede borrar/crear el grupo reservado 'delegados' y dejarlo sin integrantes.",
 			"item": [
 				{
 					"name": "01 Login admin-global (captura token)",
@@ -2413,6 +2413,88 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["panel", "people"],
 							"query": [{ "key": "module", "value": "reclamos" }]
+						}
+					}
+				},
+				{
+					"name": "13 TODAS las personas (transversal, sin ?module=)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Mezcla módulos con module por fila', () => {",
+									"  const mods = [...new Set(r.content.map(x => x.module))];",
+									"  pm.expect(mods.length).to.be.above(1);",
+									"  pm.expect(r.content[0]).to.have.property('module');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/admin/people",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "admin", "people"]
+						}
+					}
+				},
+				{
+					"name": "14 TODOS los grupos (transversal, sin ?module=)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+									"const r = pm.response.json();",
+									"pm.test('Mezcla módulos con module por fila', () => {",
+									"  const mods = [...new Set(r.content.map(x => x.module))];",
+									"  pm.expect(mods.length).to.be.above(1);",
+									"  pm.expect(r.content[0]).to.have.property('module');",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/panel/admin/groups",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "admin", "groups"]
+						}
+					}
+				},
+				{
+					"name": "15 Transversal con delegado normal → 403",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": ["pm.test('HTTP 403 solo admin global', () => pm.response.to.have.status(403));"]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{ "key": "token", "value": "{{movdel_access_token}}", "type": "string" }
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/panel/admin/people",
+							"host": ["{{baseUrl}}"],
+							"path": ["panel", "admin", "people"]
 						}
 					}
 				}
