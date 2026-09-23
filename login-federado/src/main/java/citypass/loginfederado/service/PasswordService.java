@@ -1,6 +1,7 @@
 package citypass.loginfederado.service;
 
 import citypass.loginfederado.config.PasswordResetProperties;
+import citypass.loginfederado.dto.MeResponse;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
 import citypass.loginfederado.model.PasswordResetToken;
@@ -8,7 +9,9 @@ import citypass.loginfederado.panel.PanelAccountService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -214,6 +217,19 @@ public class PasswordService {
             // El dummy nunca debe romper el rechazo uniforme.
         }
         throw invalidToken();
+    }
+
+    /**
+     * Perfil propio: relee la ficha por sub (employeeNumber del JWT) directo
+     * del directorio. Si la cuenta se borró o deshabilitó después de emitir
+     * el token, 404 (el token por sí solo ya no alcanza para nada).
+     */
+    public MeResponse getProfile(String sub) {
+        LdapDirectoryPerson person = ldapDirectory.reloadBySub(sub)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "Su cuenta ya no existe o está deshabilitada"));
+        return new MeResponse(person.uid(), person.sub(), person.fullName(),
+                person.email(), person.module(), person.groups());
     }
 
     /**
