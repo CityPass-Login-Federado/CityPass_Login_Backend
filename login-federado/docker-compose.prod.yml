@@ -44,11 +44,9 @@ services:
       DB_PASSWORD: "${SUPABASE_DB_PASSWORD}"
       SPRING_DATASOURCE_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
       SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
-      # NUNCA init de schema en prod: schema.sql hace DROP TABLE y borraría
-      # sesiones, intentos y auditoría en cada arranque. El schema se crea
-      # una sola vez a mano (ver docs/runbooks/schema-prod.md); de ahí en
-      # más solo migraciones controladas. ddl-auto: validate sigue activo.
-      SPRING_SQL_INIT_MODE: "never"
+      # schema.sql es seguro-idempotente (solo CREATE IF NOT EXISTS, sin DROP):
+      # corre en cada arranque en todos los ambientes (dev, CI, prod) y en una
+      # base existente es un no-op. Ver docs/runbooks/schema-prod.md.
       SPRING_LDAP_URLS: "ldap://openldap:389"
       SPRING_LDAP_USERNAME: "cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local"
       SPRING_LDAP_PASSWORD: "${LDAP_READONLY_PASSWORD}"

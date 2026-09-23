@@ -1,10 +1,8 @@
 # Runbook — Schema y claves JWT en producción
 
-> Por qué existe este archivo: en dev, la app crea todo sola al arrancar
-> (claves autogeneradas + `schema.sql` con `DROP TABLE`). En prod, esas dos
-> comodidades **destruyen sesiones, auditoría y todos los tokens en cada
-> redeploy**. Acá está lo que hay que hacer una vez, y lo que hay que hacer
-> cuando el schema cambie.
+> Por qué existe este archivo: en dev, la app crea todo sola al arrancar.
+> En prod, hay dos cosas que nunca deben pasar: perder las claves de firma
+> (invalida todos los tokens) y perder tablas (sesiones, intentos, auditoría).
 
 ## 1. Claves JWT (una vez, ya resuelto por defecto)
 
@@ -18,25 +16,32 @@
 - Mejora futura: provisionar las claves como secrets + `JWT_AUTO_GENERATE_KEYS=false`
   (la app falla al arrancar si faltan, en vez de fabricarlas en silencio).
 
-## 2. Schema de Supabase (una vez, MANUAL)
+## 2. Schema: seguro por construcción (sin intervención)
 
-`SPRING_SQL_INIT_MODE=never` en prod: la app **ya no toca el schema**.
-La primera vez (o en una base vacía), crearlo a mano con `psql` contra el
-pooler de Supabase usando `login-federado/src/main/resources/schema.sql`.
+`src/main/resources/schema.sql` es **idempotente sin DROP**: solo
+`CREATE TABLE/INDEX IF NOT EXISTS`. Corre en cada arranque
+(`sql.init.mode=always`) en dev, CI y prod:
 
-> OJO: `schema.sql` contiene `DROP TABLE`. Solo correrlo tal cual contra una
-> base **vacía**. Jamás contra una base con datos.
+- Base vacía (CI/smoke, primer deploy): crea todo y sigue.
+- Base existente (prod): no-op, no toca ni una fila. Sesiones, intentos y
+  auditoría sobreviven a todos los redeploys.
+- `ddl-auto: validate` actúa de red: si el código y la base divergen
+  (ej: alguien cambió una columna solo en la entidad), la app no arranca
+  en vez de corromper datos.
 
 ## 3. Cuando el schema cambie (cada vez)
 
-1. NO agregar `CREATE TABLE` sueltos a `schema.sql` esperando que prod los tome:
-   con `mode: never`, prod **ignora** ese archivo.
-2. Escribir la migración como SQL versionado (camino a Flyway; mientras tanto,
-   archivo `login-federado/docs/runbooks/migrations/V_fecha_que.sql`).
-3. Aplicarla a mano contra Supabase con `psql`.
-4. `ddl-auto: validate` actúa de red: si el código y la base divergen, la app
-   no arranca en vez de corromper datos. Un fallo de arranque post-deploy
-   con error de validación de Hibernate = migración pendiente, no bug.
+`CREATE IF NOT EXISTS` **no migra**: si una tabla existe con otro formato,
+se la saltea y `validate` voltea el arranque (a propósito: mejor un deploy
+rojo y visible que datos rotos en silencio). Procedimiento:
+
+1. Escribir la migración como SQL versionado en
+   `login-federado/docs/runbooks/migrations/V_fecha_que.sql`
+   (camino a Flyway; mientras tanto, manual).
+2. Aplicarla a mano contra Supabase con `psql` (ver credenciales del deploy).
+3. Recién después deployar el código que la necesita.
+4. Un fallo de arranque post-deploy con error de validación de Hibernate =
+   migración pendiente, no bug.
 
 ## 4. Verificación post-deploy (2 min, siempre)
 
@@ -47,5 +52,5 @@ pooler de Supabase usando `login-federado/src/main/resources/schema.sql`.
 3. Un refresh emitido ANTES del deploy sigue canjeando 200.
 
 Si 1 falla: se perdió el volumen de keys (ver punto 1).
-Si 2 se vació: alguien corrió con `mode: always` o un `down -v` + bootstrap.
+Si 2 se vació: revisar que nadie haya corrido un schema con DROP a mano.
 Si 3 falla con 1 y 2 sanos: revisar revocaciones, no infraestructura.
