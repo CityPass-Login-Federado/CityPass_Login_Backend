@@ -42,6 +42,7 @@ import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.security.access.AccessDeniedException;
 
+import citypass.loginfederado.panel.dto.AdminGroupView;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupView;
 import citypass.loginfederado.panel.dto.BulkMembershipRequest;
@@ -199,6 +200,34 @@ class PanelGroupServiceTest {
         assertThat(result.warnings()).isEmpty();
         verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
         verify(audit).record(eq(actor), eq("MEMBER_REMOVED"), anyString(), eq("uid=jperez"));
+    }
+
+    @Test
+    void listAllGroupsAggregatesEveryModuleWithModuleTag() {
+        Attributes a = new BasicAttributes(true);
+        a.put("cn", "zeta");
+        a.put("member", "uid=zeta,ou=People,ou=Reclamos,dc=citypass,dc=local");
+        Attributes b = new BasicAttributes(true);
+        b.put("cn", "alpha");
+        b.put("member", "uid=alpha,ou=People,ou=Reclamos,dc=citypass,dc=local");
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class), ArgumentMatchers.<AttributesMapper<GroupView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<GroupView> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapFromAttributes(a), mapper.mapFromAttributes(b));
+                });
+
+        var first = service.listAllGroups(new GroupSearchCriteria(0, 10, null, null));
+        assertThat(first.totalElements()).isEqualTo(12);
+        assertThat(first.content()).hasSize(10);
+        assertThat(first.content()).extracting(AdminGroupView::name)
+                .containsExactly("alpha", "alpha", "alpha", "alpha", "alpha", "alpha",
+                        "zeta", "zeta", "zeta", "zeta");
+        assertThat(first.content().subList(0, 6)).extracting(AdminGroupView::module)
+                .containsExactlyInAnyOrderElementsOf(PanelDirectoryRules.MODULES);
+
+        var second = service.listAllGroups(new GroupSearchCriteria(1, 10, null, null));
+        assertThat(second.content()).extracting(AdminGroupView::name)
+                .containsExactly("zeta", "zeta");
     }
 
     @Test
@@ -418,10 +447,10 @@ class PanelGroupServiceTest {
         assertThatThrownBy(() -> service.addMembersBulk(actor, "reclamos",
                 bulk(List.of("usuario1"), List.of("grupo-a", "grupo-inexistente"))))
                 .isInstanceOf(ResponseStatusException.class)
-                .satisfies(ex -> {
-                    ResponseStatusException status = (ResponseStatusException) ex;
-                    assertThat(status.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-                    assertThat(status.getReason()).contains("No existe en su módulo");
+                .satisfies(error -> {
+                    assertThat(((ResponseStatusException) error).getStatusCode())
+                            .isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(error).hasMessageContaining("grupo-inexistente");
                 });
 
         verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));

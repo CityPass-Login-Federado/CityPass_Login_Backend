@@ -1,5 +1,6 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.panel.dto.AdminGroupView;
 import citypass.loginfederado.panel.dto.BulkMembershipRequest;
 import citypass.loginfederado.panel.dto.BulkMembershipResponse;
 import citypass.loginfederado.panel.dto.BulkMembershipStatus;
@@ -12,6 +13,7 @@ import citypass.loginfederado.panel.dto.MembershipWarning;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.ldap.AttributeInUseException;
 import org.springframework.ldap.NoSuchAttributeException;
 import org.springframework.ldap.core.AttributesMapper;
@@ -23,6 +25,7 @@ import org.springframework.ldap.filter.LikeFilter;
 import org.springframework.ldap.query.LdapQuery;
 import static org.springframework.ldap.query.LdapQueryBuilder.query;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import javax.naming.directory.Attributes;
 import javax.naming.directory.BasicAttributes;
@@ -103,6 +106,45 @@ public class PanelGroupService {
 
         List<GroupView> pageContent = fromIndex < totalElements
                 ? allFiltered.subList(fromIndex, toIndex)
+                : List.of();
+
+        return new PaginatedResponse<>(
+                pageContent,
+                totalElements,
+                totalPages,
+                page,
+                size
+        );
+    }
+
+    /**
+     * Listado TRANSVERSAL (solo admin global): agrega los grupos de los 6
+     * módulos en una sola página global. Reusa el listado por módulo (con sus
+     * filtros search/reserved) y re-pagina el resultado mezclado, ordenado
+     * por nombre. Cada fila lleva su módulo.
+     */
+    public PaginatedResponse<AdminGroupView> listAllGroups(GroupSearchCriteria criteria) {
+        List<AdminGroupView> all = new ArrayList<>();
+        for (String module : PanelDirectoryRules.MODULES) {
+            PaginatedResponse<GroupView> page = listGroups(module,
+                    new GroupSearchCriteria(0, Integer.MAX_VALUE,
+                            criteria.search(), criteria.reserved()));
+            for (GroupView group : page.content()) {
+                all.add(AdminGroupView.of(module, group));
+            }
+        }
+        all.sort(java.util.Comparator.comparing(AdminGroupView::name));
+
+        int totalElements = all.size();
+        int size = criteria.size() > 0 ? criteria.size() : 10;
+        int page = criteria.page() >= 0 ? criteria.page() : 0;
+
+        int totalPages = (int) Math.ceil((double) totalElements / size);
+        int fromIndex = page * size;
+        int toIndex = Math.min(fromIndex + size, totalElements);
+
+        List<AdminGroupView> pageContent = fromIndex < totalElements
+                ? all.subList(fromIndex, toIndex)
                 : List.of();
 
         return new PaginatedResponse<>(
@@ -207,8 +249,10 @@ public class PanelGroupService {
             DirContextOperations group;
             try {
                 group = support.requireContext(groupDn);
-            } catch (IllegalStateException ex) {
-                throw new IllegalStateException(
+            } catch (ResponseStatusException ex) {
+                // requireContext devuelve 404 (contrato): se conserva el mensaje
+                // específico del grupo sin cambiar el status.
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "No existe el grupo '%s' en el módulo".formatted(groupName), ex);
             }
             groupDns.put(groupName, groupDn);

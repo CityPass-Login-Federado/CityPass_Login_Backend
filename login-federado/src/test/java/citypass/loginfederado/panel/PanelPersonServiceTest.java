@@ -40,6 +40,7 @@ import org.springframework.security.access.AccessDeniedException;
 import citypass.loginfederado.panel.dto.GlobalPersonView;
 import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
+import citypass.loginfederado.panel.dto.AdminPersonView;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 
@@ -71,6 +72,30 @@ class PanelPersonServiceTest {
                                 });
         assertThat(service.listPeople("reclamos", new PeopleSearchCriteria(0, 10, null, null, null)).content()).extracting(PersonView::uid)
                 .containsExactly("alpha", "zeta");
+    }
+
+    @Test
+    void listAllPeopleAggregatesEveryModuleWithModuleTag() {
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapFromAttributes(person("zeta")),
+                            mapper.mapFromAttributes(person("alpha")));
+                });
+
+        var first = service.listAllPeople(new PeopleSearchCriteria(0, 10, null, null, null));
+        assertThat(first.totalElements()).isEqualTo(12);
+        assertThat(first.content()).hasSize(10);
+        assertThat(first.content()).extracting(AdminPersonView::uid)
+                .containsExactly("alpha", "alpha", "alpha", "alpha", "alpha", "alpha",
+                        "zeta", "zeta", "zeta", "zeta");
+        assertThat(first.content().subList(0, 6)).extracting(AdminPersonView::module)
+                .containsExactlyInAnyOrderElementsOf(PanelDirectoryRules.MODULES);
+
+        var second = service.listAllPeople(new PeopleSearchCriteria(1, 10, null, null, null));
+        assertThat(second.content()).extracting(AdminPersonView::uid)
+                .containsExactly("zeta", "zeta");
     }
 
     @Test

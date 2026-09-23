@@ -1,5 +1,7 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.panel.dto.AdminGroupView;
+import citypass.loginfederado.panel.dto.AdminPersonView;
 import citypass.loginfederado.exception.GlobalExceptionHandler;
 import citypass.loginfederado.panel.dto.BulkMembershipRequest;
 import citypass.loginfederado.panel.dto.BulkMembershipResponse;
@@ -20,6 +22,7 @@ import citypass.loginfederado.service.RefreshTokenService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver;
@@ -33,6 +36,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -140,6 +144,48 @@ class PanelControllerTest {
                 .extracting(GlobalPersonView::uid)
                 .containsExactly("zperez");
         assertThat(response.getFirst().module()).isEqualTo("reclamos");
+    }
+
+    @Test
+    void adminGlobalListsAllPeopleWithoutModule() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var expected = new PaginatedResponse<AdminPersonView>(List.of(), 0, 0, 0, 10);
+        when(persons.listAllPeople(any(PeopleSearchCriteria.class))).thenReturn(expected);
+
+        assertThat(controller.listAllPeople(jwt, 0, 10, null, null, null)).isSameAs(expected);
+
+        verify(persons).listAllPeople(argThat(criteria ->
+                criteria.page() == 0 && criteria.size() == 10));
+    }
+
+    @Test
+    void normalDelegateCannotListAllPeople() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+
+        assertThatThrownBy(() -> controller.listAllPeople(jwt, 0, 10, null, null, null))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(persons, never()).listAllPeople(any());
+    }
+
+    @Test
+    void adminGlobalListsAllGroupsWithoutModule() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var expected = new PaginatedResponse<AdminGroupView>(List.of(), 0, 0, 0, 10);
+        when(groups.listAllGroups(any(GroupSearchCriteria.class))).thenReturn(expected);
+
+        assertThat(controller.listAllGroups(jwt, 0, 10, null, null)).isSameAs(expected);
+
+        verify(groups).listAllGroups(argThat(criteria ->
+                criteria.page() == 0 && criteria.size() == 10));
+    }
+
+    @Test
+    void normalDelegateCannotListAllGroups() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+
+        assertThatThrownBy(() -> controller.listAllGroups(jwt, 0, 10, null, null))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(groups, never()).listAllGroups(any());
     }
 
     @Test
