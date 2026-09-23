@@ -150,4 +150,52 @@ class LdapDirectoryTest {
                 "cn=delegados,ou=Groups,ou=Reclamos,dc=citypass,dc=local"});
         return ctx;
     }
+
+    @Test
+    void temporaryPwdAccountLockedTimeDoesNotDisablePerson() {
+        DirContextOperations ctx = mock(DirContextOperations.class);
+        
+        when(ctx.getNameInNamespace())
+                .thenReturn("uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local");
+        
+        when(ctx.getStringAttribute("employeeNumber"))
+                .thenReturn("U000042");
+        
+        when(ctx.getStringAttribute("uid"))
+                .thenReturn("jperez");
+        
+        when(ctx.getStringAttribute("cn"))
+                .thenReturn("Juan Perez");
+        
+        when(ctx.getStringAttribute("mail"))
+                .thenReturn("jperez@x.com");
+        
+        when(ctx.getStringAttribute("pwdAccountLockedTime"))
+                .thenReturn("20260923214453Z");
+        
+        when(ctx.getStringAttributes("memberOf"))
+                .thenReturn(new String[]{
+                        "cn=delegados,ou=Groups,ou=Reclamos,dc=citypass,dc=local"
+                });
+            
+        when(
+                ldap.search(
+                        any(javax.naming.Name.class),
+                        contains("uid=jperez"),
+                        any(SearchControls.class),
+                        any(ContextMapper.class)
+                )
+        ).thenAnswer(invocation -> {
+            ContextMapper<LdapDirectoryPerson> mapper =
+                    invocation.getArgument(3);
+        
+            return List.of(
+                    mapper.mapFromContext(ctx)
+            );
+        });
+    
+        assertThat(
+                directory.findByUid("jperez")
+        ).isPresent();
+    }
 }

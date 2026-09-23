@@ -69,6 +69,7 @@ security:
   lockout:
     max-failed-attempts: 5
     window-minutes: 15
+    lockout-minutes: 10
 
 # --- Registro de clientes del IdP ---
 # human: una aplicación que actúa en nombre de una persona (module fija el

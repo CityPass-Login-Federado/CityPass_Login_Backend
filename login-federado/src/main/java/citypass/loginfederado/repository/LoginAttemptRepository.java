@@ -11,9 +11,13 @@ import java.util.UUID;
 
 public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID> {
 
-    long countByUsernameAndSuccessfulFalseAndAttemptedAtAfter(String username, Instant since);
+    long countByUsernameAndSuccessfulFalseAndAttemptedAtAfter(
+            String username,
+            Instant since
+    );
 
-    /** Distribución de logins EXITOSOS por hora del día, dentro de una ventana [from, to). */
+    void deleteByUsernameAndSuccessfulFalse(String username);
+
     @Query(value = """
             SELECT EXTRACT(HOUR FROM attempted_at)::int AS hourOfDay,
                 COUNT(*) AS loginCount
@@ -24,13 +28,11 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID
             GROUP BY hourOfDay
             ORDER BY hourOfDay
             """, nativeQuery = true)
-    List<HourlyLoginCount> countSuccessfulLoginsByHourBetween(@Param("from") Instant from, @Param("to") Instant to);
+    List<HourlyLoginCount> countSuccessfulLoginsByHourBetween(
+            @Param("from") Instant from,
+            @Param("to") Instant to
+    );
 
-    /**
-     * Usuarios ÚNICOS con al menos un login exitoso en [from, to). Sirve
-     * tanto para DAU (ventana de 1 día) como para MAU (ventana de 30 días
-     * corridos) — el job decide qué ventana pasar, la consulta es la misma.
-     */
     @Query(value = """
             SELECT COUNT(DISTINCT username)
             FROM login_attempts
@@ -38,5 +40,8 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID
                 AND attempted_at >= :from
                 AND attempted_at < :to
             """, nativeQuery = true)
-    long countDistinctActiveUsersBetween(@Param("from") Instant from, @Param("to") Instant to);
+    long countDistinctActiveUsersBetween(
+            @Param("from") Instant from,
+            @Param("to") Instant to
+    );
 }

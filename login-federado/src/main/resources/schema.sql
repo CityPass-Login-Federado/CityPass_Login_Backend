@@ -13,6 +13,7 @@ DROP TABLE IF EXISTS refresh_tokens;
 DROP TABLE IF EXISTS login_attempts;
 DROP TABLE IF EXISTS password_reset_tokens;
 DROP TABLE IF EXISTS password_reset_requests;
+DROP TABLE IF EXISTS login_lockouts;
 
 -- Refresh tokens OPACOS con rotación y cadena (spec §4.2 / D9).
 CREATE TABLE refresh_tokens (
@@ -81,6 +82,11 @@ CREATE TABLE password_reset_requests (
     uid VARCHAR(255) NOT NULL,                 -- normalizado (trim + minúsculas)
     ip_address VARCHAR(45),
     requested_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE login_lockouts (
+    username VARCHAR(255) PRIMARY KEY,
+    locked_until TIMESTAMP NOT NULL
 );
 
 CREATE INDEX idx_password_reset_requests_uid ON password_reset_requests (uid);
