@@ -1,46 +1,89 @@
-﻿# C4 Component Diagram — Login Federado (Nivel 3)
+# C4 — Componentes de la API de Identidad (nivel 3)
+
+**Contenedor en alcance:** API de Identidad Spring Boot
+**Fecha de revisión:** 24 de septiembre de 2026
+
+Este nivel descompone únicamente el contenedor Spring Boot. OpenLDAP, PostgreSQL, FastAPI y los servicios externos aparecen como dependencias de sus componentes.
 
 ```mermaid
 C4Component
-    title Diagrama de Componentes — Módulo Login Federado
+    title API de Identidad - Componentes principales
 
-    Container_Boundary(login, "Login Federado (Spring Boot)") {
-        Component(authCtrl, "AuthController", "REST Controller", "Endpoints /auth/login, /auth/refresh, /auth/logout")
-        Component(jwksCtrl, "JwksController", "REST Controller", "Endpoint /.well-known/jwks.json")
-        Component(authSvc, "AuthService", "Service", "Orquesta login, refresh, logout")
-        Component(rtSvc, "RefreshTokenService", "Service", "Genera, valida y rota refresh tokens")
-        Component(laSvc, "LoginAttemptService", "Service", "Bloqueo por fuerza bruta (ventana deslizante)")
-        Component(evtPub, "EventPublisher", "Interface", "Publica eventos de autenticación")
-        Component(secCfg, "SecurityConfig", "Config", "Cadena de filtros HTTP, endpoints públicos")
-        Component(ldapCfg, "LdapConfig", "Config", "Autenticación LDAP bind, búsqueda de usuarios")
-        Component(jwtCfg, "JwtKeyConfig", "Config", "Par de claves RSA, JwtEncoder/JwtDecoder")
+    Container_Boundary(api, "API de Identidad - Spring Boot") {
+        Component(authApi, "API de Autenticación y Perfil", "AuthController y ProfileController", "Login, refresh, logout, perfil y contraseñas")
+        Component(oauthApi, "API OAuth", "OAuthTokenController", "Emite tokens de servicio")
+        Component(jwksHealthApi, "API JWKS y Salud", "JwksController, HealthController y Actuator", "Publica claves y estado operativo")
+        Component(panelApi, "API de Administración", "PanelController", "Personas, grupos, lotes y vistas globales")
+
+        Component(authService, "Orquestación de Autenticación", "AuthService y LoginAttemptService", "Aplica lockout, LDAP, riesgo, tokens y eventos")
+        Component(sessionService, "Gestión de Sesiones", "RefreshTokenService", "Emisión, rotación, reuso y revocación")
+        Component(passwordService, "Gestión de Contraseñas", "PasswordService y limitadores", "Recuperación, cambio y revocación")
+        Component(panelServices, "Servicios del Panel", "PanelPersonService, PanelGroupService y PanelAccountService", "Reglas y operaciones administrativas")
+        Component(panelAuth, "Autorización del Panel", "PanelAuthorization", "Valida audience, tipo, versión, rol y módulo")
+
+        Component(identity, "Adaptador de Identidad", "LdapDirectory y ClientRegistry", "Directorio y registro de clientes")
+        Component(token, "JWT y Claves RSA", "AccessTokenIssuer y JwtKeyConfig", "Firma tokens humanos y de servicio; publica clave")
+        Component(riskClient, "Cliente de Riesgo", "AnomalyRiskClient", "Invoca POST /score con timeout y fallo cerrado")
+        Component(eventPort, "Puerto de Eventos", "EventPublisher", "Abstrae la publicación de hechos de identidad")
+        Component(eventAdapters, "Adaptadores de Eventos", "LoggingEventPublisher y EdaHttpEventPublisher", "Registra localmente o publica envelopes HTTP")
+        Component(repositories, "Repositorios Operativos", "Spring Data JPA", "Sesiones, intentos, auditoría y recuperación")
     }
 
-    System_Ext(openldap, "OpenLDAP", "Directorio de identidades")
-    System_Ext(postgres, "PostgreSQL", "Base de datos")
+    ContainerDb(ldap, "OpenLDAP", "Directorio de identidades")
+    ContainerDb(db, "PostgreSQL", "Persistencia operativa")
+    Container(risk, "Servicio de Anomalías", "FastAPI", "Evaluación de riesgo")
+    System_Ext(gateway, "CityPass Event Gateway", "Plataforma EDA")
+    System_Ext(mail, "Proveedor SMTP", "Correo de recuperación")
 
-    Rel(authCtrl, authSvc, "Delega autenticación")
-    Rel(authSvc, ldapCfg, "Autentica contra LDAP")
-    Rel(authSvc, jwtCfg, "Emite JWT")
-    Rel(authSvc, rtSvc, "Emite refresh token")
-    Rel(authSvc, laSvc, "Registra/verifica intentos")
-    Rel(authSvc, evtPub, "Publica evento")
-    Rel(rtSvc, postgres, "Persiste tokens (hash SHA-256)")
-    Rel(laSvc, postgres, "Persiste intentos de login")
-    Rel(jwksCtrl, jwtCfg, "Expone clave pública")
+    Rel(authApi, authService, "Delega login, refresh y logout")
+    Rel(authApi, passwordService, "Delega perfil y contraseñas")
+    Rel(oauthApi, token, "Emite token de servicio")
+    Rel(jwksHealthApi, token, "Obtiene material público de la clave")
+    Rel(panelApi, panelAuth, "Autoriza actor y alcance")
+    Rel(panelApi, panelServices, "Ejecuta operaciones administrativas")
+
+    Rel(authService, identity, "Busca y autentica")
+    Rel(authService, riskClient, "Solicita evaluación")
+    Rel(authService, token, "Emite access token")
+    Rel(authService, sessionService, "Emite o rota refresh token")
+    Rel(authService, eventPort, "Publica login y refresh")
+    Rel(sessionService, eventPort, "Publica logout")
+    Rel(passwordService, identity, "Revalida identidad")
+    Rel(passwordService, panelServices, "Actualiza contraseña LDAP")
+    Rel(passwordService, sessionService, "Revoca sesiones")
+    Rel(passwordService, mail, "Envía enlace", "SMTP")
+    Rel(panelServices, identity, "Administra el directorio")
+    Rel(panelServices, repositories, "Registra auditoría")
+    Rel(panelServices, sessionService, "Revoca sesiones al deshabilitar")
+
+    Rel(authService, repositories, "Registra intentos")
+    Rel(sessionService, repositories, "Administra cadenas")
+    Rel(passwordService, repositories, "Administra recuperación")
+    Rel(identity, ldap, "Lee, autentica y modifica", "LDAP")
+    Rel(repositories, db, "Lee y escribe", "JDBC")
+    Rel(riskClient, risk, "Evalúa", "HTTP/JSON")
+    Rel(eventAdapters, eventPort, "Implementan")
+    Rel(eventAdapters, oauthApi, "Obtiene token grupo2 en modo HTTP")
+    Rel(eventAdapters, gateway, "Publica evento en modo HTTP", "HTTPS/JSON")
 ```
 
-## Paquetes del proyecto
+## Paquetes representados
 
-```
-citypass.loginfederado
-├── controller/     → AuthController, JwksController
-├── service/        → AuthService, RefreshTokenService, LoginAttemptService
-├── security/       → LdapUserPrincipal, CustomLdapUserDetailsMapper
-├── config/         → SecurityConfig, LdapConfig, JwtKeyConfig, JwtProperties
-├── repository/     → RefreshTokenRepository, LoginAttemptRepository
-├── model/          → RefreshToken, LoginAttempt (JPA entities)
-├── dto/            → LoginRequest, LoginResponse, RefreshRequest
-├── event/          → EventPublisher, LoggingEventPublisher, UsuarioAutenticadoEvent
-└── exception/      → AccountLockedException, GlobalExceptionHandler
-```
+| Paquete | Responsabilidad principal |
+| --- | --- |
+| `controller` | Contratos REST de autenticación, OAuth, JWKS y perfil |
+| `service` | Casos de uso de autenticación, sesión y contraseñas |
+| `panel` | Administración, autorización, reglas y auditoría |
+| `identity` | Acceso a LDAP y registro de clientes |
+| `token` | Construcción y firma de JWT |
+| `security` | Integración con la evaluación de riesgo |
+| `event` | Puerto, envelopes y adaptadores EDA |
+| `metrics` | Modelo de hechos crudos de login, refresh y logout |
+| `repository` y `model` | Persistencia PostgreSQL |
+| `config` | Seguridad, LDAP, JWT, panel, contraseñas y EDA |
+
+## Alcance y simplificaciones
+
+- Los componentes agrupan clases con una responsabilidad común; no equivalen uno a uno a cada clase Java.
+- El pipeline experimental `anomaly-detection/ML` no pertenece al contenedor Spring Boot y se excluye de este nivel.
+- El adaptador de logging es el modo predeterminado. El adaptador HTTP se activa por configuración y su envío es sincrónico.

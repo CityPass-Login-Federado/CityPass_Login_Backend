@@ -1,62 +1,71 @@
-﻿# Sequence Diagram — Flujo de Login
+# Secuencia — Inicio de sesión federado
+
+**Fecha de revisión:** 24 de septiembre de 2026
+**Endpoint:** `POST /auth/login`
+
+El inicio de sesión humano exige `username`, `password` y `clientId`. La respuesta de error no revela si falló el usuario, la contraseña, la pertenencia al módulo o la evaluación de riesgo.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client (App)
+    actor U as Usuario
+    participant C as Cliente del módulo
     participant AC as AuthController
     participant AS as AuthService
+    participant CR as ClientRegistry
     participant LA as LoginAttemptService
-    participant LDAP as OpenLDAP
-    participant JWT as JwtEncoder
-    participant RTS as RefreshTokenService
+    participant LDAP as LDAP corporativo
+    participant RA as Servicio de anomalías
+    participant JWT as AccessTokenIssuer
+    participant RT as RefreshTokenService
     participant DB as PostgreSQL
     participant EP as EventPublisher
 
-    C->>AC: POST /auth/login {username, password}
-    AC->>AS: login(request, ip, userAgent)
-
-    rect rgb(255, 240, 240)
-        Note over AS,LA: Capa 1 — Anti-brute-force
-        AS->>LA: assertNotLocked(username)
-        LA->>DB: COUNT intentos fallidos (últimos 15 min)
-        DB-->>LA: count
-        alt count >= 5
-            LA-->>AS: AccountLockedException (423)
-            AS-->>AC: Error: cuenta bloqueada
-            AC-->>C: 423 Locked
+    U->>C: Ingresa credenciales
+    C->>AC: POST /auth/login<br/>{username, password, clientId}
+    AC->>AS: authenticate(request)
+    AS->>CR: requireHumanClient(clientId)
+    CR-->>AS: Cliente, audiencia y módulo
+    AS->>LA: assertNotLocked(username)
+    LA->>DB: Consultar intentos recientes
+    alt Cinco fallos en 15 minutos
+        LA-->>AS: Cuenta temporalmente bloqueada
+        AS-->>AC: Error de autenticación
+        AC-->>C: 423 Locked
+    else Puede intentar autenticarse
+        AS->>LDAP: Buscar identidad global<br/>y validar pertenencia al módulo
+        AS->>LDAP: bind(username, password)
+        alt Credenciales o pertenencia inválidas
+            AS->>LA: recordFailure(username)
+            LA->>DB: Registrar intento fallido
+            AS-->>AC: Error genérico de autenticación
+            AC-->>C: 401 Unauthorized
+        else Identidad válida
+            AS->>RA: POST /score con señales del intento
+            alt Servicio no disponible o decisión BLOCK
+                AS->>LA: recordFailure(username)
+                LA->>DB: Registrar intento fallido
+                AS-->>AC: Error genérico de autenticación
+                AC-->>C: 401 Unauthorized
+            else Decisión ALLOW o REVIEW
+                Note over AS,RA: REVIEW permite continuar,<br/>la decisión no se persiste actualmente
+                AS->>LA: recordSuccess(username)
+                LA->>DB: Limpiar estado de bloqueo
+                AS->>JWT: Emitir access token humano RS256, 15 min
+                Note over JWT: sub=employeeNumber, aud=cliente,<br/>token_use=access, ver, preferred_username,<br/>module y groups
+                AS->>RT: createInitialToken(subject, client)
+                RT->>DB: Guardar hash SHA-256, cadena y vencimiento de 8 h
+                AS->>EP: Publicar identidad.login
+                AS-->>AC: Access token y refresh token
+                AC-->>C: 200 OK
+            end
         end
     end
-
-    rect rgb(240, 255, 240)
-        Note over AS,LDAP: Autenticación LDAP
-        AS->>LDAP: bind(username, password)
-        LDAP-->>AS: LdapUserPrincipal (username, nombre, email, roles)
-    end
-
-    rect rgb(240, 240, 255)
-        Note over AS,EP: Emisión de tokens + evento
-        AS->>LA: recordAttempt(username, ip, ua, true)
-        LA->>DB: INSERT login_attempts
-
-        AS->>JWT: encode(RS256, claims: sub, roles, name, email)
-        JWT-->>AS: accessToken (JWT)
-
-        AS->>RTS: issueFor(username, nombre, email, roles)
-        RTS->>DB: INSERT refresh_tokens (hash SHA-256)
-        RTS-->>AS: refreshToken (raw, solo se muestra 1 vez)
-
-        AS->>EP: publish("usuario.autenticado", event)
-    end
-
-    AS-->>AC: LoginResponse {accessToken, refreshToken, "Bearer", 900}
-    AC-->>C: 200 OK + tokens
 ```
 
-## Resumen
+## Consideraciones técnicas
 
-1. **Anti-brute-force**: Se verifica antes de tocar LDAP (capa de protección barata)
-2. **LDAP bind**: Autenticación real contra el directorio
-3. **JWT RS256**: Access token de 15 min con claims custom (roles, name, email)
-4. **Refresh token**: Token opaco de 64 bytes, solo se almacena su hash SHA-256 (7 días)
-5. **Evento**: Se publica `usuario.autenticado` para el bus de eventos
+- El límite de bloqueo se evalúa por identidad: cinco fallos dentro de una ventana de quince minutos.
+- La evaluación de anomalías es obligatoria y opera en modo *fail closed*: una indisponibilidad impide el acceso.
+- El refresh token se almacena únicamente mediante su hash SHA-256; el valor en claro sólo se entrega al cliente.
+- La publicación de `identidad.login` usa el publicador configurado. En el modo HTTP es sincrónica, por lo que un fallo del gateway puede ocurrir después de haber persistido el estado de autenticación.
