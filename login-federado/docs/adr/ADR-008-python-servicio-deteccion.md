@@ -84,5 +84,5 @@ Las dependencias Python se fijarán explícitamente en `requirements.txt`. El se
 - Python — https://www.python.org/
 - scikit-learn — https://scikit-learn.org/
 - Twelve-Factor App — https://12factor.net/
-- [Servicio de detección](../../anomaly-detection/app/main.py)
-- [Dependencias Python](../../anomaly-detection/requirements.txt)
+- [Servicio de detección](../../../anomaly-detection/app/main.py)
+- [Dependencias Python](../../../anomaly-detection/requirements.txt)
