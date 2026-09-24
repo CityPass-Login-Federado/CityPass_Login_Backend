@@ -43,6 +43,9 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
 
+      - name: 🧹 Lint (Checkstyle)
+        run: mvn -B checkstyle:check
+
       - name: 🔨 Build
         run: mvn -B clean compile
 
