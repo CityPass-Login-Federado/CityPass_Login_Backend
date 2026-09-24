@@ -45,13 +45,18 @@ Restricciones y supuestos adicionales:
 
 ## Por todo esto, definimos
 
-Definir una **interfaz `EventPublisher` con una implementación placeholder (`LoggingEventPublisher`)** que serializa los eventos a JSON y los registra en logs. La migración a Kafka o RabbitMQ será una nueva implementación sin cambios en el dominio.
+Definir una **interfaz `EventPublisher`** desacoplada del transporte, con dos implementaciones:
+
+1. **`LoggingEventPublisher` (placeholder, default)**: serializa los eventos a JSON y los registra en logs. Es el modo activo por defecto (`eda.publisher: logging`).
+2. **`EdaHttpEventPublisher` (HTTP, opt-in)**: publica por POST al event-gateway del Grupo 1 cuando `eda.publisher: http` y `EDA_GATEWAY_URL` está configurada. Obtiene un token de servicio vía `client_credentials` contra `/oauth/token` (con caché en memoria hasta 30 s antes de expirar) y envía el envelope `EdaEventEnvelope` con `Authorization: Bearer`.
+
+La "migración futura" ya no es solo Kafka/RabbitMQ: es el **event-gateway HTTP** del Grupo 1. El path de publicación sigue configurable (`eda.event-path`, default `/api/v1/events`) porque el contrato definitivo del Grupo 1 aún no cierra (ver `Guia_EDA.md` y `Contrato_Eda.md`).
 
 Razones principales:
-1. **Independencia**: Podemos desarrollar y testear sin esperar al Grupo 1
-2. **Desacoplamiento**: La interfaz `EventPublisher` no cambia — solo se reemplaza la implementación
-3. **Testing**: Los tests pueden verificar que el evento se publica sin un broker real
-4. **Migración futura**: Cuando el Grupo 1 defina contratos, solo creamos `KafkaEventPublisher` o `RabbitMQEventPublisher`
+1. **Independencia**: Desarrollamos y testeamos sin esperar al Grupo 1 (y seguimos pudiendo hacerlo con el default de logging)
+2. **Desacoplamiento**: La interfaz `EventPublisher` no cambia — solo se reemplaza/selecciona la implementación
+3. **Testing**: Los tests verifican la publicación contra un servidor HTTP mockeado, sin broker ni gateway real
+4. **Progresividad**: El transporte HTTP ya existe; cuando el Grupo 1 confirme el contrato final solo hay que fijar la configuración, no reescribir el dominio
 
 ## Consecuencias
 
@@ -59,15 +64,14 @@ Razones principales:
 
 - Desarrollo y testing inmediatos, sin infraestructura de messaging
 - Dominio desacoplado de la tecnología de transporte
-- Selección de implementación por ambiente vía `@Primary`/`@Profile`
-- Integración futura de bajo costo: agregar una clase, tocar cero código de negocio
+- Selección de implementación por ambiente vía configuración (`eda.publisher`)
+- El transporte HTTP real ya está implementado y testeado: el cierre depende solo del contrato externo
 
 ### Negativas
 
-- Los eventos hoy solo se loguean: no hay entrega real ni durabilidad
-- Riesgo de que el placeholder viva más de lo previsto (deuda técnica visible)
-- Dependemos de decisiones del Grupo 1 para cerrar la integración
-- Doble esfuerzo: abstracción ahora + implementación real después
+- Con el default (logging) no hay entrega real ni durabilidad
+- El publisher HTTP **no tiene reintentos ni timeouts configurados**: un gateway colgado puede colgar el request que publica (pendiente: backoff + timeouts + criterio de entrega)
+- Dependemos de decisiones del Grupo 1 para cerrar la integración (endpoint definitivo, envelope final, URL alcanzable desde Docker)
 
 ## Referencias (benchmark)
 

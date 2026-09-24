@@ -75,7 +75,7 @@ Adoptar un enfoque **híbrido**:
    - `REVIEW` si el score está entre `0.4` y `0.7`.
    - `BLOCK` si el score es igual o superior a `0.7`.
 6. Devolver motivos asociados al resultado para permitir auditoría y diagnóstico.
-7. Entrenar el modelo offline y cargarlo como artefacto versionado durante el despliegue.
+7. Entrenar el modelo offline y cargarlo como artefacto versionado durante el despliegue: el contrato de runtime es `models/isolation_forest.pkl` dentro de la imagen del servicio (si el archivo no existe, el servicio opera solo con reglas — ver consecuencia sobre indisponibilidad del modelo). El empaquetado exacto del artefacto está pendiente de revisión (a cargo del equipo del servicio).
 
 El modelo se basará inicialmente en:
 

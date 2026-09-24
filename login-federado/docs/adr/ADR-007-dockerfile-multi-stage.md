@@ -8,7 +8,7 @@
 
 ## Consideraciones
 
-La aplicación Spring Boot necesita desplegarse como contenedor Docker. Actualmente el `docker-compose.yml` solo levanta infraestructura (LDAP + PostgreSQL), y la app se ejecuta fuera de Docker con `mvn spring-boot:run`. Se necesita un Dockerfile para:
+La aplicación Spring Boot necesita desplegarse como contenedor Docker. El `docker-compose.yml` de dev levanta la infraestructura (LDAP + PostgreSQL) y `docker-compose.prod.yml` ya orquesta la app como servicio (`citypass-login`: imagen propia, healthcheck, usuario no-root y volumen de claves). Se necesita un Dockerfile para:
 - Despliegue consistente en todos los ambientes
 - Integración con orquestadores (Docker Compose, ECS, Cloud Run)
 - Imagen mínima de producción (sin herramientas de build)
@@ -51,7 +51,7 @@ Restricciones y supuestos adicionales:
 Adoptar un **Dockerfile multi-stage**: stage `build` (imagen Maven para compilar y empaquetar) y stage `runtime` (imagen JRE mínima con solo el JAR).
 
 Razones principales:
-1. **Seguridad**: La imagen de producción solo tiene el JRE y el JAR — sin Maven, sin código fuente, sin shell
+1. **Seguridad**: La imagen de producción solo tiene el JRE y el JAR — sin Maven ni código fuente (la base es Alpine, así que hay shell mínima de busybox + `wget`, usada solo por el healthcheck; no hay apk interactivo ni toolchains en runtime)
 2. **Tamaño**: ~200MB vs ~700MB+ (single-stage)
 3. **Reproducibilidad**: El build usa Maven en un contenedor estandarizado
 4. **Control**: Sabemos exactamente qué hay en la imagen final
