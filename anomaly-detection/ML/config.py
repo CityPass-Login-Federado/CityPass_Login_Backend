@@ -21,6 +21,7 @@ MODEL_PATH = MODELS_DIR / "isolation_forest.pkl"
 
 # Synthetic CityPass configuration
 DEPARTMENTS = [
+    "eda",
     "movilidad",
     "residuos",
     "reclamos",

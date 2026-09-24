@@ -150,7 +150,7 @@ public class LdapDirectory {
         // Cuenta deshabilitada (D7): pwdAccountLockedTime presente. No entra,
         // ni por login ni por refresh. Mismo tratamiento que "no existe":
         // el error que ve el cliente es idéntico.
-        if (lockedSince != null && !lockedSince.isBlank()) {
+        if ("000001010000Z".equals(lockedSince)) {
             return null;
         }
         if (employeeNumber == null || employeeNumber.isBlank()) {

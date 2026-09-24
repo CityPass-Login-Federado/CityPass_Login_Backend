@@ -3,48 +3,105 @@ package citypass.loginfederado.service;
 import citypass.loginfederado.config.LockoutProperties;
 import citypass.loginfederado.exception.AccountLockedException;
 import citypass.loginfederado.model.LoginAttempt;
+import citypass.loginfederado.model.LoginLockout;
 import citypass.loginfederado.repository.LoginAttemptRepository;
+import citypass.loginfederado.repository.LoginLockoutRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
-/**
- * Bloqueo por ventana deslizante: si hay N o más intentos fallidos en los
- * últimos M minutos, la cuenta queda bloqueada. No hay un flag de
- * "bloqueado" ni desbloqueo manual -- a medida que los intentos viejos
- * salen de la ventana, se destraba solo.
- *
- * Esta es la Capa 1 (regla dura) del control de fuerza bruta. La Capa 2
- * (score de riesgo por IA/ML sobre patrones de comportamiento) se agrega
- * después, consultando a este mismo servicio como piso de seguridad que
- * sigue funcionando aunque el modelo de IA no esté disponible.
- */
 @Service
 public class LoginAttemptService {
 
     private final LoginAttemptRepository loginAttemptRepository;
+    private final LoginLockoutRepository loginLockoutRepository;
     private final LockoutProperties lockoutProperties;
 
-    public LoginAttemptService(LoginAttemptRepository loginAttemptRepository, LockoutProperties lockoutProperties) {
+    public LoginAttemptService(
+            LoginAttemptRepository loginAttemptRepository,
+            LoginLockoutRepository loginLockoutRepository,
+            LockoutProperties lockoutProperties
+    ) {
         this.loginAttemptRepository = loginAttemptRepository;
+        this.loginLockoutRepository = loginLockoutRepository;
         this.lockoutProperties = lockoutProperties;
     }
 
-    /** Lanza AccountLockedException si el usuario superó el umbral de intentos fallidos. */
+    /**
+     * Throws AccountLockedException if the account currently has
+     * an active temporary lockout.
+     */
+    @Transactional
     public void assertNotLocked(String username) {
-        Instant windowStart = Instant.now().minusSeconds(lockoutProperties.windowMinutes() * 60);
-        long recentFailures = loginAttemptRepository
-                .countByUsernameAndSuccessfulFalseAndAttemptedAtAfter(username, windowStart);
+        Instant now = Instant.now();
 
-        if (recentFailures >= lockoutProperties.maxFailedAttempts()) {
-            throw new AccountLockedException(
-                    "Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intente nuevamente más tarde.");
-        }
+        loginLockoutRepository.findById(username)
+                .ifPresent(lockout -> {
+
+                    if (now.isBefore(lockout.getLockedUntil())) {
+                        throw new AccountLockedException(
+                                "Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intente nuevamente más tarde."
+                        );
+                    }
+
+                    // Lockout expired: remove it and reset previous failures.
+                    loginLockoutRepository.delete(lockout);
+                    loginAttemptRepository
+                            .deleteByUsernameAndSuccessfulFalse(username);
+                });
     }
 
-    public void recordAttempt(String username, String ipAddress, String userAgent, boolean successful) {
+    /**
+     * Records an authentication attempt.
+     *
+     * When the configured failed-attempt threshold is reached inside
+     * the configured time window, a temporary lockout is created.
+     */
+    public void recordAttempt(
+            String username,
+            String ipAddress,
+            String userAgent,
+            boolean successful
+    ) {
+        Instant now = Instant.now();
+
         loginAttemptRepository.save(
-                new LoginAttempt(username, ipAddress, userAgent, successful, Instant.now())
+                new LoginAttempt(
+                        username,
+                        ipAddress,
+                        userAgent,
+                        successful,
+                        now
+                )
         );
+
+        if (successful) {
+            return;
+        }
+
+        Instant windowStart = now.minusSeconds(
+                lockoutProperties.windowMinutes() * 60
+        );
+
+        long recentFailures = loginAttemptRepository
+                .countByUsernameAndSuccessfulFalseAndAttemptedAtAfter(
+                        username,
+                        windowStart
+                );
+
+        if (recentFailures >= lockoutProperties.maxFailedAttempts()) {
+
+            Instant lockedUntil = now.plusSeconds(
+                    lockoutProperties.lockoutMinutes() * 60
+            );
+
+            loginLockoutRepository.save(
+                    new LoginLockout(
+                            username,
+                            lockedUntil
+                    )
+            );
+        }
     }
 }
