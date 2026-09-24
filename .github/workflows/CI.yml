@@ -19,7 +19,7 @@ jobs:
   # 1) Build + Test + Coverage + SonarCloud (Maven)
   # ---------------------------------------------------------------------
   build:
-    name: Build, Test & SonarCloud (Maven)
+    name: Build, Lint, Test & SonarCloud (Maven)
     runs-on: ubuntu-latest
 
     permissions:
