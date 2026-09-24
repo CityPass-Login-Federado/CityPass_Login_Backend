@@ -8,7 +8,7 @@
 
 ## Consideraciones
 
-Los access tokens JWT tienen vida corta (15 min) para seguridad. Se necesita un mecanismo de refresh que permita al usuario obtener nuevos access tokens sin re-autenticarse. El refresh token tiene vida larga (7 días) y debe poder ser revocado.
+Los access tokens JWT tienen vida corta (15 min) para seguridad. Se necesita un mecanismo de refresh que permita al usuario obtener nuevos access tokens sin re-autenticarse. El refresh token tiene vida limitada (8 horas, configurable vía `jwt.refresh-token-expiration-hours`) y debe poder ser revocado.
 
 Restricciones y supuestos adicionales:
 - El refresh token es un credencial de alto valor: su fuga habilita sesiones indefinidas
@@ -68,7 +68,7 @@ Esta práctica coincide con la recomendación de la IETF en RFC 9700 (rotar refr
 - Cada refresh genera 2 escrituras en BD (revocar viejo + insertar nuevo)
 - El token crudo se muestra UNA sola vez al cliente: el cliente debe persistirlo de forma segura
 - Complejidad adicional frente a un JWT de larga vida sin estado
-- Expiración absoluta a los 7 días: obliga re-login aunque haya uso continuo
+- Expiración absoluta a las 8 horas (`refresh-token-expiration-hours`, verificado en `RefreshTokenService`): obliga re-login aunque haya uso continuo
 
 ## Referencias (benchmark)
 
