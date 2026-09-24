@@ -195,8 +195,6 @@
                 <configuration>
                     <configLocation>checkstyle.xml</configLocation>
                     <consoleOutput>true</consoleOutput>
-                    <failsOnError>false</failsOnError>
-                    <failOnViolation>false</failOnViolation>
                     <includeTestSourceDirectory>false</includeTestSourceDirectory>
                 </configuration>
                 <executions>
