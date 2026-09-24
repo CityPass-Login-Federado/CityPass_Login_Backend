@@ -1,42 +1,39 @@
-﻿# Sequence Diagram — Flujo de Logout
+# Secuencia — Cierre de sesión
+
+**Fecha de revisión:** 24 de septiembre de 2026
+**Endpoint:** `POST /auth/logout`
+
+El cierre de sesión recibe el refresh token en el cuerpo, no requiere un access token y es idempotente.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client (App)
+    actor U as Usuario
+    participant C as Cliente del módulo
     participant AC as AuthController
-    participant SEC as SecurityFilterChain
     participant AS as AuthService
-    participant RTS as RefreshTokenService
+    participant RT as RefreshTokenService
     participant DB as PostgreSQL
+    participant EP as EventPublisher
 
-    C->>AC: POST /auth/logout
-    Note over C,AC: Header: Authorization: Bearer <accessToken>
-
-    rect rgb(255, 240, 240)
-        Note over SEC: Validación JWT (obligatorio)
-        SEC->>SEC: JwtDecoder valida firma RS256 + expiración
-        SEC->>SEC: Extrae subject del JWT
+    U->>C: Cierra la sesión
+    C->>AC: POST /auth/logout<br/>{refreshToken}
+    AC->>AS: logout(refreshToken)
+    alt Token vacío o desconocido
+        AS-->>AC: Sin cambios
+        AC-->>C: 204 No Content
+    else Refresh token conocido
+        AS->>RT: revokeSingle(refreshToken)
+        RT->>DB: Marcar solamente ese token como revocado
+        AS->>EP: Publicar identidad.logout
+        AS-->>AC: Operación completada
+        AC-->>C: 204 No Content
     end
-
-    AC->>AS: logout(username = jwt.getSubject())
-    AS->>RTS: revokeAllFor(username)
-    RTS->>DB: findAllByUsernameAndRevokedFalse(username)
-    DB-->>RTS: lista de tokens activos
-
-    loop Para cada token activo
-        RTS->>RTS: revoke()
-    end
-
-    RTS->>DB: UPDATE refresh_tokens SET revoked=true WHERE...
-    RTS-->>AS: void
-    AS-->>AC: void
-    AC-->>C: 204 No Content
 ```
 
-## Resumen
+## Alcance de la revocación
 
-1. **JWT obligatorio**: El endpoint `/auth/logout` NO es público — requiere un access token válido
-2. **Identificación**: El `sub` del JWT identifica al usuario (no se recibe por body)
-3. **Revocación masiva**: Se revocan TODOS los refresh tokens activos del usuario
-4. **Access token**: Sigue válido hasta su expiración (15 min) — no hay blacklist
+- El endpoint revoca únicamente el refresh token presentado y no toda la cadena.
+- Repetir la solicitud o enviar un token desconocido mantiene la respuesta `204 No Content`.
+- El access token existente permanece válido hasta expirar; los servicios consumidores deben respetar su vida máxima de quince minutos.
+- La revocación masiva de sesiones pertenece a otros casos: deshabilitación de una persona, cambio de contraseña o restablecimiento de contraseña.

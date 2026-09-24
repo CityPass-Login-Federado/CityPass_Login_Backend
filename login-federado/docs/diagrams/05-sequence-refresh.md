@@ -1,54 +1,68 @@
-﻿# Sequence Diagram — Flujo de Refresh Token
+# Secuencia — Rotación del refresh token
+
+**Fecha de revisión:** 24 de septiembre de 2026
+**Endpoint:** `POST /auth/refresh`
+
+Cada uso válido rota el refresh token. La reutilización, incluida una carrera concurrente, invalida la cadena completa de la sesión.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client (App)
+    actor U as Usuario
+    participant C as Cliente del módulo
     participant AC as AuthController
     participant AS as AuthService
-    participant RTS as RefreshTokenService
+    participant RT as RefreshTokenService
     participant DB as PostgreSQL
-    participant JWT as JwtEncoder
+    participant LDAP as LDAP corporativo
+    participant CR as ClientRegistry
+    participant JWT as AccessTokenIssuer
+    participant EP as EventPublisher
 
-    C->>AC: POST /auth/refresh {refreshToken}
-    AC->>AS: refresh(request)
-
-    AS->>RTS: validateAndRotate(rawToken)
-    RTS->>DB: findByTokenHash(SHA-256(rawToken))
-    DB-->>RTS: RefreshToken entity
-
-    alt token no encontrado
-        RTS-->>AS: BadCredentialsException
+    U->>C: Solicita renovar la sesión
+    C->>AC: POST /auth/refresh<br/>{refreshToken}
+    AC->>AS: refresh(refreshToken)
+    AS->>RT: Buscar por hash SHA-256
+    RT->>DB: Consultar token
+    alt Token inexistente o vencido
+        RT-->>AS: Refresh token inválido
         AS-->>AC: 401 Unauthorized
-    else token revocado o expirado
-        RTS-->>AS: BadCredentialsException
+        AC-->>C: 401 Unauthorized
+    else Token ya revocado
+        RT->>DB: Revocar la cadena completa
+        RT-->>AS: Reutilización detectada
         AS-->>AC: 401 Unauthorized
+        AC-->>C: 401 Unauthorized
+    else Token vigente
+        RT->>DB: Revocación condicional atómica
+        alt Otro proceso lo rotó primero
+            RT->>DB: Revocar la cadena completa
+            RT-->>AS: Reutilización concurrente detectada
+            AS-->>AC: 401 Unauthorized
+            AC-->>C: 401 Unauthorized
+        else Revocación confirmada
+            AS->>LDAP: Recargar identidad por subject
+            LDAP-->>AS: Identidad y grupos actuales
+            AS->>CR: Revalidar cliente, audiencia y módulo
+            CR-->>AS: Configuración vigente
+            alt Identidad o acceso al módulo dejó de ser válido
+                AS-->>AC: 401 Unauthorized
+                AC-->>C: 401 Unauthorized
+            else Acceso todavía válido
+                AS->>JWT: Emitir nuevo access token RS256, 15 min
+                AS->>RT: Crear sucesor en la misma cadena
+                RT->>DB: Guardar nuevo hash y vencimiento de 8 h
+                AS->>EP: Publicar identidad.refresh
+                AS-->>AC: Nuevo access token y refresh token
+                AC-->>C: 200 OK
+            end
+        end
     end
-
-    rect rgb(255, 245, 230)
-        Note over RTS,DB: Rotación de token (uso único)
-        RTS->>RTS: revoke() — marca como revocado
-        RTS->>DB: UPDATE refresh_tokens SET revoked=true
-        RTS-->>AS: RefreshTokenPrincipal (user data)
-    end
-
-    rect rgb(240, 240, 255)
-        Note over AS,JWT: Nuevos tokens
-        AS->>JWT: encode(nuevo access token, mismos claims)
-        JWT-->>AS: newAccessToken
-
-        AS->>RTS: issueFor(username, nombre, email, roles)
-        RTS->>DB: INSERT nuevo refresh_tokens
-        RTS-->>AS: newRefreshToken
-    end
-
-    AS-->>AC: LoginResponse {newAccessToken, newRefreshToken}
-    AC-->>C: 200 OK + nuevos tokens
 ```
 
-## Resumen
+## Garantías
 
-1. **Validación**: Se busca el hash del token en PostgreSQL
-2. **Rotación**: El token viejo se revoca INMEDIATAMENTE (uso único)
-3. **Nuevos tokens**: Se emite un nuevo access token + un nuevo refresh token
-4. **Seguridad**: Si alguien reutiliza un token ya usado, falla (detecta robo de tokens)
+- La rotación condicional evita que dos solicitudes válidas consuman el mismo token simultáneamente.
+- La detección de reutilización revoca la cadena de refresh tokens, no sólo el token presentado.
+- Antes de renovar, se consulta nuevamente LDAP y se comprueba que la audiencia y el módulo continúen habilitados.
+- Un access token emitido previamente no se revoca en línea; conserva validez hasta su expiración de quince minutos.
