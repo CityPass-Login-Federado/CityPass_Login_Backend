@@ -15,6 +15,7 @@ RUN apk add --no-cache maven && \
 
 # Copiar código fuente y compilar
 COPY src ./src
+COPY checkstyle.xml ./checkstyle.xml
 RUN mvn package -DskipTests -B
 
 # =============================================================================
