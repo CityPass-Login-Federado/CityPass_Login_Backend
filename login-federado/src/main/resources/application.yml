@@ -127,11 +127,11 @@ citypass:
       audience: citypass
       namespace: com.citypass.auth
 
+
 eda:
   publisher: ${EDA_PUBLISHER:logging}
   gateway-url: ${EDA_GATEWAY_URL:}
   token-url: ${EDA_TOKEN_URL:http://localhost:8081}
-  event-path: ${EDA_EVENT_PATH:/api/v1/events}
   token-path: ${EDA_TOKEN_PATH:/oauth/token}
   client-id: ${EDA_CLIENT_ID:grupo2}
   client-secret: ${EDA_CLIENT_SECRET:${SVC_GRUPO2_SECRET:grupo2-secret-dev}}
