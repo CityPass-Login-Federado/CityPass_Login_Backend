@@ -101,6 +101,19 @@ dn: ou=Groups,ou=Eda,dc=citypass,dc=local
 objectClass: organizationalUnit
 ou: Groups
 
+# ou=Login — módulo del propio IdP. A diferencia de los módulos de negocio NO
+# tiene ou=Groups ni grupo delegados: está FUERA de los 7 módulos que administra
+# el panel (PanelDirectoryRules.MODULES), así que nadie lo gestiona vía /panel/**.
+# Vive acá la ficha de admin-global (spec §2.8: la cuenta administrativa no puede
+# vivir dentro del alcance que administra).
+dn: ou=Login,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Login
+
+dn: ou=People,ou=Login,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
 # -----------------------------------------------------------------------------
 # ou=admin — rol reservado "admin-global". A nivel raíz (NO dentro de un módulo):
 # opera los 6 módulos vía ?module= en el panel. El grupo no lo administra el
@@ -227,9 +240,12 @@ employeeNumber: U000006
 userPassword: {SSHA}xoI/iMZorLQuqTB17j/8XEEnFfUhRlpbMEcJQg==
 
 # Admin global de prueba (rol reservado): pertenece a cn=admin-global,ou=admin.
-# Su módulo de origen (Analitica) solo importa para el claim `module` del token;
+# Su módulo de origen (Login) solo importa para el claim `module` del token;
 # al operar el panel elige el módulo con ?module= (PanelController).
-dn: uid=admin-global,ou=People,ou=Analitica,dc=citypass,dc=local
+# Vive en ou=Login (fuera de los 7 módulos del panel): el panel NO puede
+# administrar esta ficha — la gestiona el propio usuario vía self-service
+# (/me/change-password, /auth/forgot-password) o el seed.
+dn: uid=admin-global,ou=People,ou=Login,dc=citypass,dc=local
 objectClass: inetOrgPerson
 uid: admin-global
 cn: Admin Global
@@ -258,7 +274,7 @@ dn: cn=admin-global,ou=admin,dc=citypass,dc=local
 objectClass: groupOfNames
 cn: admin-global
 member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
-member: uid=admin-global,ou=People,ou=Analitica,dc=citypass,dc=local
+member: uid=admin-global,ou=People,ou=Login,dc=citypass,dc=local
 
 # -----------------------------------------------------------------------------
 # Grupos. Listas con nombre; NO definen permisos. El grupo reservado

@@ -2071,7 +2071,7 @@
 					{ "key": "token", "value": "{{admin_global_access_token}}", "type": "string" }
 				]
 			},
-			"description": "Rol admin-global (grupo reservado cn=admin-global,ou=admin): gestiona los 7 módulos con los MISMOS endpoints de /panel/** agregando ?module= en cada request. NO hay endpoints propios /admin/.\n\nUsuario seed: admin-global / changeit123 (módulo de ORIGEN analitica, irrelevante: opera sobre el módulo que pase en ?module=).\n\nPRERREQUISITO: correr '01 Login admin-global' primero (captura admin_global_access_token).\n\nPoderes extra vs delegado normal: puede borrar/crear el grupo reservado 'delegados' y dejarlo sin integrantes.",
+			"description": "Rol admin-global (grupo reservado cn=admin-global,ou=admin): gestiona los 7 módulos con los MISMOS endpoints de /panel/** agregando ?module= en cada request. NO hay endpoints propios /admin/.\n\nUsuario seed: admin-global / changeit123 (módulo de ORIGEN login, irrelevante: opera sobre el módulo que pase en ?module=).\n\nPRERREQUISITO: correr '01 Login admin-global' primero (captura admin_global_access_token).\n\nPoderes extra vs delegado normal: puede borrar/crear el grupo reservado 'delegados' y dejarlo sin integrantes.",
 			"item": [
 				{
 					"name": "01 Login admin-global (captura token)",
@@ -2089,7 +2089,7 @@
 									"  pm.expect(p.sub).to.eql('U000007');",
 									"  pm.expect(p.aud).to.be.an('array').that.includes('citypass-admin-api');",
 									"  pm.expect(p.token_use).to.eql('human');",
-									"  pm.expect(p.module).to.eql('analitica');",
+									"  pm.expect(p.module).to.eql('login');",
 									"  pm.expect(p.groups).to.include('admin-global');",
 									"});",
 									"pm.collectionVariables.set('admin_global_access_token', r.access_token);",

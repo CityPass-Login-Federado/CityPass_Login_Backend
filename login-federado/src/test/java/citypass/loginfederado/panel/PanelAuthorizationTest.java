@@ -35,7 +35,7 @@ class PanelAuthorizationTest {
     void acceptsGlobalAdminWithoutModuleClaim() {
         var claims = new java.util.HashMap<String, Object>(validClaims());
         claims.put("groups", List.of("admin-global"));
-        claims.put("module", "Analitica");
+        claims.put("module", "Login");
         var d = authorization.requireDelegate(jwt(claims));
         assertThat(d.global()).isTrue();
     }

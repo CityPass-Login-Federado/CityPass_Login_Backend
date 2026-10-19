@@ -54,7 +54,7 @@ class PanelGroupServiceTest {
     private PanelAuditService audit;
     private PanelGroupService service;
     private final PanelAuthorization.Delegate actor = new PanelAuthorization.Delegate("U000001", "admin", "reclamos");
-    private final PanelAuthorization.Delegate globalActor = new PanelAuthorization.Delegate("U000007", "admin-global", "analitica", true);
+    private final PanelAuthorization.Delegate globalActor = new PanelAuthorization.Delegate("U000007", "admin-global", "login", true);
 
     @BeforeEach
     void setUp() {
