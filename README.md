@@ -232,16 +232,16 @@ identidad es el namespace.
 
 Password de todos: `changeit123`
 
-| uid | Módulo | Grupos notables |
-|---|---|---|
-| jperez | reclamos | soporte-n2, guardia-finde |
-| soporte1 | reclamos | guardia-finde |
-| consulta1 | reclamos | — |
-| delegado-rec | reclamos | delegados |
-| mgomez | movilidad | — |
-| delegado-mov | movilidad | delegados |
-| delegado-eda | eda | delegados |
-| admin-global | admin (transversal) | admin-global |
+| uid                | Módulo                              | Grupos notables |
+|--------------------|-------------------------------------|---|
+| delegado-rec       | Reclamos y Participación Ciudadana  | delegados |
+| delegado-mov       | Movilidad Urbana Inteligente        | delegados |
+| delegado-res       | Gestión de Residuos Inteligente     | delegados |
+| delegado-emer      | emergencia                          | delegados |
+| delegado-analitica | Espacios Públicos y Cultura         | delegados |
+| delegado-eda       | Event Driven Architecture (EDA)     | delegados |
+| delegado-esp       | Espacios Públicos y Cultura         | delegados |
+| admin-global       | login (transversal)                 | admin-global |
 
 ## 🔑 Clientes registrados (`login-federado/src/main/resources/application.yml`)
 
@@ -249,9 +249,7 @@ Password de todos: `changeit123`
 |---|---|---|
 | citypass-movilidad-web / residuos-web / reclamos-web / emergencias-web / espacios-web / analitica-web / eda-web | human | `citypass-<módulo>-api` |
 | citypass-admin-web | human transversal | `citypass-admin-api` (único cliente que cruza módulos) |
-| group1 | service | audience `citypass` · namespace `com.citypass.bus` |
-| group5 | service | audience `citypass` · namespace `com.citypass.analitica` |
-| grupo2 | service | audience `citypass` · namespace `com.citypass.auth` |
+
 
 El panel exige token de persona con audience `citypass-admin-api` (`token_use=human`):
 los **delegados** operan el módulo de su claim `module` (nadie acepta el módulo por
@@ -278,15 +276,10 @@ dc=citypass,dc=local
 ├── ou=Espacios    (misma estructura)
 ├── ou=Analitica   (misma estructura)
 ├── ou=Eda         (misma estructura)
-└── ou=ServiceAccounts
-    ├── cn=readonly                 ← busca y hace binds; no escribe, no ve hashes
-    ├── cn=panel-writer             ← escritura exclusiva del backend del panel
-    ├── cn=admin                    ← admin del árbol (no lo usa la app)
-    └── cn=empty-group-placeholder  ← miembro técnico: ningún grupo nace vacío
+├── ou=Login       ← IdP: solo People (admin-global vive acá, fuera del panel)
+
 ```
 
-Las cuentas de servicio viven **fuera** de las OUs de módulo: no tienen `uid`, así
-estructuralmente no pueden autenticarse como personas.
 
 ### Modelo de entradas
 

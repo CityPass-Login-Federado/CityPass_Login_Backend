@@ -83,7 +83,6 @@ public class PanelAccountService {
      * guardar.
      */
     public void setPassword(String module, String uid, String newPassword) {
-        support.assertModule(module);
         if (newPassword == null || newPassword.length() < 8) {
             throw new IllegalArgumentException("La contraseña debe tener al menos 8 caracteres");
         }
