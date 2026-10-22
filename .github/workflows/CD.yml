@@ -122,8 +122,15 @@ jobs:
                       LDAP_READONLY_PASSWORD=${{ secrets.LDAP_READONLY_PASSWORD }}
                       LDAP_PANEL_WRITER_PASSWORD=${{ secrets.LDAP_PANEL_WRITER_PASSWORD }}
                       SVC_GROUP1_SECRET=${{ secrets.SVC_GROUP1_SECRET }}
-                      SVC_GROUP2_SECRET=${{ secrets.SVC_GROUP2_SECRET }}
                       SVC_GROUP5_SECRET=${{ secrets.SVC_GROUP5_SECRET }}
+                      SVC_GRUPO1_SECRET=${{ secrets.SVC_GRUPO1_SECRET }}
+                      SVC_GRUPO2_SECRET=${{ secrets.SVC_GROUP2_SECRET }}
+                      SVC_GRUPO3_SECRET=${{ secrets.SVC_GRUPO3_SECRET }}
+                      SVC_GRUPO4_SECRET=${{ secrets.SVC_GRUPO4_SECRET }}
+                      SVC_GRUPO5_SECRET=${{ secrets.SVC_GRUPO5_SECRET }}
+                      SVC_GRUPO6_SECRET=${{ secrets.SVC_GRUPO6_SECRET }}
+                      SVC_GRUPO7_SECRET=${{ secrets.SVC_GRUPO7_SECRET }}
+                      SVC_GRUPO8_SECRET=${{ secrets.SVC_GRUPO8_SECRET }}
                       ANOMALY_SERVICE_URL=${{ secrets.ANOMALY_SERVICE_URL }}
                       SPRING_MAIL_HOST=${{ secrets.SPRING_MAIL_HOST }}
                       SPRING_MAIL_PORT=${{ secrets.SPRING_MAIL_PORT }}
