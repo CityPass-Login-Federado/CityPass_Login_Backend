@@ -28,6 +28,8 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.KeyUse;
 
 /**
  * Carga el par de claves RSA usadas para firmar (JwtEncoder) y validar
@@ -85,15 +87,17 @@ public class JwtKeyConfig {
      * RFC 7638. Lo consumen el encoder, el decoder y el endpoint JWKS,
      * garantizando que los tres SIEMPRE anuncien el mismo kid.
      */
+
     @Bean
     public RSAKey rsaKey(RSAPublicKey publicKey, RSAPrivateKey privateKey) {
-        // computeThumbprint() implementa exactamente RFC 7638: hash SHA-256
-        // del JSON canónico {"e","kty","n"} en base64url.
         return new RSAKey.Builder(publicKey)
                 .privateKey(privateKey)
+                .keyUse(KeyUse.SIGNATURE)
+                .algorithm(JWSAlgorithm.RS256)
                 .keyID(computeThumbprint(publicKey))
                 .build();
     }
+
 
     @Bean
     public JwtEncoder jwtEncoder(RSAKey rsaKey) {

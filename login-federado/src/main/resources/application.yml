@@ -77,61 +77,118 @@ security:
 #        caso único del panel — spec 01-DISENO-IDENTIDAD.md §5.1).
 # service: backend a backend (client_credentials); su identidad es el
 #          namespace que usa como frontera en el bus (contrato §7).
+
 citypass:
   clients:
+    # Human clients
     - client-id: citypass-movilidad-web
       audience: citypass-movilidad-api
       module: movilidad
       type: human
+
     - client-id: citypass-residuos-web
       audience: citypass-residuos-api
       module: residuos
       type: human
+
     - client-id: citypass-reclamos-web
       audience: citypass-reclamos-api
       module: reclamos
       type: human
+
     - client-id: citypass-emergencias-web
       audience: citypass-emergencias-api
       module: emergencias
       type: human
+
     - client-id: citypass-espacios-web
       audience: citypass-espacios-api
       module: espacios
       type: human
+
     - client-id: citypass-analitica-web
       audience: citypass-analitica-api
       module: analitica
       type: human
+
     - client-id: citypass-eda-web
       audience: citypass-eda-api
       module: eda
       type: human
+
     - client-id: citypass-admin-web
       audience: citypass-admin-api
       type: human
       transversal: true
+
+    # Legacy service clients - Temporary compatibility
     - client-id: group1
       type: service
       client-secret: ${SVC_GROUP1_SECRET:group1-secret-dev}
       audience: citypass
       namespace: com.citypass.bus
+
     - client-id: group5
       type: service
       client-secret: ${SVC_GROUP5_SECRET:group5-secret-dev}
       audience: citypass
       namespace: com.citypass.analitica
+
+    # Official EDA service clients
+    - client-id: grupo1
+      type: service
+      client-secret: ${SVC_GRUPO1_SECRET:grupo1-secret-dev}
+      audience: citypass
+      namespace: com.citypass.bus
+
     - client-id: grupo2
       type: service
       client-secret: ${SVC_GRUPO2_SECRET:grupo2-secret-dev}
       audience: citypass
       namespace: com.citypass.auth
 
+    - client-id: grupo3
+      type: service
+      client-secret: ${SVC_GRUPO3_SECRET:grupo3-secret-dev}
+      audience: citypass
+      namespace: com.citypass.movilidad
+
+    - client-id: grupo4
+      type: service
+      client-secret: ${SVC_GRUPO4_SECRET:grupo4-secret-dev}
+      audience: citypass
+      namespace: com.citypass.reclamos
+
+    - client-id: grupo5
+      type: service
+      client-secret: ${SVC_GRUPO5_SECRET:grupo5-secret-dev}
+      audience: citypass
+      namespace: com.citypass.emergencias
+
+    - client-id: grupo6
+      type: service
+      client-secret: ${SVC_GRUPO6_SECRET:grupo6-secret-dev}
+      audience: citypass
+      namespace: com.citypass.turismo
+
+    - client-id: grupo7
+      type: service
+      client-secret: ${SVC_GRUPO7_SECRET:grupo7-secret-dev}
+      audience: citypass
+      namespace: com.citypass.transporte
+
+    - client-id: grupo8
+      type: service
+      client-secret: ${SVC_GRUPO8_SECRET:grupo8-secret-dev}
+      audience: citypass
+      namespace: com.citypass.analitica
+
+
+
 eda:
   publisher: ${EDA_PUBLISHER:logging}
   gateway-url: ${EDA_GATEWAY_URL:}
   token-url: ${EDA_TOKEN_URL:http://localhost:8081}
-  event-path: ${EDA_EVENT_PATH:/api/v1/events}
   token-path: ${EDA_TOKEN_PATH:/oauth/token}
   client-id: ${EDA_CLIENT_ID:grupo2}
   client-secret: ${EDA_CLIENT_SECRET:${SVC_GRUPO2_SECRET:grupo2-secret-dev}}
