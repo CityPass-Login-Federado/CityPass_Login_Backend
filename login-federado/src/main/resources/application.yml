@@ -215,7 +215,7 @@ anomaly:
 # y el frontend productivo actual.
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,https://citypass-login.pp.ua}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,https://citypass-login.pp.ua,https://espacios-publicos-frontend.vercel.app}
   password-reset:
     from: ${PASSWORD_RESET_FROM:no-reply@citypass.local}
     debug-log: ${PASSWORD_RESET_DEBUG_LOG:true}
