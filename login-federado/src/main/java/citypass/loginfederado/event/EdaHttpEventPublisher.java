@@ -1,9 +1,9 @@
 package citypass.loginfederado.event;
 
 import citypass.loginfederado.config.EdaProperties;
+import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -11,81 +11,137 @@ import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Base64;
 
-/** Publica al event-gateway cuando EDA_GATEWAY_URL esta configurada. */
 @Component
-@ConditionalOnProperty(prefix = "eda", name = "publisher", havingValue = "http")
+@ConditionalOnProperty(
+        prefix = "eda",
+        name = "publisher",
+        havingValue = "http"
+)
 public class EdaHttpEventPublisher implements EventPublisher {
+
+    private static final long TOKEN_REFRESH_MARGIN_SECONDS = 30;
+
     private final RestClient restClient;
-    private final ObjectMapper objectMapper;
     private final EdaProperties properties;
-    private final EdaEventEnvelopeFactory envelopeFactory;
+    private final EdaEventPayloadMapper payloadMapper;
+
     private volatile ServiceToken serviceToken;
 
-    public EdaHttpEventPublisher(RestClient.Builder restClientBuilder,
-                                 ObjectMapper objectMapper,
-                                 EdaProperties properties,
-                                 EdaEventEnvelopeFactory envelopeFactory) {
+    public EdaHttpEventPublisher(
+            RestClient.Builder restClientBuilder,
+            EdaProperties properties,
+            EdaEventPayloadMapper payloadMapper
+    ) {
         this.restClient = restClientBuilder.build();
-        this.objectMapper = objectMapper;
         this.properties = properties;
-        this.envelopeFactory = envelopeFactory;
+        this.payloadMapper = payloadMapper;
     }
 
     @Override
     public void publish(String eventType, Object payload) {
+
+        // Validate that the payload is an authentication event.
+        if (!(payload instanceof RawAuthenticationEvent event)) {
+            throw new IllegalArgumentException(
+                    "Unsupported EDA payload: expected RawAuthenticationEvent"
+            );
+        }
+
+        if (!eventType.equals(event.eventType())) {
+            throw new IllegalArgumentException(
+                    "Event type does not match the payload type"
+            );
+        }
+
+        // Resolve the registered EDA event type.
+        EdaEventType edaEventType =
+                EdaEventType.fromInternalType(eventType);
+
+        // Convert the internal event to the EDA business payload.
+        ObjectNode data = payloadMapper.toPayload(event);
+
+        // Obtain the OAuth2 service token.
         ServiceToken token = getServiceToken();
-        EdaEventEnvelope envelope = envelopeFactory.create(
-                eventType, payload, token.source(), token.namespace(), token.jti());
+
+        // Build the Event Gateway publication URL.
+        String gatewayUrl = properties.gatewayUrl()
+                .replaceAll("/+$", "");
+
+        String eventUrl = gatewayUrl
+                + "/api/v1/event-types/"
+                + edaEventType.fqn()
+                + "/events";
+
+        // Publish only business data.
+        // The Event Gateway generates the event metadata.
         restClient.post()
-                .uri(properties.gatewayUrl() + properties.eventPath())
+                .uri(eventUrl)
                 .contentType(MediaType.APPLICATION_JSON)
-                .header("Authorization", "Bearer " + token.value())
-                .body(envelope)
+                .header(
+                        "Authorization",
+                        "Bearer " + token.value()
+                )
+                .body(data)
                 .retrieve()
                 .toBodilessEntity();
     }
 
     private synchronized ServiceToken getServiceToken() {
-        if (serviceToken != null && serviceToken.expiresAt().isAfter(Instant.now().plusSeconds(30))) {
+
+        Instant now = Instant.now();
+
+        // Reuse the token while it is still valid.
+        if (serviceToken != null
+                && serviceToken.expiresAt().isAfter(
+                        now.plusSeconds(TOKEN_REFRESH_MARGIN_SECONDS))) {
             return serviceToken;
         }
-        String credentials = properties.clientId() + ":" + properties.clientSecret();
-        String basic = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+
+        // Request a new service token using OAuth2 client_credentials.
         TokenResponse response = restClient.post()
                 .uri(properties.tokenUrl() + properties.tokenPath())
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                .header("Authorization", "Basic " + basic)
+                .headers(headers -> headers.setBasicAuth(
+                        properties.clientId(),
+                        properties.clientSecret(),
+                        StandardCharsets.UTF_8
+                ))
                 .body("grant_type=client_credentials")
                 .retrieve()
                 .body(TokenResponse.class);
-        if (response == null || response.accessToken() == null) {
-            throw new IllegalStateException("El event-gateway no devolvio un token de servicio");
+
+        if (response == null
+                || response.accessToken() == null
+                || response.accessToken().isBlank()
+                || response.expiresIn() <= 0) {
+
+            throw new IllegalStateException(
+                    "Invalid OAuth2 service token response"
+            );
         }
-        serviceToken = ServiceToken.parse(response.accessToken(), response.expiresIn(), objectMapper);
+
+        // Cache the service token until its expiration.
+        serviceToken = new ServiceToken(
+                response.accessToken(),
+                Instant.now().plusSeconds(response.expiresIn())
+        );
+
         return serviceToken;
     }
 
     private record TokenResponse(
-            @JsonProperty("access_token") String accessToken,
-            @JsonProperty("expires_in") long expiresIn
+            @JsonProperty("access_token")
+            String accessToken,
+
+            @JsonProperty("expires_in")
+            long expiresIn
     ) {
     }
 
-    private record ServiceToken(String value, String source, String namespace, String jti,
-                                Instant expiresAt) {
-        static ServiceToken parse(String value, long expiresIn, ObjectMapper objectMapper) {
-            try {
-                String[] parts = value.split("\\.");
-                JsonNode claims = objectMapper.readTree(
-                        Base64.getUrlDecoder().decode(parts[1]));
-                return new ServiceToken(value, claims.path("sub").asText(),
-                        claims.path("namespace").asText(), claims.path("jti").asText(),
-                        Instant.now().plusSeconds(expiresIn));
-            } catch (Exception ex) {
-                throw new IllegalStateException("Token de servicio invalido", ex);
-            }
-        }
+    private record ServiceToken(
+            String value,
+            Instant expiresAt
+    ) {
     }
 }

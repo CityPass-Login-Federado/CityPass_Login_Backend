@@ -6,7 +6,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record EdaProperties(
         String gatewayUrl,
         String tokenUrl,
-        String eventPath,
         String tokenPath,
         String clientId,
         String clientSecret
