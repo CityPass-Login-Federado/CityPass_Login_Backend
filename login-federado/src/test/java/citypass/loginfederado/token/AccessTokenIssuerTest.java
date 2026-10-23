@@ -68,6 +68,8 @@ class AccessTokenIssuerTest {
         assertThat(claims.getStringClaim("preferred_username")).isEqualTo("jperez");
         // module en minúsculas tal como vino del árbol
         assertThat(claims.getStringClaim("module")).isEqualTo("reclamos");
+        assertThat(claims.getStringClaim("namespace"))
+            .isEqualTo("com.citypass.reclamos");
         // grupos pelados, sin mapeo a roles ni filtrado (D1/D2/D8)
         assertThat(claims.getStringListClaim("groups"))
                 .containsExactlyInAnyOrder("soporte-n2", "delegados");
