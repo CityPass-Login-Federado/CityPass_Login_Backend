@@ -120,6 +120,12 @@ citypass:
       audience: citypass-admin-api
       type: human
       transversal: true
+      
+    #Cliente pedido por eda
+    - client-id: citypass-bus-web
+      audience: citypass
+      type: human
+      transversal: true
 
     # Legacy service clients - Temporary compatibility
     - client-id: group1
