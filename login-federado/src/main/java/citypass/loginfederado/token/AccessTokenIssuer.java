@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-
+import java.util.Locale;
 /**
  * Construye y firma los DOS tipos de token del contrato público
  * (specs/03-CONTRATO-TOKEN.md). El formato está CONGELADO: cambiar algo acá
@@ -60,6 +60,7 @@ public class AccessTokenIssuer {
                 .claim("module", person.module().toLowerCase())
                 // Los grupos pasan tal cual: sin tabla de mapeo grupo→rol ni
                 // filtrado (D1/D2/D8). Puede venir vacío y es válido.
+                .claim("namespace", resolveHumanNamespace(person.module()))
                 .claim("groups", person.groups())
                 .build();
 
@@ -85,6 +86,16 @@ public class AccessTokenIssuer {
         return encode(claims);
     }
 
+
+    private String resolveHumanNamespace(String module) {
+        String normalizedModule = module.trim().toLowerCase(Locale.ROOT);
+
+        return switch (normalizedModule) {
+            case "eda" -> "com.citypass.bus";
+            default -> "com.citypass." + normalizedModule;
+        };
+    }
+    
     private String encode(JwtClaimsSet claims) {
         JwsHeader header = JwsHeader.with(SignatureAlgorithm.RS256)
                 // kid derivado del contenido de la clave (huella RFC 7638):
