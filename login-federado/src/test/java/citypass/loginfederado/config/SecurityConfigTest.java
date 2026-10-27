@@ -118,6 +118,19 @@ class SecurityConfigTest {
     }
 
     @Test
+    void preflightFromReclamosOriginsSucceedsWithCorsHeaders() throws Exception {
+        for (String origin : List.of(
+                "https://reclamos-frontend-g5.vercel.app",
+                "http://localhost:5173")) {
+            mockMvc.perform(options("/auth/login")
+                    .header("Origin", origin)
+                    .header("Access-Control-Request-Method", "POST"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Access-Control-Allow-Origin", origin));
+        }
+    }
+
+    @Test
     void preflightFromUnknownOriginIsRejected() throws Exception {
         mockMvc.perform(options("/auth/login")
                 .header("Origin", "https://evil.example.com")
