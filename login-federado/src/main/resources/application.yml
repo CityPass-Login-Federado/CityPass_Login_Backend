@@ -175,13 +175,13 @@ citypass:
       type: service
       client-secret: ${SVC_GRUPO6_SECRET:grupo6-secret-dev}
       audience: citypass
-      namespace: com.citypass.turismo
+      namespace: com.citypass.residuos
 
     - client-id: grupo7
       type: service
       client-secret: ${SVC_GRUPO7_SECRET:grupo7-secret-dev}
       audience: citypass
-      namespace: com.citypass.transporte
+      namespace: com.citypass.espacios
 
     - client-id: grupo8
       type: service
