@@ -140,6 +140,15 @@ class SecurityConfigTest {
     }
 
     @Test
+    void preflightFromResiduosFrontendSucceedsWithCorsHeaders() throws Exception {
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", "https://citypass-residuos-frontend.onrender.com")
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://citypass-residuos-frontend.onrender.com"));
+    }
+
+    @Test
     void preflightFromUnknownOriginIsRejected() throws Exception {
         mockMvc.perform(options("/auth/login")
                 .header("Origin", "https://evil.example.com")
