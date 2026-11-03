@@ -131,6 +131,15 @@ class SecurityConfigTest {
     }
 
     @Test
+    void preflightFromMovilidadFrontendSucceedsWithCorsHeaders() throws Exception {
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", "https://daii-grupo-8-frontend.vercel.app")
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://daii-grupo-8-frontend.vercel.app"));
+    }
+
+    @Test
     void preflightFromUnknownOriginIsRejected() throws Exception {
         mockMvc.perform(options("/auth/login")
                 .header("Origin", "https://evil.example.com")

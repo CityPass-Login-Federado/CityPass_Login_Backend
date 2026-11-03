@@ -113,7 +113,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource(
             @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:5173,"
                     + "https://citypass-login.pp.ua,https://espacios-publicos-frontend.vercel.app,"
-                    + "https://reclamos-frontend-g5.vercel.app}") String allowedOrigins) {
+                    + "https://reclamos-frontend-g5.vercel.app,https://daii-grupo-8-frontend.vercel.app}") String allowedOrigins) {
         List<String> origins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
