@@ -121,7 +121,7 @@ class SecurityConfigTest {
     void preflightFromReclamosOriginsSucceedsWithCorsHeaders() throws Exception {
         for (String origin : List.of(
                 "https://reclamos-frontend-g5.vercel.app",
-                "http://localhost:5173")) {
+                "http://localhost:5173", "https://daii-grupo-8-frontend.vercel.app")) {
             mockMvc.perform(options("/auth/login")
                     .header("Origin", origin)
                     .header("Access-Control-Request-Method", "POST"))
