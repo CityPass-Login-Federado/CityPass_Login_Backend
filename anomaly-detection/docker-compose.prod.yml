@@ -1,6 +1,6 @@
 services:
   anomaly-detection:
-    image: ghcr.io/citypass-login-federado/citypass-anomaly-detection:latest
+    image: ghcr.io/citypass-login-federado/citypass-anomaly-detection:${ANOMALY_IMAGE_TAG:-latest}
     container_name: citypass-anomaly-detection
     ports:
       - "8000:8000"

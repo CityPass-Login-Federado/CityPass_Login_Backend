@@ -28,6 +28,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Copiar código de la app y el modelo entrenado (si existe)
 COPY app ./app
 COPY models ./models
+COPY VERSION ./VERSION
 
 # Directorio de modelos debe ser escribible por si se reentrena en runtime
 RUN chown -R appuser:appgroup /app

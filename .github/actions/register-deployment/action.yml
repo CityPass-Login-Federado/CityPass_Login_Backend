@@ -1,0 +1,122 @@
+name: Register deployment
+description: Track the active artifact and verification status in GitHub Issues
+inputs:
+  service:
+    description: Service identifier
+    required: true
+  version:
+    description: Version identifier recorded for this deployment
+    required: true
+  artifact_tag:
+    description: Published artifact tag
+    required: true
+  image:
+    description: Full container image reference
+    required: true
+  environment_name:
+    description: GitHub deployment environment
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Create or update deployment tracking issue
+      uses: actions/github-script@v7
+      env:
+        SERVICE: ${{ inputs.service }}
+        VERSION: ${{ inputs.version }}
+        ARTIFACT_TAG: ${{ inputs.artifact_tag }}
+        IMAGE: ${{ inputs.image }}
+        DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment_name }}
+      with:
+        github-token: ${{ github.token }}
+        script: |
+          const { owner, repo } = context.repo;
+          const service = process.env.SERVICE;
+          const serviceLabel = `service:${service}`;
+          const activeLabel = 'deployment:active';
+          const labels = [
+            { name: 'deployment', color: '1d76db', description: 'Deployment artifact tracking' },
+            { name: activeLabel, color: '0e8a16', description: 'Currently active deployment' },
+            { name: 'deployment:superseded', color: 'c5def5', description: 'Replaced by a newer deployment' },
+            { name: serviceLabel, color: '5319e7', description: `Deployment for ${service}` },
+            { name: 'status:pending', color: 'fbca04', description: 'Artifact awaits verification' },
+            { name: 'status:working', color: '0e8a16', description: 'Artifact verified as working' },
+            { name: 'status:bug', color: 'd93f0b', description: 'Bug reported for this artifact' },
+          ];
+
+          for (const label of labels) {
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label.name });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              try {
+                await github.rest.issues.createLabel({ owner, repo, ...label });
+              } catch (createError) {
+                if (createError.status !== 422) throw createError;
+              }
+            }
+          }
+
+          const title = `[Deploy][${service}] ${process.env.ARTIFACT_TAG}`;
+          const deployedAt = new Date().toISOString();
+          const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+          const body = [
+            `## Despliegue activo: ${service}`,
+            '',
+            `- **Versión/tag desplegado:** \`${process.env.VERSION}\``,
+            `- **Tag:** \`${process.env.ARTIFACT_TAG}\``,
+            `- **Imagen:** \`${process.env.IMAGE}\``,
+            `- **Ambiente:** \`${process.env.DEPLOYMENT_ENVIRONMENT}\``,
+            `- **Desplegado (UTC):** ${deployedAt}`,
+            `- **Commit:** [\`${context.sha.slice(0, 7)}\`](${context.serverUrl}/${owner}/${repo}/commit/${context.sha})`,
+            `- **Ejecución:** [#${context.runNumber}](${runUrl})`,
+            '',
+            '### Verificación',
+            '',
+            'Este artefacto queda inicialmente como **pendiente de verificación**.',
+            'Cambia la etiqueta `status:pending` por `status:working` o `status:bug` para actualizar su estado.',
+            'La etiqueta `deployment:active` identifica la versión actualmente desplegada para este servicio.',
+          ].join('\n');
+
+          const created = await github.rest.issues.create({
+            owner,
+            repo,
+            title,
+            body,
+            labels: ['deployment', activeLabel, serviceLabel, 'status:pending'],
+          });
+
+          const activeIssues = await github.paginate(github.rest.issues.listForRepo, {
+            owner,
+            repo,
+            state: 'open',
+            labels: activeLabel,
+            per_page: 100,
+          });
+
+          for (const issue of activeIssues) {
+            if (issue.pull_request || issue.number === created.data.number || !issue.labels.some(label => label.name === serviceLabel)) {
+              continue;
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issue.number,
+              body: `Reemplazada por la nueva versión [${process.env.ARTIFACT_TAG}](${created.data.html_url}) el ${deployedAt}.`,
+            });
+
+            const previousLabels = issue.labels
+              .map(label => label.name)
+              .filter(name => name !== activeLabel);
+            previousLabels.push('deployment:superseded');
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: issue.number,
+              state: 'closed',
+              labels: [...new Set(previousLabels)],
+            });
+          }
+
+          core.info(`Deployment tracking issue created: ${created.data.html_url}`);
