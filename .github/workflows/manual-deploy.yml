@@ -1,0 +1,150 @@
+name: Deploy artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag GHCR a desplegar, por ejemplo 1.0.0-123"
+        required: true
+        type: string
+      target:
+        description: "Servicio a desplegar"
+        required: true
+        type: choice
+        options:
+          - both
+          - backend
+          - ai
+        default: both
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate artifact tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version-build format
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if [[ ! "$IMAGE_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]; then
+            echo "Tag invalido. Formato esperado: <version>-<numero_build>, por ejemplo 1.0.0-123."
+            exit 1
+          fi
+
+  deploy-backend:
+    name: Deploy login-federado (VM1)
+    needs: validate
+    if: inputs.target == 'both' || inputs.target == 'backend'
+    runs-on: ubuntu-latest
+    environment: production-backend
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Deploy selected image over SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        with:
+          host: ${{ secrets.ORACLE_HOST_BACKEND }}
+          username: ${{ secrets.ORACLE_SSH_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY_BACKEND }}
+          envs: IMAGE_TAG
+          script: |
+            if [ ! -d "$HOME/CityPass_Login_Backend" ]; then
+              git clone https://github.com/citypass-login-federado/CityPass_Login_Backend.git ~/CityPass_Login_Backend
+            fi
+            cd ~/CityPass_Login_Backend/login-federado
+            git fetch origin main
+            git reset --hard origin/main
+            cat > .env <<'ENVEOF'
+            SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD }}
+            SUPABASE_PROJECT_REF=${{ secrets.SUPABASE_PROJECT_REF }}
+            LDAP_ADMIN_PASSWORD=${{ secrets.LDAP_ADMIN_PASSWORD }}
+            LDAP_CONFIG_PASSWORD=${{ secrets.LDAP_CONFIG_PASSWORD }}
+            LDAP_READONLY_PASSWORD=${{ secrets.LDAP_READONLY_PASSWORD }}
+            LDAP_PANEL_WRITER_PASSWORD=${{ secrets.LDAP_PANEL_WRITER_PASSWORD }}
+            SVC_GROUP1_SECRET=${{ secrets.SVC_GROUP1_SECRET }}
+            SVC_GROUP5_SECRET=${{ secrets.SVC_GROUP5_SECRET }}
+            SVC_GRUPO1_SECRET=${{ secrets.SVC_GRUPO1_SECRET }}
+            SVC_GRUPO2_SECRET=${{ secrets.SVC_GROUP2_SECRET }}
+            SVC_GRUPO3_SECRET=${{ secrets.SVC_GROUP3_SECRET }}
+            SVC_GRUPO4_SECRET=${{ secrets.SVC_GROUP4_SECRET }}
+            SVC_GRUPO5_SECRET=${{ secrets.SVC_GROUP5_SECRET }}
+            SVC_GRUPO6_SECRET=${{ secrets.SVC_GROUP6_SECRET }}
+            SVC_GRUPO7_SECRET=${{ secrets.SVC_GROUP7_SECRET }}
+            SVC_GRUPO8_SECRET=${{ secrets.SVC_GROUP8_SECRET }}
+            ANOMALY_SERVICE_URL=${{ secrets.ANOMALY_SERVICE_URL }}
+            SPRING_MAIL_HOST=${{ secrets.SPRING_MAIL_HOST }}
+            SPRING_MAIL_PORT=${{ secrets.SPRING_MAIL_PORT }}
+            SPRING_MAIL_USERNAME=${{ secrets.SPRING_MAIL_USERNAME }}
+            SPRING_MAIL_PASSWORD=${{ secrets.SPRING_MAIL_PASSWORD }}
+            SPRING_MAIL_SMTP_AUTH=true
+            SPRING_MAIL_SMTP_STARTTLS=true
+            PASSWORD_RESET_FROM=${{ secrets.PASSWORD_RESET_FROM }}
+            PASSWORD_RESET_LINK_BASE=${{ secrets.PASSWORD_RESET_LINK_BASE }}
+            ENVEOF
+            printf 'LOGIN_IMAGE_TAG=%s\n' "$IMAGE_TAG" >> .env
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+            docker image prune -f
+
+      - name: Register active version in Issues
+        uses: ./.github/actions/register-deployment
+        with:
+          service: login-federado
+          version: ${{ inputs.image_tag }}
+          artifact_tag: ${{ inputs.image_tag }}
+          image: ghcr.io/citypass-login-federado/citypass-login-backend:${{ inputs.image_tag }}
+          environment_name: production-backend
+
+  deploy-ai:
+    name: Deploy anomaly-detection (VM2)
+    needs: validate
+    if: inputs.target == 'both' || inputs.target == 'ai'
+    runs-on: ubuntu-latest
+    environment: production-ai
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Deploy selected image over SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        with:
+          host: ${{ secrets.ORACLE_HOST_AI }}
+          username: ${{ secrets.ORACLE_SSH_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY_AI }}
+          envs: IMAGE_TAG
+          script: |
+            if [ ! -d "$HOME/CityPass_Login_Backend" ]; then
+              git clone https://github.com/citypass-login-federado/CityPass_Login_Backend.git ~/CityPass_Login_Backend
+            fi
+            cd ~/CityPass_Login_Backend/anomaly-detection
+            git fetch origin main
+            git reset --hard origin/main
+            cat > .env <<'ENVEOF'
+            SUPABASE_DB_PASSWORD=${{ secrets.SUPABASE_DB_PASSWORD }}
+            SUPABASE_PROJECT_REF=${{ secrets.SUPABASE_PROJECT_REF }}
+            ENVEOF
+            printf 'ANOMALY_IMAGE_TAG=%s\n' "$IMAGE_TAG" >> .env
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+            docker image prune -f
+
+      - name: Register active version in Issues
+        uses: ./.github/actions/register-deployment
+        with:
+          service: anomaly-detection
+          version: ${{ inputs.image_tag }}
+          artifact_tag: ${{ inputs.image_tag }}
+          image: ghcr.io/citypass-login-federado/citypass-anomaly-detection:${{ inputs.image_tag }}
+          environment_name: production-ai
