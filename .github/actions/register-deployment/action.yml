@@ -32,6 +32,10 @@ runs:
         script: |
           const { owner, repo } = context.repo;
           const service = process.env.SERVICE;
+          const artifactTag = process.env.ARTIFACT_TAG?.trim();
+          if (!artifactTag) {
+            throw new Error('Missing required artifact_tag input; refusing to create an untracked deployment issue.');
+          }
           const serviceLabel = `service:${service}`;
           const activeLabel = 'deployment:active';
           const labels = [
@@ -57,14 +61,14 @@ runs:
             }
           }
 
-          const title = `[Deploy][${service}] ${process.env.ARTIFACT_TAG}`;
+          const title = `[Deploy][${service}] ${artifactTag}`;
           const deployedAt = new Date().toISOString();
           const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
           const body = [
             `## Despliegue activo: ${service}`,
             '',
             `- **Versión/tag desplegado:** \`${process.env.VERSION}\``,
-            `- **Tag:** \`${process.env.ARTIFACT_TAG}\``,
+            `- **Tag:** \`${artifactTag}\``,
             `- **Imagen:** \`${process.env.IMAGE}\``,
             `- **Ambiente:** \`${process.env.DEPLOYMENT_ENVIRONMENT}\``,
             `- **Desplegado (UTC):** ${deployedAt}`,
@@ -103,7 +107,7 @@ runs:
               owner,
               repo,
               issue_number: issue.number,
-              body: `Reemplazada por la nueva versión [${process.env.ARTIFACT_TAG}](${created.data.html_url}) el ${deployedAt}.`,
+              body: `Reemplazada por la nueva versión [${artifactTag}](${created.data.html_url}) el ${deployedAt}.`,
             });
 
             const previousLabels = issue.labels

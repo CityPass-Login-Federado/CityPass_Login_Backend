@@ -140,6 +140,12 @@ jobs:
               run: |
                   version=$(python -c 'import xml.etree.ElementTree as ET; root=ET.parse("login-federado/pom.xml").getroot(); print(root.findtext("{http://maven.apache.org/POM/4.0.0}version"))')
                   echo "value=$version" >> "$GITHUB_OUTPUT"
+                  if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+                      artifact_tag="${version}-M${GITHUB_RUN_NUMBER}"
+                  else
+                      artifact_tag="${version}-${GITHUB_RUN_NUMBER}"
+                  fi
+                  echo "artifact_tag=$artifact_tag" >> "$GITHUB_OUTPUT"
 
             - name: SSH y redeploy en Backend (VM1)
               uses: appleboy/ssh-action@v1
@@ -212,7 +218,15 @@ jobs:
 
             - name: Obtener version de anomaly-detection
               id: version
-              run: echo "value=$(cat anomaly-detection/VERSION)" >> "$GITHUB_OUTPUT"
+              run: |
+                  version=$(cat anomaly-detection/VERSION)
+                  if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+                      artifact_tag="${version}-M${GITHUB_RUN_NUMBER}"
+                  else
+                      artifact_tag="${version}-${GITHUB_RUN_NUMBER}"
+                  fi
+                  echo "value=$version" >> "$GITHUB_OUTPUT"
+                  echo "artifact_tag=$artifact_tag" >> "$GITHUB_OUTPUT"
 
             - name: SSH y redeploy en AI (VM2)
               uses: appleboy/ssh-action@v1
