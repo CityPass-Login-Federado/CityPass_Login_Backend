@@ -19,7 +19,13 @@ jobs:
               id: version
               run: |
                   version=$(python -c 'import xml.etree.ElementTree as ET; root=ET.parse("login-federado/pom.xml").getroot(); print(root.findtext("{http://maven.apache.org/POM/4.0.0}version"))')
+                                    if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+                                        artifact_tag="${version}-M${GITHUB_RUN_NUMBER}"
+                                    else
+                                        artifact_tag="${version}-${GITHUB_RUN_NUMBER}"
+                                    fi
                   echo "value=$version" >> "$GITHUB_OUTPUT"
+                                    echo "artifact_tag=$artifact_tag" >> "$GITHUB_OUTPUT"
 
             - uses: docker/setup-buildx-action@v3
 
@@ -36,7 +42,7 @@ jobs:
               with:
                   images: ghcr.io/citypass-login-federado/citypass-login-backend
                   tags: |
-                      type=raw,value=${{ steps.version.outputs.value }}-${{ github.run_number }}
+                      type=raw,value=${{ steps.version.outputs.artifact_tag }}
                       type=ref,event=branch
                       type=sha,format=short,prefix=
                       type=raw,value=latest,enable={{is_default_branch}}
@@ -70,7 +76,15 @@ jobs:
 
             - name: Obtener version de anomaly-detection
               id: version
-              run: echo "value=$(cat anomaly-detection/VERSION)" >> "$GITHUB_OUTPUT"
+              run: |
+                  version=$(cat anomaly-detection/VERSION)
+                  if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+                      artifact_tag="${version}-M${GITHUB_RUN_NUMBER}"
+                                    else
+                      artifact_tag="${version}-${GITHUB_RUN_NUMBER}"
+                                    fi
+                  echo "value=$version" >> "$GITHUB_OUTPUT"
+                  echo "artifact_tag=$artifact_tag" >> "$GITHUB_OUTPUT"
 
             - uses: docker/setup-buildx-action@v3
 
@@ -87,7 +101,7 @@ jobs:
               with:
                   images: ghcr.io/citypass-login-federado/citypass-anomaly-detection
                   tags: |
-                      type=raw,value=${{ steps.version.outputs.value }}-${{ github.run_number }}
+                      type=raw,value=${{ steps.version.outputs.artifact_tag }}
                       type=ref,event=branch
                       type=sha,format=short,prefix=
                       type=raw,value=latest,enable={{is_default_branch}}
@@ -130,7 +144,7 @@ jobs:
             - name: SSH y redeploy en Backend (VM1)
               uses: appleboy/ssh-action@v1
               env:
-                  IMAGE_TAG: ${{ steps.version.outputs.value }}-${{ github.run_number }}
+                  IMAGE_TAG: ${{ steps.version.outputs.artifact_tag }}
               with:
                   host: ${{ secrets.ORACLE_HOST_BACKEND }}
                   username: ${{ secrets.ORACLE_SSH_USER }}
@@ -180,8 +194,8 @@ jobs:
               with:
                   service: login-federado
                   version: ${{ steps.version.outputs.value }}
-                  artifact_tag: ${{ steps.version.outputs.value }}-${{ github.run_number }}
-                  image: ghcr.io/citypass-login-federado/citypass-login-backend:${{ steps.version.outputs.value }}-${{ github.run_number }}
+                  artifact_tag: ${{ steps.version.outputs.artifact_tag }}
+                  image: ghcr.io/citypass-login-federado/citypass-login-backend:${{ steps.version.outputs.artifact_tag }}
                   environment_name: production-backend
 
     deploy-ai:
@@ -203,7 +217,7 @@ jobs:
             - name: SSH y redeploy en AI (VM2)
               uses: appleboy/ssh-action@v1
               env:
-                  IMAGE_TAG: ${{ steps.version.outputs.value }}-${{ github.run_number }}
+                  IMAGE_TAG: ${{ steps.version.outputs.artifact_tag }}
               with:
                   host: ${{ secrets.ORACLE_HOST_AI }}
                   username: ${{ secrets.ORACLE_SSH_USER }}
@@ -230,6 +244,6 @@ jobs:
               with:
                   service: anomaly-detection
                   version: ${{ steps.version.outputs.value }}
-                  artifact_tag: ${{ steps.version.outputs.value }}-${{ github.run_number }}
-                  image: ghcr.io/citypass-login-federado/citypass-anomaly-detection:${{ steps.version.outputs.value }}-${{ github.run_number }}
+                  artifact_tag: ${{ steps.version.outputs.artifact_tag }}
+                  image: ghcr.io/citypass-login-federado/citypass-anomaly-detection:${{ steps.version.outputs.artifact_tag }}
                   environment_name: production-ai
