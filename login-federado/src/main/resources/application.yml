@@ -221,7 +221,7 @@ anomaly:
 # y el frontend productivo actual.
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,https://citypass-login.pp.ua,https://espacios-publicos-frontend.vercel.app,https://reclamos-frontend-g5.vercel.app,https://daii-grupo-8-frontend.vercel.app,https://citypass-residuos-frontend.onrender.com,https://citypass-frontend-prod-eha0gebyesbvhdg2.brazilsouth-01.azurewebsites.net}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,https://citypass-login.pp.ua,https://espacios-publicos-frontend.vercel.app,https://reclamos-frontend-g5.vercel.app,https://daii-grupo-8-frontend.vercel.app,https://citypass-residuos-frontend.onrender.com,https://citypass-frontend-prod-eha0gebyesbvhdg2.brazilsouth-01.azurewebsites.net,https://test.citypass.mrfranco.net.ar}
   password-reset:
     from: ${PASSWORD_RESET_FROM:no-reply@citypass.local}
     debug-log: ${PASSWORD_RESET_DEBUG_LOG:true}
