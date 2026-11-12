@@ -160,6 +160,18 @@ class SecurityConfigTest {
     }
 
     @Test
+    void preflightFromEdaFrontendSucceedsWithCorsHeaders() throws Exception {
+        String origin = "https://test.citypass.mrfranco.net.ar";
+
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        "Access-Control-Allow-Origin", origin));
+    }
+
+    @Test
     void preflightFromUnknownOriginIsRejected() throws Exception {
         mockMvc.perform(options("/auth/login")
                 .header("Origin", "https://evil.example.com")
