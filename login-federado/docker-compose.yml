@@ -65,6 +65,7 @@ services:
       SVC_GROUP1_SECRET: "group1-secret-dev"
       SVC_GRUPO2_SECRET: "${SVC_GRUPO2_SECRET:-grupo2-secret-dev}"
       ANOMALY_SERVICE_URL: "http://anomaly-detection:8000"
+      ANOMALY_APPROVAL_TTL_MINUTES: "${ANOMALY_APPROVAL_TTL_MINUTES:-15}"
       # --- SMTP (recupero de contraseña) ---
       # OJO: el default vacío ("${VAR:-}") está prohibido acá: Boot lo
       # interpreta como host configurado, crea JavaMailSender igual y se

@@ -178,4 +178,18 @@ class LoginAttemptServiceTest {
         assertThat(attempt.isSuccessful()).isFalse();
         assertThat(attempt.getAttemptedAt()).isNotNull();
     }
+
+    @Test
+    void clearsLockoutAndFailureWindowForApprovedAnomaly() {
+        LoginLockout lockout = new LoginLockout(
+                "jperez",
+                Instant.now().plusSeconds(60)
+        );
+        when(lockoutRepository.findById("jperez")).thenReturn(Optional.of(lockout));
+
+        service.clearLockout("jperez");
+
+        verify(lockoutRepository).delete(lockout);
+        verify(repository).deleteByUsernameAndSuccessfulFalse("jperez");
+    }
 }

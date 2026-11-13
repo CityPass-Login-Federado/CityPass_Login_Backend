@@ -5,6 +5,7 @@ import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.dto.LoginRequest;
 import citypass.loginfederado.dto.RefreshRequest;
 import citypass.loginfederado.event.EventPublisher;
+import citypass.loginfederado.exception.AnomalyBlockedException;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
@@ -38,6 +39,7 @@ class AuthServiceTest {
     private EventPublisher events;
     private LoginAttemptService attempts;
     private AnomalyRiskClient anomaly;
+    private AnomalyBlockedEventService anomalyEvents;
     private AuthService service;
 
     @BeforeEach
@@ -50,7 +52,9 @@ class AuthServiceTest {
         events = mock(EventPublisher.class);
         attempts = mock(LoginAttemptService.class);
         anomaly = mock(AnomalyRiskClient.class);
-        service = new AuthService(ldap, clients, issuer, refresh, jwtProperties, events, attempts, anomaly);
+        anomalyEvents = mock(AnomalyBlockedEventService.class);
+        service = new AuthService(
+                ldap, clients, issuer, refresh, jwtProperties, events, attempts, anomaly, anomalyEvents);
         when(clients.requireHuman(client.clientId())).thenReturn(client);
     }
 
@@ -154,10 +158,33 @@ class AuthServiceTest {
                 "ip",
                 "ua"
             )
-        ).isInstanceOf(BadCredentialsException.class).hasMessage(GENERIC);
+        ).isInstanceOf(AnomalyBlockedException.class)
+                .hasMessage("Acceso bloqueado por actividad inusual");
         
         verify(attempts).recordAttempt("jperez", "ip", "ua", false);
+        verify(anomalyEvents).recordBlockedEvent(eq(person), eq(client.clientId()),
+                eq("ip"), eq("ua"), any());
         verify(issuer, never()).issueHuman(any(), any());
+    }
+
+    @Test
+    void approvedAnomalyOverrideIsConsumedOnceAndLoginContinues() throws Exception {
+        when(ldap.findByUid("jperez")).thenReturn(java.util.Optional.of(person));
+        when(clients.acceptsModule(client, "reclamos")).thenReturn(true);
+        when(anomaly.score("jperez", "ip", "ua"))
+                .thenReturn(new citypass.loginfederado.dto.AnomalyScoreResponse(
+                        0.99, "BLOCK", List.of("risk")));
+        when(anomalyEvents.consumeApprovedOverride(
+                "jperez", client.clientId(), "ip", "ua")).thenReturn(true);
+        when(issuer.issueHuman(person, client)).thenReturn("access");
+        when(refresh.issueInitial(person, client)).thenReturn("refresh");
+
+        var response = service.login(
+                new LoginRequest("jperez", "secret", client.clientId()), "ip", "ua");
+
+        assertThat(response.accessToken()).isEqualTo("access");
+        verify(attempts).recordAttempt("jperez", "ip", "ua", true);
+        verify(anomalyEvents, never()).recordBlockedEvent(any(), any(), any(), any(), any());
     }
 
     @Test

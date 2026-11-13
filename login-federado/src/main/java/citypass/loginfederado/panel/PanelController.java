@@ -2,6 +2,7 @@ package citypass.loginfederado.panel;
 
 import citypass.loginfederado.panel.dto.AdminGroupView;
 import citypass.loginfederado.panel.dto.AdminPersonView;
+import citypass.loginfederado.panel.dto.AnomalyEventView;
 import citypass.loginfederado.panel.dto.BulkMembershipRequest;
 import citypass.loginfederado.panel.dto.BulkMembershipResponse;
 import citypass.loginfederado.panel.dto.GlobalPersonView;
@@ -16,6 +17,8 @@ import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
+import citypass.loginfederado.model.AnomalyEventStatus;
+import citypass.loginfederado.service.AnomalyBlockedEventService;
 import citypass.loginfederado.service.RefreshTokenService;
 import org.springframework.security.access.AccessDeniedException;
 import io.swagger.v3.oas.annotations.Operation;
@@ -42,13 +45,13 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * Único entrypoint HTTP del backend del panel (manual §5-§6).
  *
- * Regla de segregación hecha "opción que no existe": el módulo operado sale
- * SIEMPRE del claim `module` del token del delegado — ningún endpoint acepta
- * un módulo por parámetro, así nadie puede siquiera nombrar otro módulo.
+ * Los delegados quedan limitados al módulo del claim `module`. El parámetro
+ * module solo tiene efecto para un administrador global.
  *
  * Todos los endpoints requieren un access token humano con:
  * audience=citypass-admin-api, token_use=human, grupo delegados y claim module.
@@ -63,19 +66,22 @@ public class PanelController {
     private final PanelAuthorization authorization;
     private final PanelAuditService audit;
     private final RefreshTokenService refreshTokens;
+    private final AnomalyBlockedEventService anomalyEvents;
 
     public PanelController(PanelPersonService persons,
                         PanelGroupService groups,
                         PanelAccountService accounts,
                         PanelAuthorization authorization,
                         PanelAuditService audit,
-                        RefreshTokenService refreshTokens) {
+                        RefreshTokenService refreshTokens,
+                        AnomalyBlockedEventService anomalyEvents) {
         this.persons = persons;
         this.groups = groups;
         this.accounts = accounts;
         this.authorization = authorization;
         this.audit = audit;
         this.refreshTokens = refreshTokens;
+        this.anomalyEvents = anomalyEvents;
     }
 
     // ------------------------------------------------------------------
@@ -263,6 +269,53 @@ public class PanelController {
         var delegate = delegate(jwt, module);
         accounts.resetPassword(delegate, delegate.module(), uid, request.temporaryPassword());
         return ResponseEntity.noContent().build();
+    }
+
+    // ------------------------------------------------------------------
+    // Seguridad — eventos bloqueados por anomalías
+    // ------------------------------------------------------------------
+
+    @Operation(
+            summary = "Listar eventos bloqueados por anomalías",
+            description = "Un delegado ve únicamente su módulo. El admin global puede listar "
+                    + "todos los módulos o filtrar con ?module=.",
+            tags = "Panel — Seguridad")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página de eventos de anomalía"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin permisos de panel")
+    })
+    @GetMapping("/anomaly-events")
+    public PaginatedResponse<AnomalyEventView> listAnomalyEvents(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) String module,
+            @RequestParam(defaultValue = "BLOCKED") AnomalyEventStatus status,
+            @RequestParam(required = false) String username,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        String moduleScope = anomalyModuleScope(jwt, module);
+        return anomalyEvents.listEvents(moduleScope, status, username, page, size);
+    }
+
+    @Operation(
+            summary = "Aprobar un evento bloqueado",
+            description = "Habilita un único reintento durante la ventana configurada y solo "
+                    + "para el mismo usuario, cliente, IP y user-agent.",
+            tags = "Panel — Seguridad")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Evento aprobado"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin permisos de panel"),
+            @ApiResponse(responseCode = "404", description = "Evento inexistente o fuera del módulo"),
+            @ApiResponse(responseCode = "409", description = "La aprobación ya fue consumida")
+    })
+    @PostMapping("/anomaly-events/{eventId}/approve")
+    public AnomalyEventView approveAnomalyEvent(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID eventId
+    ) {
+        return anomalyEvents.approveEvent(eventId, authorization.requireDelegate(jwt));
     }
 
     // ------------------------------------------------------------------
@@ -491,6 +544,21 @@ public class PanelController {
             throw new AccessDeniedException("Solo admin global");
         }
         return base;
+    }
+
+    private String anomalyModuleScope(Jwt jwt, String moduleParam) {
+        PanelAuthorization.Delegate actor = authorization.requireDelegate(jwt);
+        if (!actor.global()) {
+            return actor.module();
+        }
+        if (moduleParam == null || moduleParam.isBlank()) {
+            return null;
+        }
+        String module = moduleParam.trim().toLowerCase(Locale.ROOT);
+        if (!PanelDirectoryRules.MODULES.contains(module)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo inválido: " + moduleParam);
+        }
+        return module;
     }
 
     private static ResponseStatusException notFound(String message) {

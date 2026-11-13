@@ -7,6 +7,7 @@ import citypass.loginfederado.dto.LoginResponse;
 import citypass.loginfederado.dto.RefreshRequest;
 import citypass.loginfederado.event.EventPublisher;
 import citypass.loginfederado.exception.AccountLockedException;
+import citypass.loginfederado.exception.AnomalyBlockedException;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
@@ -35,8 +36,9 @@ import javax.naming.NamingException;
  *   5) bind con el DN encontrado, en conexión nueva que se cierra
  *   6) emitir access token (15 min) + refresh token (8 h, rotativo)
  *
- * TODOS los caminos de falla devuelven el mismo error, byte por byte:
- * nadie puede mapear qué usuarios existen ni quién pertenece a qué módulo.
+ * Las fallas de credenciales, pertenencia y lockout son indistinguibles para
+ * impedir enumeración. Solo anomalías comunica categorías explícitas 403/503,
+ * sin exponer la razón interna ni datos de la cuenta.
  */
 @Service
 public class AuthService {
@@ -52,6 +54,7 @@ public class AuthService {
     private final EventPublisher eventPublisher;
     private final LoginAttemptService loginAttemptService;
     private final AnomalyRiskClient anomalyRiskClient;
+    private final AnomalyBlockedEventService anomalyBlockedEventService;
 
     public AuthService(LdapDirectory ldapDirectory,
                        ClientRegistry clientRegistry,
@@ -60,7 +63,8 @@ public class AuthService {
                        JwtProperties jwtProperties,
                        EventPublisher eventPublisher,
                        LoginAttemptService loginAttemptService,
-                       AnomalyRiskClient anomalyRiskClient) {
+                       AnomalyRiskClient anomalyRiskClient,
+                       AnomalyBlockedEventService anomalyBlockedEventService) {
         this.ldapDirectory = ldapDirectory;
         this.clientRegistry = clientRegistry;
         this.accessTokenIssuer = accessTokenIssuer;
@@ -69,6 +73,7 @@ public class AuthService {
         this.eventPublisher = eventPublisher;
         this.loginAttemptService = loginAttemptService;
         this.anomalyRiskClient = anomalyRiskClient;
+        this.anomalyBlockedEventService = anomalyBlockedEventService;
     }
 
     public LoginResponse login(LoginRequest request, String ipAddress, String userAgent) {
@@ -142,11 +147,28 @@ public class AuthService {
                 request.username(), ipAddress, userAgent
         );
         if ("BLOCK".equals(riskAssessment.decision())) {
-            // La razón del bloqueo NO sale en la respuesta (mismo error que todo).
-            securityLog.warn("Login rechazado por anomalías: usuario={} razones={}",
-                    request.username(), riskAssessment.reasons());
-            loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, false);
-            throw new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE);
+            if (anomalyBlockedEventService.consumeApprovedOverride(
+                    request.username(), client.clientId(), ipAddress, userAgent)) {
+                securityLog.warn(
+                        "Login anómalo autorizado por aprobación administrativa de un solo uso: usuario={}",
+                        request.username());
+            } else {
+                var eventId = anomalyBlockedEventService.recordBlockedEvent(
+                        person,
+                        client.clientId(),
+                        ipAddress,
+                        userAgent,
+                        riskAssessment
+                );
+                securityLog.warn(
+                        "Login rechazado por anomalías: evento={} usuario={} score={} razones={}",
+                        eventId,
+                        request.username(),
+                        riskAssessment.riskScore(),
+                        riskAssessment.reasons());
+                loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, false);
+                throw new AnomalyBlockedException("Acceso bloqueado por actividad inusual");
+            }
         }
         // TODO: si decision == "REVIEW", marcar el LoginAttempt para auditoría
         // (requiere agregar una columna tipo `flagged_for_review` a login_attempts).
