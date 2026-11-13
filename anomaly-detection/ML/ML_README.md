@@ -6,7 +6,7 @@ El módulo `ML` de `anomaly-detection` es una prueba de concepto orientada a dem
 
 Esta primera versión utiliza **Isolation Forest**, un algoritmo de aprendizaje no supervisado diseñado para identificar observaciones que se alejan del comportamiento habitual.
 
-El módulo fue construido de forma **independiente de la lógica productiva actual**. Las reglas existentes siguen siendo las responsables del comportamiento real del sistema. El modelo de Machine Learning no bloquea usuarios, no modifica sesiones y no reemplaza las reglas actuales.
+El servicio utiliza un enfoque híbrido: carga Isolation Forest cuando el artefacto está disponible y conserva las reglas determinísticas como respaldo. La decisión `BLOCK` resultante forma parte del flujo productivo de login.
 
 Su objetivo es disponer de:
 
@@ -20,7 +20,7 @@ Su objetivo es disponer de:
 
 ## 2. Arquitectura general
 
-La arquitectura actual puede entenderse como dos caminos separados.
+La arquitectura combina entrenamiento offline e inferencia productiva.
 
 ### Flujo productivo
 
@@ -28,19 +28,22 @@ La arquitectura actual puede entenderse como dos caminos separados.
 Intento de autenticación
         |
         v
-Datos / eventos del sistema
+Historial real en PostgreSQL
         |
         v
-Reglas actuales
+Feature engineering
         |
         v
-Decisiones productivas
+Isolation Forest (o reglas de respaldo)
+        |
+        v
+ALLOW / REVIEW / BLOCK
 ```
 
-### Flujo experimental de Machine Learning
+### Flujo de entrenamiento
 
 ```text
-Dataset sintético
+Dataset sintético o exportación real
         |
         v
 Feature engineering
@@ -53,7 +56,7 @@ Predicción
 NORMAL / ANOMALY
 ```
 
-El flujo experimental no altera el flujo productivo.
+El entrenamiento se ejecuta offline; el runtime solo carga el artefacto generado.
 
 ---
 
@@ -813,16 +816,17 @@ El script valida:
 Cuando se desea regenerar y volver a entrenar completamente el experimento se ejecuta:
 
 ```bash
-python generate_dataset.py
-python preprocess.py
-python train.py
-python evaluate.py
+cd anomaly-detection
+python -m ML.generate_dataset
+python -m ML.preprocess
+python -m ML.train
+python -m ML.evaluate
 ```
 
 Luego pueden realizarse predicciones individuales con:
 
 ```bash
-python predict.py --hour 2 --new-ip 1 --new-device 1 --failures 4 --history 50
+python -m ML.predict --hour 2 --new-ip 1 --new-device 1 --failures 4 --history 50
 ```
 
 ---
@@ -848,35 +852,26 @@ pip install -r requirements.txt
 
 ## 30. Relación con producción
 
-Es importante distinguir la PoC de Machine Learning del comportamiento productivo actual.
+El servicio aplica un enfoque híbrido en producción.
 
 Actualmente:
 
 ```text
-Reglas existentes
+Features del intento
         |
         v
-Decisiones reales
-```
-
-El modelo ML:
-
-```text
-Isolation Forest
+Isolation Forest disponible? -- no --> Reglas determinísticas
+        |
+       sí
+        v
+Score ML
         |
         v
-Resultado experimental
+ALLOW / REVIEW / BLOCK
 ```
 
-No reemplaza las reglas.
-
-No bloquea usuarios.
-
-No revoca sesiones.
-
-No modifica decisiones de autenticación.
-
-No interviene en el comportamiento productivo actual.
+El modelo no revoca sesiones ni modifica identidades. Sí participa en la decisión
+de login; las reglas continúan disponibles cuando el artefacto no puede cargarse.
 
 ---
 
@@ -941,7 +936,57 @@ Antes de utilizar un modelo de este tipo en producción sería necesario entrena
 
 ---
 
-## 33. Conclusión
+## 33. Reentrenamiento con datos reales
+
+El repositorio incluye un comando administrativo offline que exporta los intentos
+persistidos en `login_attempts`, construye las mismas cinco features usadas durante
+la inferencia y reemplaza el artefacto solamente cuando el entrenamiento finaliza
+correctamente.
+
+La conexión debe usar una cuenta PostgreSQL de solo lectura:
+
+```bash
+cd anomaly-detection
+set ANOMALY_DB_URL=postgresql://usuario_lectura:clave@host:5432/login_federado
+python train.py --from 2026-01-01T00:00:00Z --to 2026-11-01T00:00:00Z
+```
+
+En PowerShell, la variable se define con:
+
+```powershell
+$env:ANOMALY_DB_URL = "postgresql://usuario_lectura:clave@host:5432/login_federado"
+python train.py --from 2026-01-01T00:00:00Z --to 2026-11-01T00:00:00Z
+```
+
+El proceso genera:
+
+- `ML/data/real_events.csv`: exportación cruda sensible;
+- `ML/data/real_processed_features.csv`: features calculadas;
+- `ML/models/isolation_forest.pkl`: modelo consumido por el Dockerfile;
+- `ML/models/isolation_forest.metadata.json`: trazabilidad del entrenamiento.
+
+Los dos CSV reales y el archivo de metadata están ignorados por Git. Los intentos
+fallidos participan del historial para calcular `recent_failures_15min`, pero por
+defecto solamente los logins exitosos se utilizan en `model.fit`. Para impedir un
+reemplazo accidental con una muestra insuficiente, el comando exige al menos 100
+logins exitosos; el mínimo puede ajustarse explícitamente con `--min-records`.
+
+También es posible ejecutar cada etapa por separado:
+
+```bash
+python export_real_events.py --from 2026-01-01T00:00:00Z
+python -m ML.preprocess --input ML/data/real_events.csv --output ML/data/real_processed_features.csv
+python -m ML.train --input ML/data/real_processed_features.csv
+```
+
+Los datos reales no poseen etiquetas confiables de fraude. Por ese motivo el
+entrenamiento reporta distribución de scores y tasa de anomalías, pero no presenta
+precision, recall o F1 como si fueran métricas reales. La evaluación etiquetada del
+dataset sintético se conserva como benchmark separado.
+
+---
+
+## 34. Conclusión
 
 El módulo `ML` demuestra que los datos asociados a los intentos de autenticación de CityPass pueden transformarse en features comportamentales y ser utilizados por un modelo de detección de anomalías.
 

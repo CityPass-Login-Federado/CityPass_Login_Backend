@@ -9,19 +9,13 @@ from sklearn.metrics import (
     f1_score,
 )
 
-from config import (
+from app.feature_contract import FEATURE_ORDER
+from ML.config import (
     PROCESSED_DATASET_PATH,
     MODEL_PATH,
 )
 
-
-FEATURE_COLUMNS = [
-    "hour_of_day",
-    "is_new_ip",
-    "is_new_device",
-    "recent_failures_15min",
-    "history_size",
-]
+FEATURE_COLUMNS = FEATURE_ORDER
 
 
 def load_data_and_model():

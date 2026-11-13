@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.schemas import LoginAttemptFeatures, RiskScoreResponse
 from app.features import build_features
-from app.model import score
+from app.model import model_status, score
 from datetime import datetime
 from pathlib import Path
 
@@ -11,7 +11,7 @@ app = FastAPI(title="CityPass Anomaly Detection", version=APP_VERSION)
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "model": model_status()}
 
 @app.post("/score", response_model=RiskScoreResponse)
 def score_login(attempt: LoginAttemptFeatures):
