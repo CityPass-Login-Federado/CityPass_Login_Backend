@@ -1,42 +1,25 @@
-﻿# Sequence Diagram — Flujo de Logout
+# Sequence Diagram — Logout
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Client (App)
+    participant C as Cliente
     participant AC as AuthController
-    participant SEC as SecurityFilterChain
     participant AS as AuthService
     participant RTS as RefreshTokenService
     participant DB as PostgreSQL
 
-    C->>AC: POST /auth/logout
-    Note over C,AC: Header: Authorization: Bearer <accessToken>
-
-    rect rgb(255, 240, 240)
-        Note over SEC: Validación JWT (obligatorio)
-        SEC->>SEC: JwtDecoder valida firma RS256 + expiración
-        SEC->>SEC: Extrae subject del JWT
+    C->>AC: POST /auth/logout {refreshToken}
+    Note over C,AC: Endpoint público; no exige access token
+    AC->>AS: logout(rawToken)
+    AS->>RTS: revokeSingle(rawToken)
+    RTS->>DB: buscar SHA-256(rawToken)
+    alt token conocido
+        RTS->>DB: guardar revoked_at
+    else token desconocido o vacío
+        Note over RTS: No revela si existió
     end
-
-    AC->>AS: logout(username = jwt.getSubject())
-    AS->>RTS: revokeAllFor(username)
-    RTS->>DB: findAllByUsernameAndRevokedFalse(username)
-    DB-->>RTS: lista de tokens activos
-
-    loop Para cada token activo
-        RTS->>RTS: revoke()
-    end
-
-    RTS->>DB: UPDATE refresh_tokens SET revoked=true WHERE...
-    RTS-->>AS: void
-    AS-->>AC: void
     AC-->>C: 204 No Content
 ```
 
-## Resumen
-
-1. **JWT obligatorio**: El endpoint `/auth/logout` NO es público — requiere un access token válido
-2. **Identificación**: El `sub` del JWT identifica al usuario (no se recibe por body)
-3. **Revocación masiva**: Se revocan TODOS los refresh tokens activos del usuario
-4. **Access token**: Sigue válido hasta su expiración (15 min) — no hay blacklist
+El logout revoca solo el refresh presentado. El access token existente continúa válido hasta su expiración máxima de 15 minutos. La revocación masiva por `sub` se usa al deshabilitar una persona desde el panel, no en este endpoint.

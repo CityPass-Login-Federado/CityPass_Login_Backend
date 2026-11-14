@@ -1,12 +1,16 @@
 ﻿# ADR-007: Dockerfile multi-stage para la aplicación
 
+## Estado
+
+Accepted — 14 de noviembre de 2026.
+
 ## Quiénes
 
 | Nombre | Rol |
 |--------|-----|
 | Antonio Wu | Seguridad / Backend |
 
-## Consideraciones
+## Contexto y Problema
 
 La aplicación Spring Boot necesita desplegarse como contenedor Docker. Actualmente el `docker-compose.yml` solo levanta infraestructura (LDAP + PostgreSQL), y la app se ejecuta fuera de Docker con `mvn spring-boot:run`. Se necesita un Dockerfile para:
 - Despliegue consistente en todos los ambientes
@@ -18,7 +22,7 @@ Restricciones y supuestos adicionales:
 - La imagen final no debe contener código fuente, cachés de Maven ni secretos
 - Debe funcionar igual en CI/CD que en local
 
-### Opciones consideradas
+## Opciones Consideradas (Pros y Contras de cada una)
 
 #### Opción A: Dockerfile single-stage (solo Maven)
 
@@ -33,7 +37,7 @@ Restricciones y supuestos adicionales:
 
 | Pros | Contras |
 |------|---------|
-| Imagen de producción mínima (~200MB JRE) | Más complejo de escribir |
+| Imagen de runtime menor que la de build | Más complejo de escribir |
 | Build reproducible (Maven en stage 1) | Dos stages que mantener |
 | Sin código fuente ni herramientas de build en prod | |
 | Mejor seguridad (menos superficie de ataque) | |
@@ -46,18 +50,18 @@ Restricciones y supuestos adicionales:
 | Auto-detecta el runtime | Dependencia de buildpacks |
 | Genera imagen optimizada | Menos transparente |
 
-## Por todo esto, definimos
+## Decisión Tomada y Justificación
 
 Adoptar un **Dockerfile multi-stage**: stage `build` (imagen Maven para compilar y empaquetar) y stage `runtime` (imagen JRE mínima con solo el JAR).
 
 Razones principales:
-1. **Seguridad**: La imagen de producción solo tiene el JRE y el JAR — sin Maven, sin código fuente, sin shell
-2. **Tamaño**: ~200MB vs ~700MB+ (single-stage)
+1. **Seguridad**: La imagen de producción contiene JRE y JAR, sin Maven ni código fuente, y ejecuta un usuario no root
+2. **Tamaño**: El stage de runtime evita transportar herramientas y cachés del build
 3. **Reproducibilidad**: El build usa Maven en un contenedor estandarizado
 4. **Control**: Sabemos exactamente qué hay en la imagen final
 5. **Estándar**: Es la práctica recomendada por Docker y Spring Boot para aplicaciones Java
 
-## Consecuencias
+## Consecuencias Técnicas
 
 ### Positivas
 

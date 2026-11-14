@@ -1,46 +1,58 @@
-﻿# C4 Component Diagram — Login Federado (Nivel 3)
+# C4 Component Diagram — Login Federado (Nivel 3)
 
 ```mermaid
 C4Component
-    title Diagrama de Componentes — Módulo Login Federado
+    title Componentes reales de login-federado
 
-    Container_Boundary(login, "Login Federado (Spring Boot)") {
-        Component(authCtrl, "AuthController", "REST Controller", "Endpoints /auth/login, /auth/refresh, /auth/logout")
-        Component(jwksCtrl, "JwksController", "REST Controller", "Endpoint /.well-known/jwks.json")
-        Component(authSvc, "AuthService", "Service", "Orquesta login, refresh, logout")
-        Component(rtSvc, "RefreshTokenService", "Service", "Genera, valida y rota refresh tokens")
-        Component(laSvc, "LoginAttemptService", "Service", "Bloqueo por fuerza bruta (ventana deslizante)")
-        Component(evtPub, "EventPublisher", "Interface", "Publica eventos de autenticación")
-        Component(secCfg, "SecurityConfig", "Config", "Cadena de filtros HTTP, endpoints públicos")
-        Component(ldapCfg, "LdapConfig", "Config", "Autenticación LDAP bind, búsqueda de usuarios")
-        Component(jwtCfg, "JwtKeyConfig", "Config", "Par de claves RSA, JwtEncoder/JwtDecoder")
+    Container_Boundary(login, "Spring Boot") {
+        Component(authCtrl, "AuthController", "REST", "/auth/login, /refresh, /logout")
+        Component(oauthCtrl, "OAuthTokenController", "REST", "client_credentials")
+        Component(jwksCtrl, "JwksController", "REST", "JWKS público")
+        Component(panelCtrl, "PanelController", "REST", "Personas y grupos")
+        Component(authSvc, "AuthService", "Service", "Orquesta el login")
+        Component(refreshSvc, "RefreshTokenService", "Service", "Rotación y detección de reuso")
+        Component(attemptSvc, "LoginAttemptService", "Service", "Ventana de lockout")
+        Component(directory, "LdapDirectory", "Adapter", "Búsqueda y bind")
+        Component(panelSvc, "PanelDirectoryService", "Service", "Mutaciones LDAP")
+        Component(audit, "PanelAuditService", "Service", "Auditoría SQL")
+        Component(risk, "AnomalyRiskClient", "REST Client", "Scoring fail-closed")
+        Component(tokens, "AccessTokenIssuer", "Component", "JWT RS256")
+        Component(events, "LoggingEventPublisher", "Adapter", "Evento a log; sin broker")
     }
 
-    System_Ext(openldap, "OpenLDAP", "Directorio de identidades")
-    System_Ext(postgres, "PostgreSQL", "Base de datos")
+    System_Ext(ldap, "OpenLDAP", "Directorio")
+    System_Ext(db, "PostgreSQL", "Persistencia operacional")
+    System_Ext(ml, "anomaly-detection", "FastAPI")
 
-    Rel(authCtrl, authSvc, "Delega autenticación")
-    Rel(authSvc, ldapCfg, "Autentica contra LDAP")
-    Rel(authSvc, jwtCfg, "Emite JWT")
-    Rel(authSvc, rtSvc, "Emite refresh token")
-    Rel(authSvc, laSvc, "Registra/verifica intentos")
-    Rel(authSvc, evtPub, "Publica evento")
-    Rel(rtSvc, postgres, "Persiste tokens (hash SHA-256)")
-    Rel(laSvc, postgres, "Persiste intentos de login")
-    Rel(jwksCtrl, jwtCfg, "Expone clave pública")
+    Rel(authCtrl, authSvc, "Delega")
+    Rel(authSvc, directory, "Busca y autentica")
+    Rel(authSvc, attemptSvc, "Verifica y registra")
+    Rel(authSvc, risk, "Evalúa riesgo")
+    Rel(authSvc, tokens, "Emite access token")
+    Rel(authSvc, refreshSvc, "Emite refresh")
+    Rel(authSvc, events, "Registra usuario.autenticado")
+    Rel(panelCtrl, panelSvc, "Administra")
+    Rel(panelSvc, ldap, "Escribe")
+    Rel(panelSvc, audit, "Registra")
+    Rel(directory, ldap, "LDAP")
+    Rel(refreshSvc, db, "refresh_tokens")
+    Rel(attemptSvc, db, "login_attempts")
+    Rel(audit, db, "panel_audit")
+    Rel(risk, ml, "POST /score")
 ```
 
-## Paquetes del proyecto
+## Paquetes reales
 
-```
+```text
 citypass.loginfederado
-├── controller/     → AuthController, JwksController
-├── service/        → AuthService, RefreshTokenService, LoginAttemptService
-├── security/       → LdapUserPrincipal, CustomLdapUserDetailsMapper
-├── config/         → SecurityConfig, LdapConfig, JwtKeyConfig, JwtProperties
-├── repository/     → RefreshTokenRepository, LoginAttemptRepository
-├── model/          → RefreshToken, LoginAttempt (JPA entities)
-├── dto/            → LoginRequest, LoginResponse, RefreshRequest
-├── event/          → EventPublisher, LoggingEventPublisher, UsuarioAutenticadoEvent
-└── exception/      → AccountLockedException, GlobalExceptionHandler
+├── controller/     Auth, JWKS y OAuth
+├── service/        login, refresh y lockout
+├── identity/       LDAP y registro de clientes
+├── security/       cliente de riesgo
+├── panel/          autorización, directorio y auditoría
+├── token/          emisión JWT
+├── event/          puerto y adaptador de logging
+├── repository/     Spring Data JPA
+├── config/         Security, LDAP, RSA y properties
+└── exception/      errores REST centralizados
 ```

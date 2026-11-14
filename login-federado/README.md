@@ -1,5 +1,7 @@
 # login-federado
 
+> La documentación oficial auditada se encuentra en [`../README.md`](../README.md) y en esta carpeta [`docs/`](docs/).
+
 Módulo de Login Federado (LDAP + JWT RS256) — Proyecto CityPass+, Grupo 2.
 
 Un IdP propio: autentica contra OpenLDAP, consulta un microservicio de
@@ -52,7 +54,7 @@ van como secrets del proveedor cloud).
 
 ```bash
 docker compose up -d openldap postgres anomaly-detection
-./mvnw spring-boot:run
+mvn spring-boot:run
 ```
 
 Swagger UI: <http://localhost:8081/docs>
@@ -211,7 +213,7 @@ dto/ model/ repository/
 ## Tests
 
 ```bash
-./mvnw test
+mvn test
 ```
 
 Tests unitarios (JUnit 5 + Mockito) sobre emisión de tokens, reglas del panel,

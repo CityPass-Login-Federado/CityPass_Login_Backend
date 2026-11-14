@@ -1,78 +1,45 @@
-﻿# ADR-006: Event bus — placeholder con abstracción para Kafka/RabbitMQ
+# ADR-006: Puerto de eventos y adaptación progresiva al Event Bus
 
-## Quiénes
+## Estado
 
-| Nombre | Rol |
-|--------|-----|
-| Antonio Wu | Seguridad / Backend |
+Accepted — 14 de noviembre de 2026. La decisión aceptada es el desacoplamiento; el broker sigue pendiente.
 
-## Consideraciones
+## Contexto y Problema
 
-CityPass+ requiere comunicación asincrónica entre módulos (EDA — Event Driven Architecture). El Grupo 1 diseña el bus de eventos, contratos y políticas. El módulo de login necesita:
-- Publicar eventos de autenticación (`usuario.autenticado`)
-- Eventualmente consumir eventos relevantes (ej: `usuario.registrado`)
+El login debe informar hechos de dominio a otros squads, pero el repositorio no contiene contrato definitivo de broker, topics, envelope, autenticación ni garantías. Acoplar `AuthService` prematuramente a Kafka o RabbitMQ haría difícil cambiar de transporte.
 
-Restricciones y supuestos adicionales:
-- La tecnología del broker no depende de este módulo: la decide el Grupo 1
-- No podemos bloquear nuestro desarrollo ni nuestro testing esperando esa definición
-- El código de dominio no debe acoplarse a una API de broker concreta
+## Opciones Consideradas (Pros y Contras de cada una)
 
-### Opciones consideradas
+### Llamadas REST a consumidores
 
-#### Opción A: Implementar Kafka directamente
+- Pros: simples y observables.
+- Contras: acoplamiento temporal y de disponibilidad; no es EDA.
 
-| Pros | Contras |
-|------|---------|
-| Solución final, production-ready | Requiere que el Grupo 1 defina contratos primero |
-| Alto throughput | Acoplamiento temprano a una tecnología específica |
-| | Complejidad de configuración (bootstrap servers, topics, ACLs) |
+### Kafka/RabbitMQ directo desde dominio
 
-#### Opción B: Implementar RabbitMQ directamente
+- Pros: entrega real inmediata.
+- Contras: acoplamiento a SDK, configuración y contrato aún no acordado.
 
-| Pros | Contras |
-|------|---------|
-| Solución final | Mismos problemas que Kafka |
-| Modelo de colas simple | |
+### Puerto `EventPublisher` + adaptador temporal
 
-#### Opción C: Abstracción con placeholder (logging)
+- Pros: dominio estable, pruebas sustituibles y migración localizada.
+- Contras: el adaptador de logging no entrega eventos y puede ocultar la deuda.
 
-| Pros | Contras |
-|------|---------|
-| Desacoplado del broker específico | Eventos solo se loguean, no se entregan |
-| Listo para integrar cuando el Grupo 1 publique el contrato | Requiere implementación futura |
-| Interfaz limpia: solo cambiar la implementación | |
-| Permite desarrollo y testing sin infraestructura de messaging | |
+### Outbox transaccional desde el inicio
 
-## Por todo esto, definimos
+- Pros: entrega al menos una vez y consistencia con SQL.
+- Contras: requiere tabla, relay, idempotencia y broker definidos.
 
-Definir una **interfaz `EventPublisher` con una implementación placeholder (`LoggingEventPublisher`)** que serializa los eventos a JSON y los registra en logs. La migración a Kafka o RabbitMQ será una nueva implementación sin cambios en el dominio.
+## Decisión Tomada y Justificación
 
-Razones principales:
-1. **Independencia**: Podemos desarrollar y testear sin esperar al Grupo 1
-2. **Desacoplamiento**: La interfaz `EventPublisher` no cambia — solo se reemplaza la implementación
-3. **Testing**: Los tests pueden verificar que el evento se publica sin un broker real
-4. **Migración futura**: Cuando el Grupo 1 defina contratos, solo creamos `KafkaEventPublisher` o `RabbitMQEventPublisher`
+`AuthService` depende de `EventPublisher`. La implementación actual `LoggingEventPublisher` serializa `UsuarioAutenticadoEvent` y lo escribe al log con tipo `usuario.autenticado`. El payload contiene `eventId`, `eventType`, `occurredAt`, `sub`, `uid`, `module` y `groups`.
 
-## Consecuencias
+Se acepta como seam arquitectónico y placeholder explícito hasta recibir el contrato del Squad 1; no se considera publicación EDA completa.
 
-### Positivas
+## Consecuencias Técnicas
 
-- Desarrollo y testing inmediatos, sin infraestructura de messaging
-- Dominio desacoplado de la tecnología de transporte
-- Selección de implementación por ambiente vía `@Primary`/`@Profile`
-- Integración futura de bajo costo: agregar una clase, tocar cero código de negocio
-
-### Negativas
-
-- Los eventos hoy solo se loguean: no hay entrega real ni durabilidad
-- Riesgo de que el placeholder viva más de lo previsto (deuda técnica visible)
-- Dependemos de decisiones del Grupo 1 para cerrar la integración
-- Doble esfuerzo: abstracción ahora + implementación real después
-
-## Referencias (benchmark)
-
-- Gregor Hohpe & Bobby Woolf — Enterprise Integration Patterns (Addison-Wesley) — https://www.enterpriseintegrationpatterns.com/
-- Martin Fowler — What do you mean by “Event-Driven”? — https://martinfowler.com/articles/201701-event-driven.html
-- Spring Cloud Stream (abstracción sobre brokers de mensajería) — https://spring.io/projects/spring-cloud-stream
-- Apache Kafka Documentation — https://kafka.apache.org/documentation/
-- RabbitMQ Tutorials — https://www.rabbitmq.com/tutorials
+- No hay broker, topic, credencial, DLQ, retry, outbox, confirmación, consumidor ni garantía de entrega.
+- El evento se emite después de persistir tokens; un error de serialización solo se loguea.
+- No se publican eventos de refresh, logout ni operaciones administrativas.
+- La integración final debe agregar un adaptador, configuración por ambiente, envelope versionado, idempotencia y pruebas de contrato.
+- Para tolerar fallos sin perder eventos, la opción recomendada es outbox transaccional sobre PostgreSQL más relay al broker acordado.

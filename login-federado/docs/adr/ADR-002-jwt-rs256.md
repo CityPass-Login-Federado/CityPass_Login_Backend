@@ -1,21 +1,25 @@
 ﻿# ADR-002: JWT RS256 como mecanismo de tokens de acceso
 
+## Estado
+
+Accepted — 14 de noviembre de 2026.
+
 ## Quiénes
 
 | Nombre | Rol |
 |--------|-----|
 | Antonio Wu | Seguridad / Backend |
 
-## Consideraciones
+## Contexto y Problema
 
-El módulo de login necesita emitir tokens de acceso que los otros 6 módulos puedan validar sin llamar al servicio de autenticación en cada request. El token debe contener información del usuario (roles, nombre, email) y tener un tiempo de vida corto.
+El módulo de login necesita emitir tokens de acceso que los demás módulos puedan validar sin llamar al servicio de autenticación en cada request. El JWT humano actual contiene `sub`, `aud`, `token_use`, `ver`, `preferred_username`, `module` y `groups`, con una vida de 15 minutos.
 
 Restricciones y supuestos adicionales:
 - La clave de firma nunca debe salir del módulo de autenticación
 - Los módulos consumidores deben poder validar offline, sin llamadas de red
 - Debe ser compatible con estándares abiertos para facilitar la adopción por otros equipos
 
-### Opciones consideradas
+## Opciones Consideradas (Pros y Contras de cada una)
 
 #### Opción A: JWT HS256 (firma simétrica)
 
@@ -44,7 +48,7 @@ Restricciones y supuestos adicionales:
 | | Cada request requiere lookup en BD/Redis |
 | | Acopla todos los módulos al servicio de auth |
 
-## Por todo esto, definimos
+## Decisión Tomada y Justificación
 
 Emitir **tokens de acceso como JWT firmados con RS256** (firma asimétrica RSA), publicando las claves públicas vía JWKS (`/.well-known/jwks.json`).
 
@@ -54,7 +58,7 @@ Razones principales:
 3. **JWKS**: El endpoint `/.well-known/jwks.json` es un estándar que cualquier librería JWT consume
 4. **Escalabilidad**: Agregar un módulo nuevo solo requiere descargar la clave pública
 
-## Consecuencias
+## Consecuencias Técnicas
 
 ### Positivas
 

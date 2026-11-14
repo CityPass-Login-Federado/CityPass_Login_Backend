@@ -1,83 +1,122 @@
-## To do:
-- [ ] Servicio OAuth2 para el bus (bloqueante para otros grupos)
-- [ ] Capa 2 de IA — Isolation Forest para detección de anomalías (diseño listo, sin código) --> geoip2
-- [ ] Tests con Testcontainers (0% cobertura, rúbrica pide 60%)
-- [ ] CI/CD con GitHub Actions
-- [ ] Revisar/decidir el destino del EventPublisher
-- [ ] ADR formal (es un único ADR)
-      Estructura deseada: titulo, quienes, consideradores extensible, opciones, por todo esto nosotros definimos, consecuencias positivas negativas, referencias (benchmark)
-- [ ] Diagramas C4/4+1
-- [ ] Deploy a cloud
-- [ ] GET /auth/me
-- [ ] Cambio/recuperación de contraseña (a definir)
-- [ ] Publicación real de eventos al bus (Kafka)
-- [ ] Pasar las claves a secrets, no ENV de dockerfile
+# CityPass+ — Identidad, autenticación y accesos (Squad 2)
 
+Este repositorio contiene el backend de identidad de CityPass+: el servicio Java `login-federado`, el microservicio Python `anomaly-detection` y la infraestructura local de OpenLDAP y PostgreSQL. El servicio autentica personas por bind LDAP, emite JWT RS256 y refresh tokens opacos rotativos, expone JWKS, gestiona personas y grupos del directorio y registra intentos y mutaciones administrativas.
 
-# 🏙️ CityPass+ | Módulo 2: Login Federado</h1>
-  <p><strong>Plataforma de Servicios Urbanos Inteligentes</strong></p>
-  
-  [![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://java.com)
-  [![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.x-brightgreen.svg)](https://spring.io/projects/spring-boot)
-  [![OpenLDAP](https://img.shields.io/badge/OpenLDAP-Security-blue.svg)](https://www.openldap.org/)
-  [![JWT](https://img.shields.io/badge/JWT-RS256-black.svg)](https://jwt.io)
-  [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://www.docker.com/)
-  [![UADE](https://img.shields.io/badge/UADE-DesApp_II-004d99.svg)]()
+> Estado auditado: 14 de noviembre de 2026. Esta documentación describe el código presente; los faltantes se declaran explícitamente.
 
----
+## Estructura
 
-## 📖 Descripción del Módulo
-El **Módulo de Login Federado (LDAP + JWT)** es el núcleo de seguridad y gestión de identidad de la plataforma **CityPass+**. Centraliza la autenticación de todos los usuarios de la ciudad inteligente, interactuando con un directorio de identidades corporativo (OpenLDAP) y emitiendo tokens de acceso seguros (JWT con firma asimétrica RS256) para proteger todos los endpoints de los 7 módulos restantes.
+```text
+.
+├── login-federado/       # API Spring Boot, configuración LDAP, SQL y tests
+├── anomaly-detection/    # API FastAPI de scoring de riesgo
+├── .github/workflows/    # build, tests y escaneos
+└── login-federado/docs/  # fuente única de verdad técnica del repositorio
+```
 
-Este proyecto forma parte de la asignatura **Desarrollo de Aplicaciones II (2c 2026)**, dictada por el profesor Andrés Sacco en la Universidad Argentina de la Empresa (UADE).
+## Stack exacto
 
----
+| Componente | Versión/configuración comprobada |
+|---|---|
+| Java | 21 |
+| Spring Boot | 3.3.13 |
+| Spring Security / LDAP / Data JPA | gestionados por Spring Boot 3.3.13 |
+| PostgreSQL JDBC | 42.7.13 |
+| OpenLDAP | `osixia/openldap:1.5.0` |
+| PostgreSQL | `postgres:16-alpine` |
+| Python | 3.12 |
+| FastAPI / Uvicorn | 0.115.0 / 0.30.6 |
+| scikit-learn | 1.5.2 |
+| pandas / NumPy | 2.2.3 / 2.1.1 |
+| Contenedores | Dockerfiles multi-stage y Docker Compose |
 
-## 👥 Equipo de Trabajo (Grupo 2)
+## Inicio rápido
 
-| Integrante | Rol | Módulo |
-| :--- | :--- | :--- |
-| **Abeledo, Federico** | Project Manager (PM) | Login Federado |
-| **Francisco Frate, Delfina** | Scrum Master | Login Federado |
-| **Hernandez, Nicolas** | Backend | Login Federado |
-| **Opatich, Ignacio** | Frontend | Login Federado |
-| **Ravaschio, Guido** | DevOps | Login Federado |
-| **Wu, Antonio** | Security / Backend | Login Federado |
+Requisito: Docker con Compose. Desde `login-federado/`:
 
----
-
-## 🏗️ Alineación con la Rúbrica (Evaluación)
-
-Nuestro desarrollo está diseñado para cumplir con los estándares técnicos exigidos en la materia:
-
-- 📐 **Arquitectura y Modelado:** Documentación de decisiones (ADRs), diagramas C4 y modelo Entidad-Relación.
-- 🔐 **Seguridad Avanzada:** Autenticación LDAP, tokens de sesión JWT firmados asimétricamente (RS256) y validación de claims.
-- 📨 **Event Driven Architecture (EDA):** Publicación y suscripción a eventos de auditoría/seguridad mediante bus de mensajes (RabbitMQ/Kafka).
-- 🧪 **Testing Integrado:** Pruebas unitarias e integrales con JUnit 5, Mockito y Testcontainers apuntando a >60% de cobertura.
-- 🚀 **DevOps & Cloud:** Entorno local 100% dockerizado (`docker-compose`), flujos CI/CD con GitHub Actions y despliegue cloud.
-- 🧠 **Innovación (IA/I+D):** Lógica avanzada de detección de anomalías y prevención de fuerza bruta en los intentos de inicio de sesión.
-- 📱 **UX/UI:** Interfaz Frontend desarrollada en React orientada a una experiencia de autenticación fluida.
-- 🔄 **Gestión Ágil:** Framework Scrum, seguimiento con Jira y control de versiones bajo políticas de Git Flow.
-
----
-
-## 🛠️ Stack Tecnológico
-
-* **Backend:** Java 21, Spring Boot 3, Spring Security 6.
-* **Directorio de Identidad:** OpenLDAP.
-* **Base de Datos:** PostgreSQL.
-* **Firma Asimétrica:** JWT (Algoritmo RS256).
-* **Frontend:** React 18, Vite, TypeScript, Tailwind CSS.
-* **Testing:** JUnit 5, Mockito, Testcontainers.
-* **Infraestructura:** Docker, Docker Compose, GitHub Actions.
-
----
-
-## 🚀 Inicio Rápido (Local Setup)
-
-Para levantar el entorno de desarrollo en tu máquina local, asegúrate de tener instalado **Docker** y **Java 21**.
-
-### 1. Levantar la Infraestructura Base (LDAP & PostgreSQL)
-En la raíz del proyecto, ejecuta el siguiente comando para iniciar los contenedores en segundo plano:
 ```bash
-docker-compose up -d
+docker compose up -d --build
+docker compose ps
+```
+
+Servicios publicados:
+
+| Servicio | Puerto host | Uso |
+|---|---:|---|
+| `app` | 8081 | API, Swagger UI en `/docs`, health en `/actuator/health` |
+| `anomaly-detection` | 8000 | `GET /health`, `POST /score` |
+| `openldap` | 389 / 636 | LDAP / LDAPS |
+| `postgres` | 5432 | base `login_federado` |
+
+El contenedor `ldap-config` es un job one-shot que configura overlays, ACL, índices y seed después del healthcheck de OpenLDAP.
+
+### Credenciales locales de desarrollo
+
+| Recurso | Usuario | Contraseña |
+|---|---|---|
+| PostgreSQL | `citypass` | `citypass` |
+| Administrador LDAP | `cn=admin,dc=citypass,dc=local` | `admin` |
+| Personas seed | `jperez`, `mgomez`, `delegado-rec`, `soporte1`, `consulta1`, `delegado-mov` | `changeit123` |
+| Servicio OAuth | `grupo1` | `grupo1-secret-dev` |
+
+Para entrar al panel use `delegado-rec` o `delegado-mov` con el cliente `citypass-admin-web`. Las credenciales son solo para desarrollo.
+
+### Variables de entorno
+
+| Variable | Default local | Propósito |
+|---|---|---|
+| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://localhost:5432/login_federado` | conexión de la API a PostgreSQL |
+| `DB_USERNAME` / `DB_PASSWORD` | `citypass` / `citypass` | credenciales SQL |
+| `SPRING_LDAP_URLS` | `ldap://localhost:389` | servidor LDAP |
+| `SPRING_LDAP_USERNAME` | cuenta `readonly` | bind de lectura |
+| `LDAP_READONLY_PASSWORD` o `SPRING_LDAP_PASSWORD` | `readonly-secret` | secreto de lectura; Compose usa la propiedad Spring |
+| `PANEL_LDAP_PASSWORD` | `panel-writer-secret` | escritura del panel |
+| `ANOMALY_SERVICE_URL` | `http://localhost:8000` | scoring de riesgo |
+| `ANOMALY_DB_URL` | sin default | SQLAlchemy del microservicio |
+| `SVC_GRUPO1_SECRET`, `SVC_GRUPO5_SECRET` | secretos dev en `application.yml` | clientes de servicio |
+
+Las claves RSA se generan en `login-federado/keys/` si faltan. Es una comodidad de desarrollo; producción debe montar claves estables desde un gestor de secretos.
+
+## Prueba rápida
+
+```bash
+curl -X POST http://localhost:8081/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"delegado-rec","password":"changeit123","clientId":"citypass-admin-web"}'
+```
+
+Rutas implementadas: `/auth/login`, `/auth/refresh`, `/auth/logout`, `/oauth/token`, `/.well-known/jwks.json` y las rutas `/panel/personas/**` y `/panel/grupos/**` detalladas en Swagger.
+
+## Tests y calidad
+
+Desde `login-federado/`, con JDK 21 y Maven 3.9+ instalados:
+
+```bash
+mvn clean test
+mvn clean verify
+```
+
+Hay 32 métodos `@Test` unitarios sobre emisión JWT, refresh, LDAP, registro de clientes y reglas del panel. Testcontainers está declarado, pero no hay tests de integración Testcontainers en el árbol auditado. Tampoco hay plugin JaCoCo ni umbral de cobertura configurado, por lo que el repositorio no demuestra todavía el objetivo de cobertura de 60 %.
+
+El pipeline `.github/workflows/pr-checks.yml` ejecuta `mvn -B clean verify`, publica reportes Surefire y corre Gitleaks y Trivy. No existe workflow de smoke tests ni despliegue cloud del backend.
+
+## Estado real de ML y EDA
+
+- `anomaly-detection` calcula cuatro features desde `login_attempts`. Si existe `models/isolation_forest.pkl`, usa `IsolationForest`; el repositorio solo versiona `.gitkeep`, por lo que el contenedor actual usa el fallback de reglas.
+- `train.py` es un esqueleto no ejecutable porque `X` no está construido.
+- `EventPublisher` está desacoplado, pero la única implementación es `LoggingEventPublisher`: serializa `usuario.autenticado` al log. No hay broker, topic, reintentos, outbox ni consumidores.
+
+## Compatibilidad con el frontend
+
+El frontend auditado consume rutas inglesas (`/panel/people`, `/panel/groups`, `/members`), mientras este backend publica rutas españolas (`/panel/personas`, `/panel/grupos`, `/miembros`). También hay pantallas frontend para recuperación de contraseña y operaciones masivas que no tienen endpoints backend. La autenticación básica sí comparte contrato. Consulte la matriz de brechas en [rúbrica y defensa técnica](login-federado/docs/rubrica-evaluacion.md).
+
+## Documentación
+
+- [Arquitectura y despliegue](login-federado/docs/diagrams/01-c4-contexto.md)
+- [Casos de uso](login-federado/docs/diagrams/07-casos-de-uso.md)
+- [Interacciones](login-federado/docs/diagrams/04-sequence-login.md)
+- [Modelo de datos](login-federado/docs/diagrams/08-entidad-relacion.md)
+- [ADRs](login-federado/docs/adr/README.md)
+- [Rúbrica, evidencias y brechas](login-federado/docs/rubrica-evaluacion.md)
+
+La documentación oficial vigente está en `login-federado/docs/`. Los archivos anteriores de esa misma carpeta se conservan como antecedentes y están identificados en sus índices.

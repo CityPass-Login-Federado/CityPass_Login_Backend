@@ -1,12 +1,16 @@
 ﻿# ADR-005: API stateless sin sesiones de servidor
 
+## Estado
+
+Accepted — 14 de noviembre de 2026.
+
 ## Quiénes
 
 | Nombre | Rol |
 |--------|-----|
 | Antonio Wu | Seguridad / Backend |
 
-## Consideraciones
+## Contexto y Problema
 
 CityPass+ es una plataforma de microservicios con múltiples módulos. Cada módulo puede escalar horizontalmente (múltiples instancias detrás de un load balancer). Se necesita decidir cómo manejar el estado de autenticación entre requests.
 
@@ -15,7 +19,7 @@ Restricciones y supuestos adicionales:
 - Ninguna instancia puede depender de estado en memoria local (cualquier request puede llegar a cualquier réplica)
 - Se busca minimizar dependencias de infraestructura para auth
 
-### Opciones consideradas
+## Opciones Consideradas (Pros y Contras de cada una)
 
 #### Opción A: Sesiones de servidor (HTTP sessions)
 
@@ -35,7 +39,7 @@ Restricciones y supuestos adicionales:
 | Cada módulo valida localmente | Rotación de refresh tokens necesaria para seguridad |
 | Sin estado en servidor para auth | |
 
-## Por todo esto, definimos
+## Decisión Tomada y Justificación
 
 Adoptar una **API completamente stateless**: autenticación vía header `Authorization: Bearer <JWT>`, sin HTTP sessions ni cookies de sesión, con CSRF deshabilitado.
 
@@ -47,7 +51,7 @@ Razones principales:
 
 Este enfoque sigue el principio "stateless, share nothing" del manifiesto Twelve-Factor App (factor VI: Processes).
 
-## Consecuencias
+## Consecuencias Técnicas
 
 ### Positivas
 
