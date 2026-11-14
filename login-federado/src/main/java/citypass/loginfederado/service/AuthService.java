@@ -178,7 +178,7 @@ public class AuthService {
         String accessToken = accessTokenIssuer.issueHuman(person, client);
         String refreshToken = refreshTokenService.issueInitial(person, client);
 
-        eventPublisher.publish(
+        publishSafely(
             "identidad.login",
             RawAuthenticationEvent.login(
                 person.sub(), person.uid(), person.module(), client.clientId(),
@@ -203,7 +203,7 @@ public class AuthService {
         String newRefreshToken = refreshTokenService.issueNext(
                 continuation.person(), continuation.chainId(), continuation.client());
 
-        eventPublisher.publish(
+        publishSafely(
             "identidad.refresh",
             RawAuthenticationEvent.refresh(
                 continuation.person().sub(), continuation.person().uid(),
@@ -225,6 +225,18 @@ public class AuthService {
 
     public void logout(String refreshToken) {
         refreshTokenService.revokeSingle(refreshToken);
+    }
+
+    /**
+     * EDA es best-effort. Si el gateway no responde, el token ya está emitido
+     * y el cliente igual tiene que entrar: el fallo se loguea y sigue.
+     */
+    private void publishSafely(String eventType, Object payload) {
+        try {
+            eventPublisher.publish(eventType, payload);
+        } catch (Exception ex) {
+            log.warn("No se pudo publicar el evento {}: {}", eventType, ex.toString(), ex);
+        }
     }
 
     private LoginResponse response(String accessToken, String refreshToken) {
