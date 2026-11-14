@@ -41,12 +41,15 @@ public class EventOutbox {
     @Column(nullable = false)
     private int attempts;
 
+    @JdbcTypeCode(SqlTypes.TIMESTAMP_WITH_TIMEZONE)
     @Column(name = "next_attempt_at", nullable = false)
     private Instant nextAttemptAt;
 
+    @JdbcTypeCode(SqlTypes.TIMESTAMP_WITH_TIMEZONE)
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @JdbcTypeCode(SqlTypes.TIMESTAMP_WITH_TIMEZONE)
     @Column(name = "sent_at")
     private Instant sentAt;
 
@@ -83,6 +86,17 @@ public class EventOutbox {
             Duration maxBackoff,
             int maxAttempts
     ) {
+        recordFailure(now, error, initialBackoff, maxBackoff, maxAttempts, null);
+    }
+
+    public void recordFailure(
+            Instant now,
+            String error,
+            Duration initialBackoff,
+            Duration maxBackoff,
+            int maxAttempts,
+            Duration notBefore
+    ) {
         this.attempts++;
         this.lastError = truncate(error);
         if (this.attempts >= maxAttempts) {
@@ -90,7 +104,11 @@ public class EventOutbox {
             return;
         }
         this.status = EventOutboxStatus.PENDING;
-        this.nextAttemptAt = now.plus(backoff(this.attempts, initialBackoff, maxBackoff));
+        Duration delay = backoff(this.attempts, initialBackoff, maxBackoff);
+        if (notBefore != null && notBefore.compareTo(delay) > 0) {
+            delay = notBefore;
+        }
+        this.nextAttemptAt = now.plus(delay);
     }
 
     static Duration backoff(int attempts, Duration initial, Duration max) {

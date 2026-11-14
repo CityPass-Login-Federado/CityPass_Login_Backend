@@ -66,14 +66,15 @@ public class EventOutboxService {
     }
 
     @Transactional
-    public void recordFailure(UUID id, Exception error, EdaOutboxProperties properties) {
+    public void recordFailure(UUID id, Exception error, EdaOutboxProperties properties, Duration notBefore) {
         String message = error == null ? "error desconocido" : error.toString();
         repository.findById(id).orElseThrow().recordFailure(
                 Instant.now(),
                 message,
                 properties.initialBackoff(),
                 properties.maxBackoff(),
-                properties.maxAttempts()
+                properties.maxAttempts(),
+                notBefore
         );
     }
 

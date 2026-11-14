@@ -5,6 +5,8 @@ import jakarta.persistence.EntityManager;
 import org.hibernate.query.NativeQuery;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -23,8 +25,8 @@ public class EventOutboxRepositoryCustomImpl implements EventOutboxRepositoryCus
 
     @Override
     public List<EventOutbox> lockDue(Instant now, int limit) {
-        // El Instant tiene que viajar con el mismo tipo que usa el mapeo de la entidad.
-        // Timestamp.from() lo manda en hora local y, con UTC-3, una fila vencida parece futura.
+        // timestamptz contra un Instant sin tipo usa la zona de la JVM.
+        // UTC fijo hace que la fila vencida salga igual en UTC y en Argentina.
         @SuppressWarnings("unchecked")
         NativeQuery<Object> query = entityManager.createNativeQuery("""
                 SELECT id
@@ -37,7 +39,7 @@ public class EventOutboxRepositoryCustomImpl implements EventOutboxRepositoryCus
                 """)
                 .unwrap(NativeQuery.class);
         List<Object> ids = query
-                .setParameter("now", now, Instant.class)
+                .setParameter("now", OffsetDateTime.ofInstant(now, ZoneOffset.UTC))
                 .setParameter("limit", limit)
                 .getResultList();
         if (ids.isEmpty()) {

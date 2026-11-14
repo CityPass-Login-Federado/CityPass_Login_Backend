@@ -17,10 +17,16 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import org.springframework.web.client.RestClientResponseException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -77,6 +83,64 @@ class EventOutboxRelayTest {
         assertThat(row.getLastError()).contains("EDA caido");
         assertThat(row.getNextAttemptAt()).isAfter(before.plusSeconds(4));
         assertThat(row.getSentAt()).isNull();
+    }
+
+    @Test
+    void waitsAtLeastRetryAfterOnTooManyRequests() throws Exception {
+        RawAuthenticationEvent event = loginEvent();
+        EventOutbox row = rowFor(event);
+        EventPublisher publisher = mock(EventPublisher.class);
+        doThrow(httpError(429, "120")).when(publisher).publish(any(), any());
+        EventOutboxRelay relay = relay(row, publisher);
+        Instant before = Instant.now();
+
+        relay.relayDueEvents();
+
+        assertThat(row.getStatus()).isEqualTo(EventOutboxStatus.PENDING);
+        assertThat(row.getAttempts()).isEqualTo(1);
+        assertThat(row.getNextAttemptAt()).isAfter(before.plusSeconds(110));
+    }
+
+    @Test
+    void waitsAtLeastAnHttpDateRetryAfter() throws Exception {
+        RawAuthenticationEvent event = loginEvent();
+        EventOutbox row = rowFor(event);
+        ZonedDateTime when = ZonedDateTime.now(ZoneOffset.UTC).plusMinutes(10);
+        String header = DateTimeFormatter.RFC_1123_DATE_TIME.format(when);
+        EventPublisher publisher = mock(EventPublisher.class);
+        doThrow(httpError(429, header)).when(publisher).publish(any(), any());
+        EventOutboxRelay relay = relay(row, publisher);
+
+        relay.relayDueEvents();
+
+        assertThat(row.getNextAttemptAt()).isAfter(when.toInstant().minusSeconds(2));
+    }
+
+    @Test
+    void retriesNormallyWhenRetryAfterIsMissingOrUnusable() throws Exception {
+        assertThat(nextDelayAfter(httpError(429, "   "))).isBetween(4L, 30L);
+        assertThat(nextDelayAfter(httpError(429, "manana"))).isBetween(4L, 30L);
+        assertThat(nextDelayAfter(httpError(429, "999999999999999999999"))).isBetween(4L, 30L);
+        String past = DateTimeFormatter.RFC_1123_DATE_TIME.format(
+                ZonedDateTime.now(ZoneOffset.UTC).minusMinutes(5));
+        assertThat(nextDelayAfter(httpError(429, past))).isBetween(4L, 30L);
+    }
+
+    @Test
+    void retriesAGatewayTimeoutWithTheNormalBackoff() throws Exception {
+        RawAuthenticationEvent event = loginEvent();
+        EventOutbox row = rowFor(event);
+        EventPublisher publisher = mock(EventPublisher.class);
+        doThrow(httpError(504, "600")).when(publisher).publish(any(), any());
+        EventOutboxRelay relay = relay(row, publisher);
+        Instant before = Instant.now();
+
+        relay.relayDueEvents();
+
+        assertThat(row.getStatus()).isEqualTo(EventOutboxStatus.PENDING);
+        assertThat(row.getAttempts()).isEqualTo(1);
+        assertThat(row.getNextAttemptAt()).isAfter(before.plusSeconds(4));
+        assertThat(row.getNextAttemptAt()).isBefore(before.plusSeconds(30));
     }
 
     @Test
@@ -217,6 +281,28 @@ class EventOutboxRelayTest {
     }
 
     @Test
+    void keepsGoingWhenTheOutboxCannotBeReadOrUpdated() throws Exception {
+        EventOutboxService outbox = mock(EventOutboxService.class);
+        when(outbox.claimDue(anyInt(), any())).thenThrow(new IllegalStateException("db caida"));
+        EventPublisher publisher = mock(EventPublisher.class);
+        new EventOutboxRelay(outbox, publisher, edaProperties, outboxProperties, objectMapper).relayDueEvents();
+        verify(publisher, never()).publish(any(), any());
+
+        RawAuthenticationEvent event = loginEvent();
+        EventOutbox row = rowFor(event);
+        EventOutboxRepository repository = mock(EventOutboxRepository.class);
+        when(repository.lockDue(any(), anyInt())).thenReturn(List.of(row));
+        when(repository.findById(row.getId())).thenThrow(new IllegalStateException("no pude anotar el fallo"));
+        EventPublisher failing = mock(EventPublisher.class);
+        doThrow(new IllegalStateException("EDA caido")).when(failing).publish(any(), any());
+        new EventOutboxRelay(
+                new EventOutboxService(repository, objectMapper),
+                failing, edaProperties, outboxProperties, objectMapper).relayDueEvents();
+        assertThat(row.getStatus()).isEqualTo(EventOutboxStatus.PENDING);
+        assertThat(row.getAttempts()).isZero();
+    }
+
+    @Test
     void doesNotPublishWhenTheQueueIsEmpty() {
         EventOutboxRepository repository = mock(EventOutboxRepository.class);
         when(repository.lockDue(any(), anyInt())).thenReturn(List.of());
@@ -252,6 +338,24 @@ class EventOutboxRelayTest {
                 event.eventType(),
                 objectMapper.writeValueAsString(event),
                 Instant.now().minusSeconds(5));
+    }
+
+    private long nextDelayAfter(Exception error) throws Exception {
+        EventOutbox row = rowFor(loginEvent());
+        EventPublisher publisher = mock(EventPublisher.class);
+        doThrow(error).when(publisher).publish(any(), any());
+        Instant before = Instant.now();
+        relay(row, publisher).relayDueEvents();
+        return Duration.between(before, row.getNextAttemptAt()).toSeconds();
+    }
+
+    private static RestClientResponseException httpError(int status, String retryAfter) {
+        HttpHeaders headers = new HttpHeaders();
+        if (retryAfter != null) {
+            headers.set(HttpHeaders.RETRY_AFTER, retryAfter);
+        }
+        return new RestClientResponseException(
+                "eda", status, "error", headers, new byte[0], StandardCharsets.UTF_8);
     }
 
     private RawAuthenticationEvent loginEvent() {

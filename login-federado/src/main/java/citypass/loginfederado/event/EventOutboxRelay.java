@@ -8,10 +8,16 @@ import citypass.loginfederado.service.EventOutboxService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 
 @Component
@@ -70,7 +76,7 @@ public class EventOutboxRelay {
             } catch (Exception ex) {
                 failed++;
                 try {
-                    outbox.recordFailure(event.getId(), ex, outboxProperties);
+                    outbox.recordFailure(event.getId(), ex, outboxProperties, retryAfter(ex));
                 } catch (RuntimeException updateEx) {
                     log.error("No se pudo registrar el fallo del evento {}", event.getId(), updateEx);
                 }
@@ -78,5 +84,42 @@ public class EventOutboxRelay {
         }
         long pending = outbox.countPending();
         log.info("Outbox EDA: enviados={}, fallidos={}, pendientes={}", sent, failed, pending);
+    }
+
+    /**
+     * Un 429 espera al menos lo que dice Retry-After. Un 504 (y el resto)
+     * sigue con la espera que se duplica: el authEventId no cambia y EDA
+     * descarta el duplicado por payloadHash.
+     */
+    static Duration retryAfter(Exception ex) {
+        if (!(ex instanceof RestClientResponseException response)) {
+            return null;
+        }
+        if (response.getStatusCode().value() != 429) {
+            return null;
+        }
+        HttpHeaders headers = response.getResponseHeaders();
+        if (headers == null) {
+            return null;
+        }
+        String value = headers.getFirst(HttpHeaders.RETRY_AFTER);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.chars().allMatch(Character::isDigit)) {
+            try {
+                return Duration.ofSeconds(Long.parseLong(trimmed));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        try {
+            Instant when = ZonedDateTime.parse(trimmed, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+            Duration wait = Duration.between(Instant.now(), when);
+            return wait.isNegative() ? Duration.ZERO : wait;
+        } catch (DateTimeParseException ignored) {
+            return null;
+        }
     }
 }
