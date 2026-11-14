@@ -1,4 +1,7 @@
 models/*.pkl
+ML/data/real_events*.csv
+ML/data/real_processed_features*.csv
+ML/models/*.metadata.json
 __pycache__/
 *.pyc
 .venv/

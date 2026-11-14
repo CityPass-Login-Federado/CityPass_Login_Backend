@@ -2,7 +2,9 @@ package citypass.loginfederado.panel;
 
 import citypass.loginfederado.panel.dto.AdminGroupView;
 import citypass.loginfederado.panel.dto.AdminPersonView;
+import citypass.loginfederado.panel.dto.AnomalyEventView;
 import citypass.loginfederado.exception.GlobalExceptionHandler;
+import citypass.loginfederado.model.AnomalyEventStatus;
 import citypass.loginfederado.panel.dto.BulkMembershipRequest;
 import citypass.loginfederado.panel.dto.BulkMembershipResponse;
 import citypass.loginfederado.panel.dto.BulkMembershipStatus;
@@ -19,6 +21,7 @@ import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 import citypass.loginfederado.service.RefreshTokenService;
+import citypass.loginfederado.service.AnomalyBlockedEventService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -32,6 +35,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,6 +62,7 @@ class PanelControllerTest {
     private PanelGroupService groups;
     private PanelAccountService accounts;
     private PanelAuthorization authorization;
+    private AnomalyBlockedEventService anomalyEvents;
     private PanelController controller;
 
     @BeforeEach
@@ -66,8 +71,9 @@ class PanelControllerTest {
         groups = mock(PanelGroupService.class);
         accounts = mock(PanelAccountService.class);
         authorization = mock(PanelAuthorization.class);
+        anomalyEvents = mock(AnomalyBlockedEventService.class);
         controller = new PanelController(persons, groups, accounts, authorization, mock(PanelAuditService.class),
-                mock(RefreshTokenService.class));
+                mock(RefreshTokenService.class), anomalyEvents);
     }
 
     @Test
@@ -229,6 +235,38 @@ class PanelControllerTest {
         assertThat(controller.listModules(jwt)).containsExactlyElementsOf(PanelDirectoryRules.MODULES);
 
         verify(authorization).requireDelegate(jwt);
+    }
+
+    @Test
+    void normalDelegateListsOnlyAnomalyEventsFromTokenModule() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+        var expected = new PaginatedResponse<AnomalyEventView>(List.of(), 0, 0, 0, 20);
+        when(anomalyEvents.listEvents(
+                "reclamos", AnomalyEventStatus.BLOCKED, "jperez", 0, 20))
+                .thenReturn(expected);
+
+        assertThat(controller.listAnomalyEvents(
+                jwt, "movilidad", AnomalyEventStatus.BLOCKED, "jperez", 0, 20))
+                .isSameAs(expected);
+
+        verify(anomalyEvents).listEvents(
+                "reclamos", AnomalyEventStatus.BLOCKED, "jperez", 0, 20);
+    }
+
+    @Test
+    void globalAdminCanListAllModulesAndApproveAnomalyEvent() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var expected = new PaginatedResponse<AnomalyEventView>(List.of(), 0, 0, 0, 20);
+        UUID eventId = UUID.randomUUID();
+        when(anomalyEvents.listEvents(null, AnomalyEventStatus.BLOCKED, null, 0, 20))
+                .thenReturn(expected);
+
+        assertThat(controller.listAnomalyEvents(
+                jwt, null, AnomalyEventStatus.BLOCKED, null, 0, 20))
+                .isSameAs(expected);
+        controller.approveAnomalyEvent(jwt, eventId);
+
+        verify(anomalyEvents).approveEvent(eventId, globalDelegate);
     }
 
     @Test

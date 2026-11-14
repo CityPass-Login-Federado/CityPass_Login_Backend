@@ -35,9 +35,9 @@ class GlobalExceptionHandlerTest {
         assertThat(handler.handleAccountLocked(new AccountLockedException("locked")).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(handler.handleAnomalyBlocked(new AnomalyBlockedException("blocked")).getStatusCode())
-                .isEqualTo(HttpStatus.UNAUTHORIZED);
+                .isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(handler.handleAnomalyServiceUnavailable(new AnomalyServiceUnavailableException("down", new RuntimeException()))
-                .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                .getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     @Test

@@ -2,6 +2,12 @@ from datetime import datetime
 from sqlalchemy import create_engine, text
 import os
 
+from app.feature_contract import (
+    FAILURE_WINDOW_SECONDS,
+    MAX_HISTORY,
+    normalize_signal,
+)
+
 engine = create_engine(os.environ["ANOMALY_DB_URL"])  # misma Postgres, usuario solo-lectura
 
 def build_features(username: str, ip: str, user_agent: str, ts: datetime) -> dict:
@@ -11,6 +17,9 @@ def build_features(username: str, ip: str, user_agent: str, ts: datetime) -> dic
     if ts.tzinfo is not None:
         ts = ts.replace(tzinfo=None)
 
+    ip = normalize_signal(ip)
+    user_agent = normalize_signal(user_agent)
+
     with engine.connect() as conn:
         history = conn.execute(
             text("""
@@ -18,16 +27,17 @@ def build_features(username: str, ip: str, user_agent: str, ts: datetime) -> dic
                 FROM login_attempts
                 WHERE username = :u
                 ORDER BY attempted_at DESC
-                LIMIT 200
+                LIMIT :history_limit
             """),
-            {"u": username}
+            {"u": username, "history_limit": MAX_HISTORY}
         ).fetchall()
 
     known_ips = {row.ip_address for row in history}
     known_agents = {row.user_agent for row in history}
     recent_failures = sum(
         1 for row in history
-        if not row.successful and (ts - row.attempted_at).total_seconds() < 900
+        if not row.successful
+        and 0 <= (ts - row.attempted_at).total_seconds() < FAILURE_WINDOW_SECONDS
     )
 
     return {

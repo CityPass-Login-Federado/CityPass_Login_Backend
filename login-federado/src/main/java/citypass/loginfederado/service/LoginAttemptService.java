@@ -104,4 +104,15 @@ public class LoginAttemptService {
             );
         }
     }
+
+    /**
+     * Clears the temporary brute-force lockout so an administrator-approved
+     * anomaly can be retried without being rejected by layer 1 first.
+     */
+    @Transactional
+    public void clearLockout(String username) {
+        loginLockoutRepository.findById(username)
+                .ifPresent(loginLockoutRepository::delete);
+        loginAttemptRepository.deleteByUsernameAndSuccessfulFalse(username);
+    }
 }

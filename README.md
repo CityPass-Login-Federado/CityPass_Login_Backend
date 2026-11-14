@@ -77,7 +77,7 @@ Nuestro desarrollo está diseñado para cumplir con los estándares técnicos ex
 cliente ──POST /auth/login──▶ login-federado ──POST /score──▶ anomaly-detection (:8000)
                                    │                        (fail-closed: si está
                                    ▼                         caído, todo login da
-                              OpenLDAP (bind + memberOf)      401 genérico)
+                              OpenLDAP (bind + memberOf)      503 específico)
                                    │
                               PostgreSQL (refresh tokens rotativos,
                                           ventana deslizante anti fuerza bruta)
@@ -141,7 +141,7 @@ Usar el botón **Authorize** (arriba a la derecha) con un access token (`Bearer 
 - `/me` y `/me/change-password` exigen access token de persona (`token_use=human`).
 - `/auth/**`, `/oauth/token`, `/.well-known/jwks.json` y `/health` son públicos.
 
-Las 27 rutas del servicio quedan auto-documentadas (5 de `/auth`, perfil, JWKS, token
+Las 29 rutas del servicio quedan auto-documentadas (5 de `/auth`, perfil, JWKS, token
 de servicio, health y el ABM del panel).
 
 ## Probar con Postman
@@ -167,6 +167,8 @@ lockout y anomalías. Los scripts capturan los tokens automáticamente entre req
 | GET | `/.well-known/jwks.json` | Clave pública para validar firmas RS256 |
 | POST | `/oauth/token` | `client_credentials` para servicios (Basic auth, form-urlencoded) |
 | GET | `/health` | Healthcheck de la aplicación |
+| GET | `/panel/anomaly-events` | Lista paginada de bloqueos anómalos con `riskScore` |
+| POST | `/panel/anomaly-events/{id}/approve` | Autoriza un reintento contextual, temporal y de un solo uso |
 | GET/POST/PUT/DELETE | `/panel/**` | Backend del panel (delegados + admin global; también `/modules` y `/admin/*`) |
 
 Login (notar **camelCase**, así lo implementa este proyecto):
@@ -255,6 +257,12 @@ El panel exige token de persona con audience `citypass-admin-api` (`token_use=hu
 los **delegados** operan el módulo de su claim `module` (nadie acepta el módulo por
 parámetro: aislamiento estructural); los **admins globales** operan con `?module=` en
 los endpoints regulares o sin módulo en `/panel/admin/**` (visión global del directorio).
+
+Los bloqueos del detector se persisten con su score y razones. Un delegado puede
+revisar y aprobar únicamente los de su módulo; el admin global puede abarcar todos.
+La aprobación limpia el lockout del usuario y habilita durante 15 minutos un único
+reintento desde el mismo `clientId`, IP y user-agent. El login debe repetirse: la
+aprobación administrativa no emite tokens por sí sola.
 
 ---
 
@@ -360,7 +368,7 @@ security/    Filtros JWT y AnomalyRiskClient (fail-closed)
 panel/       PanelController, autorización delegada, escritura al directorio, auditoría
 event/       Publicación de eventos (EventPublisher: logging / HTTP) y HealthController
 metrics/     Persistencia de intentos de login (ventana anti fuerza bruta)
-exception/   Manejo centralizado: TODA falla de auth responde el mismo cuerpo
+exception/   Manejo centralizado: fallas genéricas de auth y respuestas 403/503 de anomalías
 dto/ model/ repository/
 ```
 

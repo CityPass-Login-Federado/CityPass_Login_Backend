@@ -18,11 +18,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Regla de oro del login: TODOS los caminos de falla devuelven EXACTAMENTE
- * el mismo cuerpo (byte por byte) — usuario inexistente, contraseña mala,
- * módulo equivocado, cuenta deshabilitada, cuenta bloqueada por fuerza
- * bruta, login anómalo o LDAP caído son indistinguibles para el cliente.
- * Las causas reales van a los logs (SECURITY), nunca a la respuesta.
+ * Las fallas de credenciales, pertenencia y lockout mantienen una respuesta
+ * genérica para evitar enumeración. Los rechazos del detector de anomalías
+ * son la excepción deliberada: exponen únicamente una categoría segura para
+ * que el frontend distinga un bloqueo (403) de una indisponibilidad (503).
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -44,13 +43,25 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AnomalyBlockedException.class)
-    public ResponseEntity<Map<String, Object>> handleAnomalyBlocked(AnomalyBlockedException ex) {
-        return genericAuthFailure();
+    public ResponseEntity<Map<String, Object>> handleAnomalyBlocked(
+            AnomalyBlockedException ex
+    ) {
+        return securityFailure(
+                HttpStatus.FORBIDDEN,
+                "Acceso bloqueado",
+                "Acceso bloqueado por actividad inusual"
+        );
     }
 
     @ExceptionHandler(AnomalyServiceUnavailableException.class)
-    public ResponseEntity<Map<String, Object>> handleAnomalyServiceUnavailable(AnomalyServiceUnavailableException ex) {
-        return genericAuthFailure();
+    public ResponseEntity<Map<String, Object>> handleAnomalyServiceUnavailable(
+            AnomalyServiceUnavailableException ex
+    ) {
+        return securityFailure(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Servicio no disponible",
+                "Servicio de validación temporalmente no disponible"
+        );
     }
 
     private ResponseEntity<Map<String, Object>> genericAuthFailure() {
@@ -60,6 +71,19 @@ public class GlobalExceptionHandler {
         body.put("error", GENERIC_ERROR);
         body.put("message", GENERIC_MESSAGE);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+    }
+
+    private ResponseEntity<Map<String, Object>> securityFailure(
+            HttpStatus status,
+            String error,
+            String message
+    ) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", status.value());
+        body.put("error", error);
+        body.put("message", message);
+        return ResponseEntity.status(status).body(body);
     }
 
     @ExceptionHandler(EdaOAuthException.class)

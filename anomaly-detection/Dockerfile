@@ -25,12 +25,12 @@ WORKDIR /app
 COPY --from=build /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copiar código de la app y el modelo entrenado (si existe)
+# Copiar código de la app y el artefacto versionado de ML.
 COPY app ./app
-COPY models ./models
+COPY ML/models/isolation_forest.pkl ./models/isolation_forest.pkl
 COPY VERSION ./VERSION
 
-# Directorio de modelos debe ser escribible por si se reentrena en runtime
+# El runtime no reentrena: solo necesita leer el artefacto offline versionado.
 RUN chown -R appuser:appgroup /app
 
 USER appuser

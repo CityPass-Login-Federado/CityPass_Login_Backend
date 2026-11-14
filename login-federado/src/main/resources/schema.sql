@@ -44,6 +44,37 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 CREATE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts (username);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_attempted_at ON login_attempts (attempted_at);
 
+-- Eventos rechazados por el detector de anomalías y su revisión administrativa.
+-- La aprobación es temporal, contextual y se consume en un único login.
+CREATE TABLE IF NOT EXISTS anomaly_blocked_events (
+    id UUID PRIMARY KEY,
+    user_sub VARCHAR(16) NOT NULL,
+    username VARCHAR(255) NOT NULL,
+    module VARCHAR(64) NOT NULL,
+    client_id VARCHAR(255) NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent VARCHAR(500),
+    risk_score DOUBLE PRECISION NOT NULL,
+    reasons TEXT NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    blocked_at TIMESTAMP NOT NULL,
+    approved_at TIMESTAMP NULL,
+    approval_expires_at TIMESTAMP NULL,
+    approved_by_sub VARCHAR(16),
+    approved_by_uid VARCHAR(255),
+    consumed_at TIMESTAMP NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT chk_anomaly_risk_score CHECK (risk_score >= 0 AND risk_score <= 1),
+    CONSTRAINT chk_anomaly_event_status CHECK (status IN ('BLOCKED', 'APPROVED', 'CONSUMED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_anomaly_events_module_status_date
+    ON anomaly_blocked_events (module, status, blocked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_anomaly_events_username
+    ON anomaly_blocked_events (username);
+CREATE INDEX IF NOT EXISTS idx_anomaly_events_approval
+    ON anomaly_blocked_events (username, client_id, status, approval_expires_at);
+
 -- Auditoría del panel: cada mutación queda registrada (manual del panel §8:
 -- "las altas, bajas y cambios de grupos quedan registrados").
 CREATE TABLE IF NOT EXISTS panel_audit (

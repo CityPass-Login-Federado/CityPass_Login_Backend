@@ -206,6 +206,8 @@ springdoc:
 anomaly:
   service:
     url: ${ANOMALY_SERVICE_URL:http://localhost:8000}
+  approval:
+    ttl-minutes: ${ANOMALY_APPROVAL_TTL_MINUTES:15}
 
 # --- Self-service de contraseñas (POST /auth/forgot-password + /auth/reset-password) ---
 # Flujo por token de un solo uso: la solicitud NUNCA escribe en LDAP, solo

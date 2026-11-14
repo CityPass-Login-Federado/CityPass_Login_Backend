@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-from config import (
+from ML.config import (
     RANDOM_SEED,
     TOTAL_RECORDS,
     NORMAL_RECORDS,
