@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.persistence.EntityManager;
 import org.hibernate.Session;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,6 +70,13 @@ class EventOutboxRepositoryIT {
 
     @Autowired
     PlatformTransactionManager transactions;
+
+    @BeforeEach
+    void cleanOutbox() {
+        // El test de SKIP LOCKED commitea de verdad. Si corre primero, deja
+        // una fila vencida que el otro test interpretaría como propia.
+        outbox.deleteAll();
+    }
 
     @Test
     void locksOnlyDuePendingRowsAndKeepsThePayload() throws Exception {

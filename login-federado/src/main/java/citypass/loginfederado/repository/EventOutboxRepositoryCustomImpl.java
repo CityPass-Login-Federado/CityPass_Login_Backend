@@ -2,8 +2,8 @@ package citypass.loginfederado.repository;
 
 import citypass.loginfederado.model.EventOutbox;
 import jakarta.persistence.EntityManager;
+import org.hibernate.query.NativeQuery;
 
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,8 +23,10 @@ public class EventOutboxRepositoryCustomImpl implements EventOutboxRepositoryCus
 
     @Override
     public List<EventOutbox> lockDue(Instant now, int limit) {
+        // El Instant tiene que viajar con el mismo tipo que usa el mapeo de la entidad.
+        // Timestamp.from() lo manda en hora local y, con UTC-3, una fila vencida parece futura.
         @SuppressWarnings("unchecked")
-        List<Object> ids = entityManager.createNativeQuery("""
+        NativeQuery<Object> query = entityManager.createNativeQuery("""
                 SELECT id
                 FROM event_outbox
                 WHERE status = 'PENDING'
@@ -33,7 +35,9 @@ public class EventOutboxRepositoryCustomImpl implements EventOutboxRepositoryCus
                 LIMIT CAST(:limit AS integer)
                 FOR UPDATE SKIP LOCKED
                 """)
-                .setParameter("now", Timestamp.from(now))
+                .unwrap(NativeQuery.class);
+        List<Object> ids = query
+                .setParameter("now", now, Instant.class)
                 .setParameter("limit", limit)
                 .getResultList();
         if (ids.isEmpty()) {
