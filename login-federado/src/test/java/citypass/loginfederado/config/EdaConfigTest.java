@@ -12,6 +12,6 @@ class EdaConfigTest {
         EnableConfigurationProperties annotation = EdaConfig.class.getAnnotation(EnableConfigurationProperties.class);
 
         assertThat(annotation).isNotNull();
-        assertThat(annotation.value()).contains(EdaProperties.class);
+        assertThat(annotation.value()).contains(EdaProperties.class, EdaOutboxProperties.class);
     }
 }

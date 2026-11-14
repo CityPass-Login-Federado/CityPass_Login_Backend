@@ -1,5 +1,7 @@
 ﻿# ADR-006: Event bus — placeholder con abstracción para Kafka/RabbitMQ
 
+La entrega directa de eventos descrita en este ADR fue reemplazada por el [ADR-010](ADR-010-outbox-eventos-eda.md).
+
 ## Quiénes
 
 | Nombre | Rol |

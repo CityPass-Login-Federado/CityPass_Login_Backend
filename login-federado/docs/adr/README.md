@@ -15,6 +15,7 @@ Este directorio contiene las decisiones de arquitectura documentadas del módulo
 | [ADR-007](ADR-007-dockerfile-multi-stage.md) | Dockerfile multi-stage para la aplicación |
 | [ADR-008](ADR-008-python-servicio-deteccion.md) | Python para el servicio de detección de anomalías |
 | [ADR-009](ADR-009-ia-ml-deteccion-anomalias.md) | Detección híbrida con Isolation Forest y reglas deterministas |
+| [ADR-010](ADR-010-outbox-eventos-eda.md) | Outbox para los eventos de autenticación hacia EDA |
 
 ## Formato
 
