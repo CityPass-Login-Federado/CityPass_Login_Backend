@@ -3,6 +3,9 @@ package citypass.loginfederado.panel;
 import citypass.loginfederado.panel.dto.PanelAuditSearchCriteria;
 import citypass.loginfederado.panel.model.PanelAuditEntry;
 import citypass.loginfederado.panel.repository.PanelAuditRepository;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Root;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -17,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -72,6 +77,7 @@ class PanelAuditServiceTest {
         var service = new PanelAuditService(repo);
         Instant now = Instant.parse("2026-11-14T12:00:00Z");
 
+        assertBadRequest(() -> service.search(null), "obligatorios");
         assertBadRequest(() -> service.search(criteria(now, now.minusSeconds(1), null, 0, 20)),
                 "from");
         assertBadRequest(() -> service.search(criteria(null, null, null, -1, 20)),
@@ -83,6 +89,34 @@ class PanelAuditServiceTest {
         assertBadRequest(() -> service.search(criteria(null, null, "desconocido", 0, 20)),
                 "Módulo inválido");
         verify(repo, never()).findAll(any(Specification.class), any(Pageable.class));
+    }
+
+    @Test
+    void buildsPredicatesForAllFiltersAndForTheirAbsence() {
+        var repo = mock(PanelAuditRepository.class);
+        var service = new PanelAuditService(repo);
+        Root<PanelAuditEntry> root = mock(Root.class, RETURNS_DEEP_STUBS);
+        CriteriaQuery<?> query = mock(CriteriaQuery.class);
+        CriteriaBuilder builder = mock(CriteriaBuilder.class, RETURNS_DEEP_STUBS);
+        Instant from = Instant.parse("2026-11-14T10:00:00Z");
+        Instant to = Instant.parse("2026-11-14T12:00:00Z");
+
+        when(repo.findAll(any(Specification.class), any(Pageable.class)))
+                .thenAnswer(invocation -> {
+                    Specification<PanelAuditEntry> specification = invocation.getArgument(0);
+                    assertThat(specification.toPredicate(root, query, builder)).isNotNull();
+                    Pageable pageable = invocation.getArgument(1);
+                    return new PageImpl<PanelAuditEntry>(List.of(), pageable, 0);
+                });
+
+        service.search(new PanelAuditSearchCriteria(
+                "J%_\\Perez", "PERSON_UPDATED", from, to, "reclamos", 0, 20));
+        service.search(new PanelAuditSearchCriteria(
+                "   ", null, null, null, "   ", 0, 20));
+        service.search(new PanelAuditSearchCriteria(
+                null, null, from, null, null, 0, 20));
+
+        verify(repo, times(3)).findAll(any(Specification.class), any(Pageable.class));
     }
 
     private static PanelAuditSearchCriteria criteria(
