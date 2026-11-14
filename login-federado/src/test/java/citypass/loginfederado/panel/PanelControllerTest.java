@@ -115,6 +115,7 @@ class PanelControllerTest {
         controller.updatePerson(jwt, "movilidad", "jperez", new UpdatePersonRequest(null, null, null, null));
         controller.disablePerson(jwt, "movilidad", "jperez");
         controller.enablePerson(jwt, "movilidad", "jperez");
+        controller.clearLoginLockout(jwt, "movilidad", "jperez");
         controller.resetPassword(jwt, "movilidad", "jperez", new PasswordResetRequest("password1"));
         controller.listGroups(jwt, "movilidad", 0, 10, null, null);
         controller.createGroup(jwt, "movilidad", new GroupCreateRequest("ops"));
@@ -124,6 +125,7 @@ class PanelControllerTest {
 
         verify(accounts).disablePerson(any(), eq("movilidad"), eq("jperez"));
         verify(accounts).enablePerson(any(), eq("movilidad"), eq("jperez"));
+        verify(accounts).clearLoginLockout(any(), eq("movilidad"), eq("jperez"));
         verify(accounts).resetPassword(any(), eq("movilidad"), eq("jperez"), eq("password1"));
         verify(groups).deleteGroup(any(), eq("movilidad"), eq("ops"));
         verify(groups).addMember(any(), eq("movilidad"), eq("ops"), eq("jperez"));
@@ -231,6 +233,28 @@ class PanelControllerTest {
 
         verify(persons, never()).listPeople(any(), any());
         verify(groups, never()).listGroups(any(), any());
+    }
+
+    @Test
+    void unlockUsesTokenModuleForNormalDelegateAndReturns204() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+
+        var response = controller.clearLoginLockout(jwt, "movilidad", "jperez");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(accounts).clearLoginLockout(normalDelegate, "reclamos", "jperez");
+    }
+
+    @Test
+    void unlockRequiresKnownModuleForGlobalAdmin() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+
+        assertBadRequest(() -> controller.clearLoginLockout(jwt, null, "jperez"),
+                "Módulo requerido");
+        assertBadRequest(() -> controller.clearLoginLockout(jwt, "desconocido", "jperez"),
+                "Módulo inválido");
+
+        verify(accounts, never()).clearLoginLockout(any(), any(), any());
     }
 
     @Test

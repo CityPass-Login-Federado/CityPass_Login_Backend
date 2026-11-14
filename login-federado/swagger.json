@@ -706,6 +706,46 @@
         }
       }
     },
+    "/panel/people/{uid}/unlock": {
+      "post": {
+        "tags": ["Panel — Personas"],
+        "summary": "Desbloquear login temporal por fuerza bruta",
+        "description": "Limpia el bloqueo temporal y los intentos fallidos asociados. Es una acción distinta de rehabilitar una cuenta deshabilitada en LDAP y de aprobar un evento bloqueado por anomalías: no realiza ninguna de esas operaciones.",
+        "operationId": "clearLoginLockout",
+        "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar. Obligatorio para admin global; ignorado para un delegado normal, que usa el módulo del token." },
+          { "$ref": "#/components/parameters/uid" }
+        ],
+        "responses": {
+          "204": { "description": "Bloqueo temporal e intentos fallidos limpiados; también si no había un bloqueo activo" },
+          "400": {
+            "description": "Admin global sin ?module= o módulo inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "404": {
+            "description": "Persona inexistente en el módulo",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/panel/people/{uid}/reset-password": {
       "post": {
         "tags": ["Panel — Personas"],

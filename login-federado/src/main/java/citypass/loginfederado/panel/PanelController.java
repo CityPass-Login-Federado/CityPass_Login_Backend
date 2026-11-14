@@ -255,6 +255,30 @@ public class PanelController {
         return ResponseEntity.noContent().build();
     }
 
+    @Operation(summary = "Desbloquear login temporal por fuerza bruta",
+            description = "Limpia el bloqueo temporal y los intentos fallidos asociados. "
+                    + "No rehabilita una cuenta deshabilitada en LDAP y no aprueba eventos "
+                    + "bloqueados por anomalías.",
+            tags = "Panel — Personas")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Bloqueo temporal e intentos fallidos limpiados; también si no había un bloqueo activo"),
+            @ApiResponse(responseCode = "400", description = "Admin global sin módulo o módulo inválido"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin permisos de panel"),
+            @ApiResponse(responseCode = "404", description = "Persona inexistente en el módulo")
+    })
+    @PostMapping("/people/{uid}/unlock")
+    public ResponseEntity<Void> clearLoginLockout(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Módulo a operar (obligatorio solo para admin global)")
+            @RequestParam(required = false) String module,
+            @Parameter(description = "UID (preferred_username) de la persona")
+            @PathVariable String uid) {
+        var delegate = delegate(jwt, module);
+        accounts.clearLoginLockout(delegate, delegate.module(), uid);
+        return ResponseEntity.noContent().build();
+    }
+
     @Operation(summary = "Resetear contraseña",
             description = "Asigna una contraseña temporal. La persona debe cambiarla al entrar.",
             tags = "Panel — Personas")

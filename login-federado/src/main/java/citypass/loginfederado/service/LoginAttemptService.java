@@ -106,8 +106,9 @@ public class LoginAttemptService {
     }
 
     /**
-     * Clears the temporary brute-force lockout so an administrator-approved
-     * anomaly can be retried without being rejected by layer 1 first.
+     * Clears the temporary brute-force lockout and its failed-attempt window.
+     * Used both by the explicit panel action and after an anomaly approval;
+     * clearing the lockout does not itself approve an anomaly.
      */
     @Transactional
     public void clearLockout(String username) {
