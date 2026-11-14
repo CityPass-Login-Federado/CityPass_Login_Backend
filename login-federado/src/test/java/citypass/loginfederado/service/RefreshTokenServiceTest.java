@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 import org.springframework.security.authentication.BadCredentialsException;
 
 import citypass.loginfederado.config.CitypassProperties;
+import citypass.loginfederado.event.EventPublisher;
 import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
@@ -185,6 +186,36 @@ class RefreshTokenServiceTest {
 
         assertThat(revoked).isEqualTo(2);
         verify(repository).revokeAllForSub(eq("U000042"), any(Instant.class));
+    }
+
+    @Test
+    void logoutSucceedsWhenEventPublishingFails() {
+        EventPublisher failing = (type, payload) -> {
+            throw new IllegalStateException("EDA no responde");
+        };
+        var jwtProps = new JwtProperties("https://idp.citypass.local", 15, 8, 60, "k", "k");
+        var withEvents = new RefreshTokenService(
+                repository, ldapDirectory, clientRegistry, jwtProps, failing);
+        when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(storedToken(false)));
+
+        withEvents.revokeSingle(RAW_TOKEN, "1.2.3.4", "JUnit");
+
+        ArgumentCaptor<RefreshToken> saved = ArgumentCaptor.forClass(RefreshToken.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getRevokedAt()).isNotNull();
+    }
+
+    @Test
+    void revokeAllSucceedsWhenEventPublishingFails() {
+        EventPublisher failing = (type, payload) -> {
+            throw new IllegalStateException("EDA no responde");
+        };
+        var jwtProps = new JwtProperties("https://idp.citypass.local", 15, 8, 60, "k", "k");
+        var withEvents = new RefreshTokenService(
+                repository, ldapDirectory, clientRegistry, jwtProps, failing);
+        when(repository.revokeAllForSub(eq("U000042"), any(Instant.class))).thenReturn(2);
+
+        assertThat(withEvents.revokeAllForSub("U000042", "reclamos")).isEqualTo(2);
     }
 
     @Test

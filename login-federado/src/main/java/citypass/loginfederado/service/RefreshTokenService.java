@@ -40,6 +40,7 @@ import java.util.UUID;
 @Service
 public class RefreshTokenService {
 
+    private static final Logger log = LoggerFactory.getLogger(RefreshTokenService.class);
     private static final Logger securityLog = LoggerFactory.getLogger("SECURITY");
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int TOKEN_BYTE_LENGTH = 64;
@@ -170,7 +171,7 @@ public class RefreshTokenService {
             stored.revoke(Instant.now());
             repository.save(stored);
             CitypassProperties.Client client = clientRegistry.requireHuman(stored.getClientId());
-            eventPublisher.publish(
+            publishSafely(
                     "identidad.logout",
                     RawAuthenticationEvent.logout(
                             stored.getSub(), client.module(), stored.getClientId(),
@@ -188,12 +189,24 @@ public class RefreshTokenService {
     public int revokeAllForSub(String sub, String department) {
         int revoked = repository.revokeAllForSub(sub, Instant.now());
         if (revoked > 0) {
-            eventPublisher.publish(
+            publishSafely(
                     "identidad.logout",
                     RawAuthenticationEvent.logout(sub, department, null, null, null, null)
             );
         }
         return revoked;
+    }
+
+    /**
+     * Igual que en el login: si EDA no responde, la revocación ya quedó
+     * persistida y el logout no puede fallar por un POST.
+     */
+    private void publishSafely(String eventType, Object payload) {
+        try {
+            eventPublisher.publish(eventType, payload);
+        } catch (Exception ex) {
+            log.warn("No se pudo publicar el evento {}: {}", eventType, ex.toString(), ex);
+        }
     }
 
     private String persist(LdapDirectoryPerson person, CitypassProperties.Client client, UUID chainId) {
