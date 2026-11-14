@@ -145,16 +145,3 @@ CREATE TABLE IF NOT EXISTS event_outbox (
 CREATE INDEX IF NOT EXISTS idx_event_outbox_due
     ON event_outbox (next_attempt_at)
     WHERE status = 'PENDING';
-
--- CREATE TABLE IF NOT EXISTS no toca una tabla que ya existe. Si quedó
--- con TIMESTAMP sin zona, la pasamos a TIMESTAMPTZ. Esos valores se leen
--- como UTC, que es el reloj con el que el contenedor guardó el Instant.
--- El cuerpo va entre comillas simples: Spring corta schema.sql en cada ;
--- y un DO $$ se parte antes de cerrarse.
--- event_outbox_promote:start
-CREATE OR REPLACE FUNCTION event_outbox_promote_timestamps() RETURNS void
-LANGUAGE plpgsql AS
-'BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ''event_outbox'' AND column_name = ''next_attempt_at'' AND data_type = ''timestamp without time zone'') THEN ALTER TABLE event_outbox ALTER COLUMN next_attempt_at TYPE timestamptz USING next_attempt_at AT TIME ZONE ''UTC''; END IF; IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ''event_outbox'' AND column_name = ''created_at'' AND data_type = ''timestamp without time zone'') THEN ALTER TABLE event_outbox ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE ''UTC''; END IF; IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ''event_outbox'' AND column_name = ''sent_at'' AND data_type = ''timestamp without time zone'') THEN ALTER TABLE event_outbox ALTER COLUMN sent_at TYPE timestamptz USING sent_at AT TIME ZONE ''UTC''; END IF; END';
-SELECT event_outbox_promote_timestamps();
-DROP FUNCTION event_outbox_promote_timestamps();
--- event_outbox_promote:end

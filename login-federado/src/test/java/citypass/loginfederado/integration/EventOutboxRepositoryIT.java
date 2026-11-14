@@ -10,8 +10,6 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.persistence.EntityManager;
 import org.hibernate.Session;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -29,9 +27,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -170,57 +165,5 @@ class EventOutboxRepositoryIT {
         release.countDown();
         holder.join(5_000);
         assertThat(holderError.get()).isNull();
-    }
-
-    @Test
-    void promotesAnExistingTimestampColumnToTimestamptz() throws Exception {
-        entityManager.createNativeQuery("""
-                ALTER TABLE event_outbox
-                    ALTER COLUMN next_attempt_at TYPE timestamp USING next_attempt_at AT TIME ZONE 'UTC',
-                    ALTER COLUMN created_at TYPE timestamp USING created_at AT TIME ZONE 'UTC',
-                    ALTER COLUMN sent_at TYPE timestamp USING sent_at AT TIME ZONE 'UTC'
-                """).executeUpdate();
-        UUID id = UUID.fromString("55555555-5555-5555-5555-555555555555");
-        entityManager.createNativeQuery("""
-                INSERT INTO event_outbox
-                    (id, event_type, payload, status, attempts, next_attempt_at, created_at)
-                VALUES
-                    (:id, 'identidad.login', CAST(:payload AS jsonb), 'PENDING', 0,
-                     make_timestamp(2020, 1, 1, 0, 0, 0), make_timestamp(2020, 1, 1, 0, 0, 0))
-                """)
-                .setParameter("id", id)
-                .setParameter("payload", "{\"eventId\":\"" + id + "\"}")
-                .executeUpdate();
-
-        entityManager.unwrap(Session.class).doWork(connection -> ScriptUtils.executeSqlScript(
-                connection, new ByteArrayResource(migrationBlock().getBytes(StandardCharsets.UTF_8))));
-        entityManager.flush();
-        entityManager.clear();
-
-        String dataType = entityManager.createNativeQuery("""
-                SELECT data_type
-                FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = 'event_outbox'
-                  AND column_name = 'next_attempt_at'
-                """).getSingleResult().toString();
-        assertThat(dataType).isEqualTo("timestamp with time zone");
-        assertThat(outbox.lockDue(Instant.parse("2020-01-01T00:00:01Z"), 10))
-                .extracting(EventOutbox::getId)
-                .contains(id);
-        assertThat(outbox.lockDue(Instant.parse("2019-12-31T23:59:00Z"), 10))
-                .extracting(EventOutbox::getId)
-                .doesNotContain(id);
-    }
-
-    private static String migrationBlock() {
-        try (var in = EventOutboxRepositoryIT.class.getClassLoader().getResourceAsStream("schema.sql")) {
-            String sql = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            int start = sql.indexOf("CREATE OR REPLACE FUNCTION event_outbox_promote_timestamps");
-            int end = sql.indexOf("DROP FUNCTION event_outbox_promote_timestamps();", start);
-            return sql.substring(start, end + "DROP FUNCTION event_outbox_promote_timestamps();".length());
-        } catch (IOException ex) {
-            throw new UncheckedIOException(ex);
-        }
     }
 }
