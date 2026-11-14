@@ -9,6 +9,8 @@
 
 ## Consideraciones
 
+Este ADR reemplaza al ADR-006 (Event bus — placeholder con abstracción) en lo que respecta a la entrega de eventos hacia EDA.
+
 El login, el refresh y el logout publicaban el evento en el mismo request, después de emitir los tokens. `EdaHttpEventPublisher` pide un token `client_credentials` y hace un POST al Event Gateway. Si EDA o su endpoint de token no responden, la excepción sube y el cliente recibe 500 aunque el token ya se haya generado. Todos los grupos se autentican por este módulo: un gateway caído no puede dejar a nadie afuera.
 
 El id del evento tiene que ser estable entre reintentos. EDA tiene que poder descartar un duplicado si el mismo hecho llega dos veces.
@@ -80,6 +82,7 @@ Guardar cada evento de autenticación en la tabla `event_outbox` y mandarlo desp
 - Hay una demora de segundos entre el login y la entrega.
 - Una fila `FAILED` no se reintenta sola: hay que mirarla y decidir qué hacer.
 - La tabla crece con los `SENT`. Este ADR no define una limpieza.
+- No es un outbox transaccional estricto: la fila del evento se inserta en una operación separada de la persistencia de los tokens. Si la base falla justo después de emitirlos, el usuario entra igual y ese evento se pierde (queda registrado en el log). Lo aceptamos porque priorizamos que el login no falle por el canal de eventos.
 
 ## Referencias (benchmark)
 
@@ -87,3 +90,4 @@ Guardar cada evento de autenticación en la tabla `event_outbox` y mandarlo desp
 - Martin Fowler — What do you mean by “Event-Driven”? — https://martinfowler.com/articles/201701-event-driven.html
 - PostgreSQL — SELECT … FOR UPDATE SKIP LOCKED — https://www.postgresql.org/docs/current/sql-select.html
 - Gregor Hohpe & Bobby Woolf — Enterprise Integration Patterns — https://www.enterpriseintegrationpatterns.com/
+- Grupo 1 — Contrato del Event Gateway (`docs/CONTRACTS.md`): 429 con `Retry-After`, 504 y deduplicación por `payloadHash` — https://github.com/carlos-illobre/citypass-event-gateway/blob/main/docs/CONTRACTS.md
