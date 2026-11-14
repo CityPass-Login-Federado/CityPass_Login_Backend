@@ -17,6 +17,8 @@ import citypass.loginfederado.panel.dto.MembershipChangeResponse;
 import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PaginatedResponse;
 import citypass.loginfederado.panel.dto.PasswordResetRequest;
+import citypass.loginfederado.panel.dto.PanelAuditSearchCriteria;
+import citypass.loginfederado.panel.dto.PanelAuditView;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
@@ -33,6 +35,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -62,6 +65,7 @@ class PanelControllerTest {
     private PanelGroupService groups;
     private PanelAccountService accounts;
     private PanelAuthorization authorization;
+    private PanelAuditService audit;
     private AnomalyBlockedEventService anomalyEvents;
     private PanelController controller;
 
@@ -71,8 +75,9 @@ class PanelControllerTest {
         groups = mock(PanelGroupService.class);
         accounts = mock(PanelAccountService.class);
         authorization = mock(PanelAuthorization.class);
+        audit = mock(PanelAuditService.class);
         anomalyEvents = mock(AnomalyBlockedEventService.class);
-        controller = new PanelController(persons, groups, accounts, authorization, mock(PanelAuditService.class),
+        controller = new PanelController(persons, groups, accounts, authorization, audit,
                 mock(RefreshTokenService.class), anomalyEvents);
     }
 
@@ -251,6 +256,59 @@ class PanelControllerTest {
 
         verify(anomalyEvents).listEvents(
                 "reclamos", AnomalyEventStatus.BLOCKED, "jperez", 0, 20);
+    }
+
+    @Test
+    void normalDelegateListsOnlyAuditFromTokenModuleAndCannotOverrideIt() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+        var expected = new PaginatedResponse<PanelAuditView>(List.of(), 0, 0, 0, 20);
+        when(audit.search(any())).thenReturn(expected);
+
+        assertThat(controller.listAudit(
+                jwt, " perez ", " person_created ", null, null, "movilidad", 0, 20))
+                .isSameAs(expected);
+
+        verify(audit).search(new PanelAuditSearchCriteria(
+                " perez ", " person_created ", null, null, "reclamos", 0, 20));
+    }
+
+    @Test
+    void globalAdminCanListAllAuditOrFilterAKnownModule() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+        var expected = new PaginatedResponse<PanelAuditView>(List.of(), 0, 0, 0, 20);
+        when(audit.search(any())).thenReturn(expected);
+        Instant from = Instant.parse("2026-11-14T10:00:00Z");
+        Instant to = Instant.parse("2026-11-14T12:00:00Z");
+
+        controller.listAudit(jwt, null, null, null, null, null, 0, 20);
+        controller.listAudit(jwt, "U000001", "GROUP_CREATED",
+                from.toString(), to.toString(), " Reclamos ", 1, 10);
+
+        verify(audit).search(new PanelAuditSearchCriteria(null, null, null, null, null, 0, 20));
+        verify(audit).search(new PanelAuditSearchCriteria(
+                "U000001", "GROUP_CREATED", from, to, "reclamos", 1, 10));
+    }
+
+    @Test
+    void auditRejectsUnknownModuleAndMalformedDates() {
+        when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
+
+        assertBadRequest(() -> controller.listAudit(
+                jwt, null, null, null, null, "desconocido", 0, 20), "Módulo inválido");
+        assertBadRequest(() -> controller.listAudit(
+                jwt, null, null, "ayer", null, null, 0, 20), "ISO-8601");
+
+        verify(audit, never()).search(any());
+    }
+
+    @Test
+    void auditRejectsUnknownModuleAlsoForNormalDelegate() {
+        when(authorization.requireDelegate(jwt)).thenReturn(normalDelegate);
+
+        assertBadRequest(() -> controller.listAudit(
+                jwt, null, null, null, null, "desconocido", 0, 20), "Módulo inválido");
+
+        verify(audit, never()).search(any());
     }
 
     @Test

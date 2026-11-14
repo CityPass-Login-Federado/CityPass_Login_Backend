@@ -90,6 +90,10 @@ CREATE TABLE IF NOT EXISTS panel_audit (
 
 CREATE INDEX IF NOT EXISTS idx_panel_audit_module ON panel_audit (module);
 CREATE INDEX IF NOT EXISTS idx_panel_audit_occurred_at ON panel_audit (occurred_at);
+CREATE INDEX IF NOT EXISTS idx_panel_audit_module_occurred_at
+    ON panel_audit (module, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_panel_audit_actor_uid ON panel_audit (actor_uid);
+CREATE INDEX IF NOT EXISTS idx_panel_audit_action ON panel_audit (action);
 
 -- Recupero por token de un solo uso: se persiste SOLO el hash SHA-256, jamás
 -- el valor crudo. Una sola fila activa por cuenta (al pedir otro se borra el

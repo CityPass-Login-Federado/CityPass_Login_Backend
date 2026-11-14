@@ -13,6 +13,8 @@ import citypass.loginfederado.panel.dto.MembershipChangeResponse;
 import citypass.loginfederado.panel.dto.NewPersonRequest;
 import citypass.loginfederado.panel.dto.PasswordResetRequest;
 import citypass.loginfederado.panel.dto.PersonView;
+import citypass.loginfederado.panel.dto.PanelAuditSearchCriteria;
+import citypass.loginfederado.panel.dto.PanelAuditView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.GroupSearchCriteria;
@@ -43,6 +45,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -272,6 +276,57 @@ public class PanelController {
     }
 
     // ------------------------------------------------------------------
+    // Auditoría administrativa
+    // ------------------------------------------------------------------
+
+    @Operation(
+            summary = "Consultar auditoría administrativa",
+            description = "Devuelve el historial paginado, ordenado por fecha e identificador descendentes. "
+                    + "Un delegado ve únicamente su módulo; el admin global puede consultar todos los módulos "
+                    + "o filtrar uno con ?module=.",
+            tags = "Panel — Auditoría")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Página de eventos de auditoría"),
+            @ApiResponse(responseCode = "400", description = "Filtros, rango o paginación inválidos"),
+            @ApiResponse(responseCode = "401", description = "Token ausente o inválido"),
+            @ApiResponse(responseCode = "403", description = "Token sin permisos de panel")
+    })
+    @GetMapping("/audit")
+    public PaginatedResponse<PanelAuditView> listAudit(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "Coincidencia parcial por actorUid o exacta por actorSub, sin distinguir mayúsculas")
+            @RequestParam(required = false) String actor,
+            @Parameter(description = "Código exacto de acción, sin distinguir mayúsculas")
+            @RequestParam(required = false) String action,
+            @Parameter(description = "Instante inicial inclusivo en formato ISO-8601",
+                    schema = @Schema(type = "string", format = "date-time"))
+            @RequestParam(required = false) String from,
+            @Parameter(description = "Instante final inclusivo en formato ISO-8601",
+                    schema = @Schema(type = "string", format = "date-time"))
+            @RequestParam(required = false) String to,
+            @Parameter(description = "Módulo a filtrar; solo tiene efecto para admin global",
+                    schema = @Schema(allowableValues = {
+                            "movilidad", "residuos", "reclamos", "emergencias", "espacios", "analitica", "eda"
+                    }))
+            @RequestParam(required = false) String module,
+            @Parameter(description = "Número de página (base 0)", schema = @Schema(minimum = "0"))
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Tamaño de página (1-100)", schema = @Schema(minimum = "1", maximum = "100"))
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        String moduleScope = optionalModuleScope(jwt, module);
+        return audit.search(new PanelAuditSearchCriteria(
+                actor,
+                action,
+                parseInstant(from, "from"),
+                parseInstant(to, "to"),
+                moduleScope,
+                page,
+                size
+        ));
+    }
+
+    // ------------------------------------------------------------------
     // Seguridad — eventos bloqueados por anomalías
     // ------------------------------------------------------------------
 
@@ -294,7 +349,7 @@ public class PanelController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        String moduleScope = anomalyModuleScope(jwt, module);
+        String moduleScope = optionalModuleScope(jwt, module);
         return anomalyEvents.listEvents(moduleScope, status, username, page, size);
     }
 
@@ -546,19 +601,30 @@ public class PanelController {
         return base;
     }
 
-    private String anomalyModuleScope(Jwt jwt, String moduleParam) {
+    private String optionalModuleScope(Jwt jwt, String moduleParam) {
         PanelAuthorization.Delegate actor = authorization.requireDelegate(jwt);
-        if (!actor.global()) {
-            return actor.module();
-        }
-        if (moduleParam == null || moduleParam.isBlank()) {
-            return null;
-        }
-        String module = moduleParam.trim().toLowerCase(Locale.ROOT);
-        if (!PanelDirectoryRules.MODULES.contains(module)) {
+        String module = moduleParam == null || moduleParam.isBlank()
+                ? null
+                : moduleParam.trim().toLowerCase(Locale.ROOT);
+        if (module != null && !PanelDirectoryRules.MODULES.contains(module)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Módulo inválido: " + moduleParam);
         }
-        return module;
+        return actor.global() ? module : actor.module();
+    }
+
+    private static Instant parseInstant(String value, String parameter) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value.trim());
+        } catch (DateTimeParseException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "El parámetro '" + parameter + "' debe ser un instante ISO-8601",
+                    ex
+            );
+        }
     }
 
     private static ResponseStatusException notFound(String message) {
