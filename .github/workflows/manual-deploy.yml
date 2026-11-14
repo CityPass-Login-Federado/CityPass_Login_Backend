@@ -80,6 +80,7 @@ jobs:
             SVC_GRUPO7_SECRET=${{ secrets.SVC_GROUP7_SECRET }}
             SVC_GRUPO8_SECRET=${{ secrets.SVC_GROUP8_SECRET }}
             ANOMALY_SERVICE_URL=${{ secrets.ANOMALY_SERVICE_URL }}
+            ANOMALY_APPROVAL_TTL_MINUTES=${{ secrets.ANOMALY_APPROVAL_TTL_MINUTES }}
             SPRING_MAIL_HOST=${{ secrets.SPRING_MAIL_HOST }}
             SPRING_MAIL_PORT=${{ secrets.SPRING_MAIL_PORT }}
             SPRING_MAIL_USERNAME=${{ secrets.SPRING_MAIL_USERNAME }}

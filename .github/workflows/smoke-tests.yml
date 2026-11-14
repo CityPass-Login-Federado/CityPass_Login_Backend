@@ -126,6 +126,7 @@ jobs:
                   SVC_GRUPO7_SECRET=grupo7-test
                   SVC_GRUPO8_SECRET=grupo8-test
                   ANOMALY_SERVICE_URL=http://anomaly-detection:8000
+                  ANOMALY_APPROVAL_TTL_MINUTES=15
                   SPRING_MAIL_HOST=mailpit
                   SPRING_MAIL_PORT=1025
                   SPRING_MAIL_USERNAME=dummy-ci-user

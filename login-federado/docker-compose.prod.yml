@@ -67,6 +67,7 @@ services:
       SVC_GRUPO8_SECRET: "${SVC_GRUPO8_SECRET:?Falta SVC_GRUPO8_SECRET}"
 
       ANOMALY_SERVICE_URL: "${ANOMALY_SERVICE_URL}"
+      ANOMALY_APPROVAL_TTL_MINUTES: "${ANOMALY_APPROVAL_TTL_MINUTES:-15}"
       # --- SMTP (recupero de contraseña). Valores en el .env del deploy.
       # Gmail: SPRING_MAIL_HOST=smtp.gmail.com SPRING_MAIL_PORT=587
       #   SPRING_MAIL_USERNAME=<cuenta> SPRING_MAIL_PASSWORD=<app password>
