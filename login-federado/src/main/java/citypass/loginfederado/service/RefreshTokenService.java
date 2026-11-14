@@ -40,7 +40,6 @@ import java.util.UUID;
 @Service
 public class RefreshTokenService {
 
-    private static final Logger log = LoggerFactory.getLogger(RefreshTokenService.class);
     private static final Logger securityLog = LoggerFactory.getLogger("SECURITY");
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int TOKEN_BYTE_LENGTH = 64;
@@ -205,7 +204,7 @@ public class RefreshTokenService {
         try {
             eventPublisher.publish(eventType, payload);
         } catch (Exception ex) {
-            log.warn("No se pudo publicar el evento {}: {}", eventType, ex.toString(), ex);
+            securityLog.warn("No se pudo publicar el evento {}: {}", eventType, ex.toString(), ex);
         }
     }
 
