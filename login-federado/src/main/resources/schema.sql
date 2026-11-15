@@ -149,29 +149,3 @@ CREATE TABLE IF NOT EXISTS event_outbox (
 CREATE INDEX IF NOT EXISTS idx_event_outbox_due
     ON event_outbox (next_attempt_at)
     WHERE status = 'PENDING';
-
--- Denylist de access tokens revocados por jti (logout). El access token es
--- stateless: sin esto sigue sirviendo hasta 15 min tras cerrar sesión. La fila
--- vive hasta la expiración natural del token y luego se purga.
-CREATE TABLE IF NOT EXISTS revoked_access_tokens (
-                                                     jti VARCHAR(64) PRIMARY KEY,               -- claim jti del JWT
-    sub VARCHAR(16),                           -- employeeNumber del dueño
-    expires_at TIMESTAMP NOT NULL              -- exp del token revocado
-    );
-
-CREATE INDEX IF NOT EXISTS idx_revoked_access_tokens_expires_at
-    ON revoked_access_tokens (expires_at);
-CREATE INDEX IF NOT EXISTS idx_revoked_access_tokens_sub
-    ON revoked_access_tokens (sub);
-
--- Corte temporal de revocación por sujeto (cambio/recupero de contraseña o baja).
--- Todo access token con iat <= revoked_before queda rechazado hasta expirar
--- de forma natural (expires_at), momento en que la fila se purga.
-CREATE TABLE IF NOT EXISTS revoked_subject_cutoffs (
-                                                       sub          VARCHAR(16) PRIMARY KEY,
-    revoked_before TIMESTAMP NOT NULL,
-    expires_at   TIMESTAMP NOT NULL
-    );
-
-CREATE INDEX IF NOT EXISTS idx_revoked_subject_cutoffs_expires_at
-    ON revoked_subject_cutoffs (expires_at);
