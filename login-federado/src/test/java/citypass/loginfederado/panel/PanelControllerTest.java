@@ -95,7 +95,8 @@ class PanelControllerTest {
     @Test
     void globalAdminRoutesEveryPanelOperationToNormalizedRequestedModule() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
-        var person = new PersonView("U000042", "jperez", "Juan", "Perez", "j@x.com", false);
+        var person = new PersonView("U000042", "jperez", "Juan", "Perez", "j@x.com",
+                false, false, null);
         var group = new GroupView("ops", List.of(), false);
         var people = new PaginatedResponse<>(List.of(person), 1, 1, 0, 10);
         var groupPage = new PaginatedResponse<>(List.of(group), 1, 1, 0, 10);
@@ -136,8 +137,10 @@ class PanelControllerTest {
     void listAllPeopleReturnsEveryModuleForGlobalAdmin() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
         var people = List.of(
-                new GlobalPersonView("reclamos", "U000001", "jperez", "Juan", "Perez", "j@x.com", false),
-                new GlobalPersonView("movilidad", "U000002", "mlopez", "Maria", "Lopez", "m@x.com", true)
+                new GlobalPersonView("reclamos", "U000001", "jperez", "Juan", "Perez", "j@x.com",
+                        false, true, Instant.parse("2026-11-15T15:30:00Z")),
+                new GlobalPersonView("movilidad", "U000002", "mlopez", "Maria", "Lopez", "m@x.com",
+                        true, false, null)
         );
         when(persons.listAllPeopleGlobal()).thenReturn(people);
 
@@ -147,7 +150,8 @@ class PanelControllerTest {
     @Test
     void listAllPeopleForSelectedModuleUsesLowercaseModuleAndSortsByUid() {
         when(authorization.requireDelegate(jwt)).thenReturn(globalDelegate);
-        var person = new PersonView("U000021", "zperez", "Zoe", "Perez", "z@x.com", false);
+        var person = new PersonView("U000021", "zperez", "Zoe", "Perez", "z@x.com",
+                false, true, Instant.parse("2026-11-15T15:30:00Z"));
         when(persons.listPeople(eq("reclamos"), any(PeopleSearchCriteria.class)))
                 .thenReturn(new PaginatedResponse<>(List.of(person), 1, 1, 0, 10));
 
@@ -157,6 +161,9 @@ class PanelControllerTest {
                 .extracting(GlobalPersonView::uid)
                 .containsExactly("zperez");
         assertThat(response.getFirst().module()).isEqualTo("reclamos");
+        assertThat(response.getFirst().locked()).isTrue();
+        assertThat(response.getFirst().lockoutUntil())
+                .isEqualTo(Instant.parse("2026-11-15T15:30:00Z"));
     }
 
     @Test
