@@ -7,6 +7,7 @@ import citypass.loginfederado.dto.RefreshRequest;
 import citypass.loginfederado.dto.ResetPasswordRequest;
 import citypass.loginfederado.service.AuthService;
 import citypass.loginfederado.service.PasswordService;
+import citypass.loginfederado.web.ClientIpResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -32,10 +33,13 @@ public class AuthController {
 
     private final AuthService authService;
     private final PasswordService passwordService;
+    private final ClientIpResolver clientIpResolver;
 
-    public AuthController(AuthService authService, PasswordService passwordService) {
+    public AuthController(AuthService authService, PasswordService passwordService,
+                          ClientIpResolver clientIpResolver) {
         this.authService = authService;
         this.passwordService = passwordService;
+        this.clientIpResolver = clientIpResolver;
     }
 
     @Operation(summary = "Login de usuario",
@@ -50,22 +54,9 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request,
                                                HttpServletRequest httpRequest) {
-        String ipAddress = resolveClientIp(httpRequest);
+        String ipAddress = clientIpResolver.resolve(httpRequest);
         String userAgent = httpRequest.getHeader("User-Agent");
         return ResponseEntity.ok(authService.login(request, ipAddress, userAgent));
-    }
-
-    /**
-     * Si el módulo corre detrás de un proxy/load balancer, la IP real del
-     * cliente viaja en X-Forwarded-For y no en getRemoteAddr(). Se toma el
-     * primer valor de esa cabecera si está presente.
-     */
-    private String resolveClientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 
     @Operation(summary = "Refresh token",
@@ -80,22 +71,33 @@ public class AuthController {
     public ResponseEntity<LoginResponse> refresh(@Valid @RequestBody RefreshRequest request,
                                                  HttpServletRequest httpRequest) {
         return ResponseEntity.ok(authService.refresh(
-                request, resolveClientIp(httpRequest), httpRequest.getHeader("User-Agent")));
+                request, clientIpResolver.resolve(httpRequest), httpRequest.getHeader("User-Agent")));
     }
 
     @Operation(summary = "Logout",
-            description = "Invalida la sesión (revoca el refresh canjeable). Persiste. "
-                    + "El access token vigente sigue vivo hasta 15 minutos: aceptado y esperado. "
-                    + "Token desconocido → 204 igual: no se revela si alguna vez existió.")
+            description = "Invalida la sesión (revoca el refresh canjeable) y, si se envía el "
+                    + "access token en el header Authorization: Bearer, lo denylista por jti. "
+                    + "Persiste. Token desconocido → 204 igual: no se revela si alguna vez existió.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Sesión invalidada (token inexistente devuelve lo mismo)")
     })
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(@Valid @RequestBody RefreshRequest request,
                                        HttpServletRequest httpRequest) {
-        authService.logout(request.refreshToken(), resolveClientIp(httpRequest),
+        authService.logout(request.refreshToken(), extractBearerToken(httpRequest),
+                clientIpResolver.resolve(httpRequest),
                 httpRequest.getHeader("User-Agent"));
         return ResponseEntity.noContent().build();
+    }
+
+    /** Access token opcional del logout: `Authorization: Bearer <jwt>`. */
+    private static String extractBearerToken(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        if (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            String token = header.substring(7).trim();
+            return token.isEmpty() ? null : token;
+        }
+        return null;
     }
 
     @Operation(summary = "Solicitar recupero de contraseña",
@@ -111,7 +113,7 @@ public class AuthController {
     @PostMapping("/forgot-password")
     public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
                                                HttpServletRequest httpRequest) {
-        passwordService.requestPasswordReset(request.uid(), resolveClientIp(httpRequest));
+        passwordService.requestPasswordReset(request.uid(), clientIpResolver.resolve(httpRequest));
         return ResponseEntity.noContent().build();
     }
 

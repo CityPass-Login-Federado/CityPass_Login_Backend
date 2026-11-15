@@ -38,6 +38,8 @@ class GlobalExceptionHandlerTest {
                 .isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(handler.handleAnomalyServiceUnavailable(new AnomalyServiceUnavailableException("down", new RuntimeException()))
                 .getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(handler.handleTooManyRequests(new TooManyRequestsException("limit")).getStatusCode())
+                .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
 
     @Test

@@ -8,13 +8,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -30,6 +33,34 @@ public class SecurityConfig {
             "/jwks/**",
             "/actuator/health"
     };
+
+    // API: respuestas JSON, no debe cargar NINGÚN recurso. CSP mínima.
+    private static final String API_CSP =
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
+    // Swagger UI necesita sus propios assets (scripts/estilos) desde 'self'.
+    private static final String DOCS_CSP =
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                    + "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+                    + "frame-ancestors 'none'; base-uri 'none'";
+
+    /**
+     * Cabeceras de seguridad comunes a las dos cadenas: sin MIME sniffing,
+     * sin framing, sin referrer, HSTS y CSP. Spring ya agrega algunas por
+     * default; acá se fijan explícitas para que no dependan del default de
+     * la versión y queden auditables.
+     */
+    private static void applySecurityHeaders(HeadersConfigurer<HttpSecurity> headers, String csp) {
+        headers
+                .contentTypeOptions(Customizer.withDefaults())
+                .frameOptions(frame -> frame.deny())
+                .referrerPolicy(referrer -> referrer
+                        .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .httpStrictTransportSecurity(hsts -> hsts
+                        .includeSubDomains(true)
+                        .maxAgeInSeconds(31536000))
+                .contentSecurityPolicy(policy -> policy.policyDirectives(csp));
+    }
 
     /**
      * Swagger UI y OpenAPI JSON: SIN filtro JWT.
@@ -50,6 +81,7 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
+                .headers(headers -> applySecurityHeaders(headers, DOCS_CSP))
                 .authorizeHttpRequests(auth ->
                         auth.anyRequest().permitAll()
                 );
@@ -72,6 +104,7 @@ public class SecurityConfig {
                 )
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
+                .headers(headers -> applySecurityHeaders(headers, API_CSP))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .anyRequest().authenticated()

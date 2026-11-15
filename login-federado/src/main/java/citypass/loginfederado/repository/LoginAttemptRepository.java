@@ -16,6 +16,11 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID
             Instant since
     );
 
+    long countByIpAddressAndAttemptedAtAfter(
+            String ipAddress,
+            Instant since
+    );
+
     void deleteByUsernameAndSuccessfulFalse(String username);
 
     @Query(value = """

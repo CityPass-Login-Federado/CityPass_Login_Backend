@@ -42,6 +42,16 @@ public class GlobalExceptionHandler {
         return genericAuthFailure();
     }
 
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<Map<String, Object>> handleTooManyRequests(TooManyRequestsException ex) {
+        // Tope por IP: no revela nada de la cuenta, solo del origen.
+        return securityFailure(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "Demasiadas solicitudes",
+                "Demasiadas solicitudes. Intente nuevamente más tarde."
+        );
+    }
+
     @ExceptionHandler(AnomalyBlockedException.class)
     public ResponseEntity<Map<String, Object>> handleAnomalyBlocked(
             AnomalyBlockedException ex

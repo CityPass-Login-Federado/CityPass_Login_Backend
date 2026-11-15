@@ -76,6 +76,16 @@ class SecurityConfigTest {
     }
 
     @Test
+    void appliesSecurityHeadersOnApiResponses() throws Exception {
+        mockMvc.perform(get("/auth/unknown"))
+                .andExpect(header().string("Content-Security-Policy",
+                        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"))
+                .andExpect(header().string("X-Frame-Options", "DENY"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Referrer-Policy", "no-referrer"));
+    }
+
+    @Test
     void rejectsUnmatchedApiRouteWithoutAuthentication() throws Exception {
         mockMvc.perform(get("/private/unknown"))
                 .andExpect(status().isUnauthorized());
