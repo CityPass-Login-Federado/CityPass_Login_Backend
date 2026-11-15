@@ -125,3 +125,25 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_uid ON password_reset_requests (uid);
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_ip ON password_reset_requests (ip_address);
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_at ON password_reset_requests (requested_at);
+
+-- Eventos de autenticación que todavía no llegaron a EDA (ADR-010).
+-- El id es también el authEventId del payload: un reintento es el mismo
+-- evento y EDA puede descartar el duplicado. El relay toma los PENDING
+-- con next_attempt_at vencido. Las fechas son TIMESTAMPTZ: un Instant no
+-- depende de la zona de la JVM.
+CREATE TABLE IF NOT EXISTS event_outbox (
+    id UUID PRIMARY KEY,
+    event_type VARCHAR(64) NOT NULL,
+    payload JSONB NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    sent_at TIMESTAMPTZ NULL,
+    last_error VARCHAR(1024),
+    CONSTRAINT chk_event_outbox_status CHECK (status IN ('PENDING', 'SENT', 'FAILED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_outbox_due
+    ON event_outbox (next_attempt_at)
+    WHERE status = 'PENDING';

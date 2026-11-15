@@ -4,7 +4,10 @@ import citypass.loginfederado.config.EdaProperties;
 import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.web.client.ClientHttpRequestFactories;
+import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -28,14 +31,30 @@ public class EdaHttpEventPublisher implements EventPublisher {
 
     private volatile ServiceToken serviceToken;
 
+    @Autowired
     public EdaHttpEventPublisher(
             RestClient.Builder restClientBuilder,
             EdaProperties properties,
             EdaEventPayloadMapper payloadMapper
     ) {
-        this.restClient = restClientBuilder.build();
+        this(clientWithTimeouts(restClientBuilder, properties), properties, payloadMapper);
+    }
+
+    public EdaHttpEventPublisher(
+            RestClient restClient,
+            EdaProperties properties,
+            EdaEventPayloadMapper payloadMapper
+    ) {
+        this.restClient = restClient;
         this.properties = properties;
         this.payloadMapper = payloadMapper;
+    }
+
+    static RestClient clientWithTimeouts(RestClient.Builder builder, EdaProperties properties) {
+        var settings = ClientHttpRequestFactorySettings.DEFAULTS
+                .withConnectTimeout(properties.connectTimeout())
+                .withReadTimeout(properties.readTimeout());
+        return builder.requestFactory(ClientHttpRequestFactories.get(settings)).build();
     }
 
     @Override

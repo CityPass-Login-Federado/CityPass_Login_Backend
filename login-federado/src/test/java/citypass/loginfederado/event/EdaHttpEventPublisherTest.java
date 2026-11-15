@@ -4,15 +4,21 @@ import citypass.loginfederado.config.EdaProperties;
 import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,7 +38,9 @@ class EdaHttpEventPublisherTest {
                 TOKEN_URL,
                 "/oauth/token",
                 "grupo2",
-                "secret"
+                "secret",
+                Duration.ofSeconds(3),
+                Duration.ofSeconds(5)
         );
     }
 
@@ -40,7 +48,7 @@ class EdaHttpEventPublisherTest {
             RestClient.Builder builder
     ) {
         return new EdaHttpEventPublisher(
-                builder,
+                builder.build(),
                 properties(),
                 new EdaEventPayloadMapper(objectMapper)
         );
@@ -71,7 +79,9 @@ class EdaHttpEventPublisherTest {
                 TOKEN_URL,
                 "/oauth/token",
                 "grupo2",
-                "secret"
+                "secret",
+                null,
+                null
         );
 
         assertThat(disabled.enabled()).isFalse();
@@ -209,5 +219,47 @@ class EdaHttpEventPublisherTest {
         )
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not match");
+    }
+
+    @Test
+    void defaultsTimeoutsWhenUnset() {
+        assertThat(properties().connectTimeout()).isEqualTo(Duration.ofSeconds(3));
+        assertThat(properties().readTimeout()).isEqualTo(Duration.ofSeconds(5));
+
+        EdaProperties unset = new EdaProperties(
+                GATEWAY_URL, TOKEN_URL, "/oauth/token", "grupo2", "secret", null, null);
+        assertThat(unset.connectTimeout()).isEqualTo(Duration.ofSeconds(3));
+        assertThat(unset.readTimeout()).isEqualTo(Duration.ofSeconds(5));
+    }
+
+    @Test
+    @Timeout(5)
+    void stopsWaitingWhenTheGatewayDoesNotAnswer() throws Exception {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            Thread acceptor = new Thread(() -> {
+                try (Socket accepted = socket.accept()) {
+                    Thread.sleep(10_000);
+                } catch (Exception ignored) {
+                    // El cliente corta al vencer el read timeout.
+                }
+            });
+            acceptor.setDaemon(true);
+            acceptor.start();
+
+            String base = "http://127.0.0.1:" + socket.getLocalPort();
+            EdaProperties slow = new EdaProperties(
+                    base, base, "/oauth/token", "grupo2", "secret",
+                    Duration.ofMillis(500), Duration.ofMillis(500));
+            EdaHttpEventPublisher publisher = new EdaHttpEventPublisher(
+                    RestClient.builder(), slow, new EdaEventPayloadMapper(objectMapper));
+            RawAuthenticationEvent event = RawAuthenticationEvent.login(
+                    "U000001", "jperez", "reclamos", "citypass-reclamos-web", "127.0.0.1", "Chrome");
+
+            long started = System.nanoTime();
+            assertThatThrownBy(() -> publisher.publish("identidad.login", event))
+                    .isInstanceOf(RestClientException.class);
+            long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+            assertThat(elapsedMs).isBetween(400L, 3_000L);
+        }
     }
 }

@@ -5,7 +5,6 @@ import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
-import citypass.loginfederado.event.EventPublisher;
 import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import citypass.loginfederado.model.RefreshToken;
 import citypass.loginfederado.repository.RefreshTokenRepository;
@@ -48,27 +47,26 @@ public class RefreshTokenService {
     private final LdapDirectory ldapDirectory;
     private final ClientRegistry clientRegistry;
     private final JwtProperties jwtProperties;
-    private final EventPublisher eventPublisher;
+    private final EventOutboxService eventOutbox;
 
     @Autowired
     public RefreshTokenService(RefreshTokenRepository repository,
                                LdapDirectory ldapDirectory,
                                ClientRegistry clientRegistry,
                                JwtProperties jwtProperties,
-                               EventPublisher eventPublisher) {
+                               EventOutboxService eventOutbox) {
         this.repository = repository;
         this.ldapDirectory = ldapDirectory;
         this.clientRegistry = clientRegistry;
         this.jwtProperties = jwtProperties;
-        this.eventPublisher = eventPublisher;
+        this.eventOutbox = eventOutbox;
     }
 
     public RefreshTokenService(RefreshTokenRepository repository,
                                LdapDirectory ldapDirectory,
                                ClientRegistry clientRegistry,
                                JwtProperties jwtProperties) {
-        this(repository, ldapDirectory, clientRegistry, jwtProperties, (eventType, payload) -> {
-        });
+        this(repository, ldapDirectory, clientRegistry, jwtProperties, null);
     }
 
     /** El resultado de un canje exitoso: persona REVALIDADA + cadena viva. */
@@ -170,12 +168,9 @@ public class RefreshTokenService {
             stored.revoke(Instant.now());
             repository.save(stored);
             CitypassProperties.Client client = clientRegistry.requireHuman(stored.getClientId());
-            publishSafely(
-                    "identidad.logout",
-                    RawAuthenticationEvent.logout(
-                            stored.getSub(), client.module(), stored.getClientId(),
-                            stored.getChainId(), ipAddress, userAgent)
-            );
+            enqueueSafely(RawAuthenticationEvent.logout(
+                    stored.getSub(), client.module(), stored.getClientId(),
+                    stored.getChainId(), ipAddress, userAgent));
         });
     }
 
@@ -188,23 +183,24 @@ public class RefreshTokenService {
     public int revokeAllForSub(String sub, String department) {
         int revoked = repository.revokeAllForSub(sub, Instant.now());
         if (revoked > 0) {
-            publishSafely(
-                    "identidad.logout",
-                    RawAuthenticationEvent.logout(sub, department, null, null, null, null)
-            );
+            enqueueSafely(RawAuthenticationEvent.logout(sub, department, null, null, null, null));
         }
         return revoked;
     }
 
     /**
-     * Igual que en el login: si EDA no responde, la revocación ya quedó
-     * persistida y el logout no puede fallar por un POST.
+     * Igual que en el login: si no se puede anotar el evento, la revocación
+     * ya quedó persistida y el logout no puede fallar por el outbox.
+     * eventOutbox es null solo en tests que no ejercitan esta parte.
      */
-    private void publishSafely(String eventType, Object payload) {
+    private void enqueueSafely(RawAuthenticationEvent event) {
+        if (eventOutbox == null) {
+            return;
+        }
         try {
-            eventPublisher.publish(eventType, payload);
-        } catch (Exception ex) {
-            securityLog.warn("No se pudo publicar el evento {}: {}", eventType, ex.toString(), ex);
+            eventOutbox.enqueue(event);
+        } catch (RuntimeException ex) {
+            securityLog.warn("No se pudo encolar el evento {}: {}", event.eventType(), ex.toString(), ex);
         }
     }
 
