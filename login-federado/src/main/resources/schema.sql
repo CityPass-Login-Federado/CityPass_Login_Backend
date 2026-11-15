@@ -80,6 +80,24 @@ CREATE INDEX IF NOT EXISTS idx_anomaly_events_username
 CREATE INDEX IF NOT EXISTS idx_anomaly_events_approval
     ON anomaly_blocked_events (username, client_id, status, approval_expires_at);
 
+-- Outbox transaccional para publicar eventos EDA de forma asíncrona.
+CREATE TABLE IF NOT EXISTS event_outbox (
+                                            id UUID PRIMARY KEY,
+    event_type VARCHAR(64) NOT NULL,
+    payload JSONB NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL,
+    sent_at TIMESTAMPTZ NULL,
+    last_error VARCHAR(1024),
+    CONSTRAINT chk_event_outbox_status CHECK (status IN ('PENDING', 'SENT', 'FAILED'))
+    );
+
+CREATE INDEX IF NOT EXISTS idx_event_outbox_due
+    ON event_outbox (next_attempt_at)
+    WHERE status = 'PENDING';
+
 -- Auditoría del panel: cada mutación queda registrada (manual del panel §8:
 -- "las altas, bajas y cambios de grupos quedan registrados").
 CREATE TABLE IF NOT EXISTS panel_audit (
