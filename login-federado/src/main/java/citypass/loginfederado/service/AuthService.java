@@ -5,7 +5,6 @@ import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.dto.LoginRequest;
 import citypass.loginfederado.dto.LoginResponse;
 import citypass.loginfederado.dto.RefreshRequest;
-import citypass.loginfederado.event.EventPublisher;
 import citypass.loginfederado.exception.AccountLockedException;
 import citypass.loginfederado.exception.AnomalyBlockedException;
 import citypass.loginfederado.identity.ClientRegistry;
@@ -51,7 +50,7 @@ public class AuthService {
     private final AccessTokenIssuer accessTokenIssuer;
     private final RefreshTokenService refreshTokenService;
     private final JwtProperties jwtProperties;
-    private final EventPublisher eventPublisher;
+    private final EventOutboxService eventOutbox;
     private final LoginAttemptService loginAttemptService;
     private final AnomalyRiskClient anomalyRiskClient;
     private final AnomalyBlockedEventService anomalyBlockedEventService;
@@ -63,7 +62,7 @@ public class AuthService {
                        AccessTokenIssuer accessTokenIssuer,
                        RefreshTokenService refreshTokenService,
                        JwtProperties jwtProperties,
-                       EventPublisher eventPublisher,
+                       EventOutboxService eventOutbox,
                        LoginAttemptService loginAttemptService,
                        AnomalyRiskClient anomalyRiskClient,
                        AnomalyBlockedEventService anomalyBlockedEventService,
@@ -74,7 +73,7 @@ public class AuthService {
         this.accessTokenIssuer = accessTokenIssuer;
         this.refreshTokenService = refreshTokenService;
         this.jwtProperties = jwtProperties;
-        this.eventPublisher = eventPublisher;
+        this.eventOutbox = eventOutbox;
         this.loginAttemptService = loginAttemptService;
         this.anomalyRiskClient = anomalyRiskClient;
         this.anomalyBlockedEventService = anomalyBlockedEventService;
@@ -187,12 +186,9 @@ public class AuthService {
         String accessToken = accessTokenIssuer.issueHuman(person, client);
         String refreshToken = refreshTokenService.issueInitial(person, client);
 
-        publishSafely(
-            "identidad.login",
-            RawAuthenticationEvent.login(
+        enqueueSafely(RawAuthenticationEvent.login(
                 person.sub(), person.uid(), person.module(), client.clientId(),
-                ipAddress, userAgent)
-        );
+                ipAddress, userAgent));
 
         return response(accessToken, refreshToken);
     }
@@ -213,13 +209,10 @@ public class AuthService {
         String newRefreshToken = refreshTokenService.issueNext(
                 continuation.person(), continuation.chainId(), continuation.client());
 
-        publishSafely(
-            "identidad.refresh",
-            RawAuthenticationEvent.refresh(
+        enqueueSafely(RawAuthenticationEvent.refresh(
                 continuation.person().sub(), continuation.person().uid(),
                 continuation.person().module(), continuation.client().clientId(),
-                continuation.chainId(), ipAddress, userAgent)
-        );
+                continuation.chainId(), ipAddress, userAgent));
 
         return response(accessToken, newRefreshToken);
     }
@@ -247,14 +240,14 @@ public class AuthService {
     }
 
     /**
-     * EDA es best-effort. Si el gateway no responde, el token ya está emitido
-     * y el cliente igual tiene que entrar: el fallo se loguea y sigue.
+     * El insert del outbox es best-effort. Si la base rechaza la fila, el
+     * token ya está emitido y el cliente igual tiene que entrar.
      */
-    private void publishSafely(String eventType, Object payload) {
+    private void enqueueSafely(RawAuthenticationEvent event) {
         try {
-            eventPublisher.publish(eventType, payload);
-        } catch (Exception ex) {
-            log.warn("No se pudo publicar el evento {}: {}", eventType, ex.toString(), ex);
+            eventOutbox.enqueue(event);
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo encolar el evento {}: {}", event.eventType(), ex.toString(), ex);
         }
     }
 

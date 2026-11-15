@@ -11,10 +11,11 @@ Este directorio contiene las decisiones de arquitectura documentadas del módulo
 | [ADR-003](ADR-003-refresh-tokens-opacos-rotacion.md) | Refresh tokens opacos con rotación y hash SHA-256 |
 | [ADR-004](ADR-004-bloqueo-fuerza-bruta-ventana-deslizante.md) | Bloqueo por fuerza bruta — ventana deslizante |
 | [ADR-005](ADR-005-stateless-sin-sesiones.md) | API stateless sin sesiones de servidor |
-| [ADR-006](ADR-006-event-bus-placeholder.md) | Event bus — placeholder con abstracción |
+| [ADR-006](ADR-006-event-bus-placeholder.md) | Event bus — placeholder con abstracción. Reemplazado por [ADR-010](ADR-010-outbox-eventos-eda.md) |
 | [ADR-007](ADR-007-dockerfile-multi-stage.md) | Dockerfile multi-stage para la aplicación |
 | [ADR-008](ADR-008-python-servicio-deteccion.md) | Python para el servicio de detección de anomalías |
 | [ADR-009](ADR-009-ia-ml-deteccion-anomalias.md) | Detección híbrida con Isolation Forest y reglas deterministas |
+| [ADR-010](ADR-010-outbox-eventos-eda.md) | Outbox para los eventos de autenticación hacia EDA |
 
 ## Formato
 

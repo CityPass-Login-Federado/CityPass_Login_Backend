@@ -4,7 +4,7 @@ import citypass.loginfederado.config.CitypassProperties;
 import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.dto.LoginRequest;
 import citypass.loginfederado.dto.RefreshRequest;
-import citypass.loginfederado.event.EventPublisher;
+import citypass.loginfederado.service.EventOutboxService;
 import citypass.loginfederado.exception.AnomalyBlockedException;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
@@ -36,7 +36,7 @@ class AuthServiceTest {
     private AccessTokenIssuer issuer;
     private RefreshTokenService refresh;
     private JwtProperties jwtProperties;
-    private EventPublisher events;
+    private EventOutboxService events;
     private LoginAttemptService attempts;
     private AnomalyRiskClient anomaly;
     private AnomalyBlockedEventService anomalyEvents;
@@ -51,7 +51,7 @@ class AuthServiceTest {
         issuer = mock(AccessTokenIssuer.class);
         refresh = mock(RefreshTokenService.class);
         jwtProperties = new JwtProperties("issuer", 15, 8, 60, "k", "k");
-        events = mock(EventPublisher.class);
+        events = mock(EventOutboxService.class);
         attempts = mock(LoginAttemptService.class);
         anomaly = mock(AnomalyRiskClient.class);
         anomalyEvents = mock(AnomalyBlockedEventService.class);
@@ -150,7 +150,7 @@ class AuthServiceTest {
         assertThat(response.tokenType()).isEqualTo("Bearer");
         assertThat(response.expiresIn()).isEqualTo(900);
         verify(attempts).recordAttempt("jperez", "ip", "ua", true);
-        verify(events).publish(eq("identidad.login"), any());
+        verify(events).enqueue(any());
     }
 
     @Test
@@ -161,7 +161,7 @@ class AuthServiceTest {
                 .thenReturn(new citypass.loginfederado.dto.AnomalyScoreResponse(0.01, "ALLOW", List.of()));
         when(issuer.issueHuman(person, client)).thenReturn("access");
         when(refresh.issueInitial(person, client)).thenReturn("refresh");
-        doThrow(new IllegalStateException("EDA no responde")).when(events).publish(anyString(), any());
+        doThrow(new IllegalStateException("outbox caido")).when(events).enqueue(any());
 
         var response = service.login(new LoginRequest("jperez", "secret", client.clientId()), "ip", "ua");
 
@@ -245,13 +245,13 @@ class AuthServiceTest {
                 .thenReturn(new RefreshTokenService.ChainContinuation(person, chain, client));
         when(issuer.issueHuman(person, client)).thenReturn("new-access");
         when(refresh.issueNext(person, chain, client)).thenReturn("new-refresh");
-        doThrow(new IllegalStateException("EDA no responde")).when(events).publish(anyString(), any());
+        doThrow(new IllegalStateException("outbox caido")).when(events).enqueue(any());
 
         var response = service.refresh(new RefreshRequest("old"), "ip", "ua");
 
         assertThat(response.accessToken()).isEqualTo("new-access");
         assertThat(response.refreshToken()).isEqualTo("new-refresh");
-        verify(events).publish(eq("identidad.refresh"), any());
+        verify(events).enqueue(any());
     }
 
     @Test

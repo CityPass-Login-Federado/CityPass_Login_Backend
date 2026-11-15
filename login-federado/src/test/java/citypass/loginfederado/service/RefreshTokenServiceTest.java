@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,13 +21,13 @@ import static org.mockito.Mockito.when;
 import org.springframework.security.authentication.BadCredentialsException;
 
 import citypass.loginfederado.config.CitypassProperties;
-import citypass.loginfederado.event.EventPublisher;
 import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
 import citypass.loginfederado.model.RefreshToken;
 import citypass.loginfederado.repository.RefreshTokenRepository;
+import citypass.loginfederado.service.EventOutboxService;
 
 /**
  * Las tres reglas innegociables del refresh (D9 / spec §4.2):
@@ -189,10 +190,9 @@ class RefreshTokenServiceTest {
     }
 
     @Test
-    void logoutSucceedsWhenEventPublishingFails() {
-        EventPublisher failing = (type, payload) -> {
-            throw new IllegalStateException("EDA no responde");
-        };
+    void logoutSucceedsWhenOutboxInsertFails() {
+        EventOutboxService failing = mock(EventOutboxService.class);
+        doThrow(new IllegalStateException("outbox caido")).when(failing).enqueue(any());
         var jwtProps = new JwtProperties("https://idp.citypass.local", 15, 8, 60, "k", "k");
         var withEvents = new RefreshTokenService(
                 repository, ldapDirectory, clientRegistry, jwtProps, failing);
@@ -206,10 +206,9 @@ class RefreshTokenServiceTest {
     }
 
     @Test
-    void revokeAllSucceedsWhenEventPublishingFails() {
-        EventPublisher failing = (type, payload) -> {
-            throw new IllegalStateException("EDA no responde");
-        };
+    void revokeAllSucceedsWhenOutboxInsertFails() {
+        EventOutboxService failing = mock(EventOutboxService.class);
+        doThrow(new IllegalStateException("outbox caido")).when(failing).enqueue(any());
         var jwtProps = new JwtProperties("https://idp.citypass.local", 15, 8, 60, "k", "k");
         var withEvents = new RefreshTokenService(
                 repository, ldapDirectory, clientRegistry, jwtProps, failing);
