@@ -136,6 +136,25 @@ class AuthServiceTest {
     }
 
     @Test
+    void loginSucceedsWhenEventPublishingFails() throws Exception {
+        when(ldap.findByUid("jperez")).thenReturn(java.util.Optional.of(person));
+        when(clients.acceptsModule(client, "reclamos")).thenReturn(true);
+        when(anomaly.score("jperez", "ip", "ua"))
+                .thenReturn(new citypass.loginfederado.dto.AnomalyScoreResponse(0.01, "ALLOW", List.of()));
+        when(issuer.issueHuman(person, client)).thenReturn("access");
+        when(refresh.issueInitial(person, client)).thenReturn("refresh");
+        doThrow(new IllegalStateException("EDA no responde")).when(events).publish(anyString(), any());
+
+        var response = service.login(new LoginRequest("jperez", "secret", client.clientId()), "ip", "ua");
+
+        assertThat(response.accessToken()).isEqualTo("access");
+        assertThat(response.refreshToken()).isEqualTo("refresh");
+        assertThat(response.tokenType()).isEqualTo("Bearer");
+        assertThat(response.expiresIn()).isEqualTo(900);
+        verify(attempts).recordAttempt("jperez", "ip", "ua", true);
+    }
+
+    @Test
     void anomalyBlockProducesGenericErrorAndFailedAttempt() throws Exception {
         when(ldap.findByUid("jperez")).thenReturn(java.util.Optional.of(person));
         when(clients.acceptsModule(client, "reclamos")).thenReturn(true);
@@ -199,6 +218,22 @@ class AuthServiceTest {
         assertThat(response.accessToken()).isEqualTo("new-access");
         assertThat(response.refreshToken()).isEqualTo("new-refresh");
         verify(refresh).issueNext(person, chain, client);
+    }
+
+    @Test
+    void refreshSucceedsWhenEventPublishingFails() {
+        UUID chain = UUID.randomUUID();
+        when(refresh.continueChain("old"))
+                .thenReturn(new RefreshTokenService.ChainContinuation(person, chain, client));
+        when(issuer.issueHuman(person, client)).thenReturn("new-access");
+        when(refresh.issueNext(person, chain, client)).thenReturn("new-refresh");
+        doThrow(new IllegalStateException("EDA no responde")).when(events).publish(anyString(), any());
+
+        var response = service.refresh(new RefreshRequest("old"), "ip", "ua");
+
+        assertThat(response.accessToken()).isEqualTo("new-access");
+        assertThat(response.refreshToken()).isEqualTo("new-refresh");
+        verify(events).publish(eq("identidad.refresh"), any());
     }
 
     @Test
