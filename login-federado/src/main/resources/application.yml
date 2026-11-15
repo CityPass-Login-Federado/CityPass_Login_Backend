@@ -70,6 +70,10 @@ security:
     max-failed-attempts: 5
     window-minutes: 15
     lockout-minutes: 10
+  # Tope por IP de /auth/login y /auth/refresh (el lockout es por usuario).
+  login-rate-limit:
+    max-per-ip-per-window: ${LOGIN_RATE_LIMIT_MAX_PER_IP:30}
+    window-minutes: ${LOGIN_RATE_LIMIT_WINDOW_MINUTES:15}
 
 # --- Registro de clientes del IdP ---
 # human: una aplicación que actúa en nombre de una persona (module fija el
@@ -198,6 +202,10 @@ eda:
   token-path: ${EDA_TOKEN_PATH:/oauth/token}
   client-id: ${EDA_CLIENT_ID:grupo2}
   client-secret: ${EDA_CLIENT_SECRET:${SVC_GRUPO2_SECRET:grupo2-secret-dev}}
+  # Timeouts del RestClient hacia el gateway EDA: sin ellos un gateway colgado
+  # bloquea el hilo del login (publishSafely atrapa excepciones, no cuelgues).
+  connect-timeout-millis: ${EDA_CONNECT_TIMEOUT_MILLIS:2000}
+  read-timeout-millis: ${EDA_READ_TIMEOUT_MILLIS:5000}
 
 springdoc:
   swagger-ui:
@@ -222,6 +230,11 @@ anomaly:
 # (dashboard de Render / .env del deploy); el default ya incluye dev
 # y el frontend productivo actual.
 app:
+  # IPs de proxies confiables (separadas por coma). SOLO si la conexión
+  # inmediata viene de una de estas IPs se honra X-Forwarded-For para
+  # resolver la IP real del cliente (rate-limit, lockout, anomalías). Vacío
+  # = nunca se confía en la cabecera (default seguro). Ver ClientIpResolver.
+  trusted-proxies: ${TRUSTED_PROXIES:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173,https://citypass-login.pp.ua,https://espacios-publicos-frontend.vercel.app,https://reclamos-frontend-g5.vercel.app,https://daii-grupo-8-frontend.vercel.app,https://citypass-residuos-frontend.onrender.com,https://citypass-frontend-prod-eha0gebyesbvhdg2.brazilsouth-01.azurewebsites.net,https://test.citypass.mrfranco.net.ar}
   password-reset:

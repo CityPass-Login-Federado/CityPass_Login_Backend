@@ -50,6 +50,7 @@ class PasswordServiceTest {
     private RefreshTokenService refresh;
     private PasswordResetLimiter limiter;
     private PasswordResetTokenStore tokenStore;
+    private TokenRevocationService tokenRevocationService;
     private PasswordService service;
 
     @BeforeEach
@@ -60,8 +61,9 @@ class PasswordServiceTest {
         refresh = mock(RefreshTokenService.class);
         limiter = mock(PasswordResetLimiter.class);
         tokenStore = mock(PasswordResetTokenStore.class);
+        tokenRevocationService = mock(TokenRevocationService.class);
         service = new PasswordService(ldap, accounts, emailSender, refresh,
-                limiter, tokenStore, properties, directExecutor);
+                limiter, tokenStore, properties, directExecutor, tokenRevocationService);
     }
 
     private void acceptRequest() {
@@ -167,7 +169,8 @@ class PasswordServiceTest {
         when(brokenTemplate.getContextSource()).thenReturn(null);
         PasswordService strictService = new PasswordService(
                 new citypass.loginfederado.identity.LdapDirectory(brokenTemplate),
-                accounts, emailSender, refresh, limiter, tokenStore, properties, directExecutor);
+                accounts, emailSender, refresh, limiter, tokenStore, properties, directExecutor,
+                tokenRevocationService);
         when(tokenStore.findByHash(anyString())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> strictService.redeemResetToken("falso", "nuevaClave123"))

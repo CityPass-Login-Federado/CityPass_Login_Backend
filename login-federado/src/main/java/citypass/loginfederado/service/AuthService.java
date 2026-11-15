@@ -55,6 +55,8 @@ public class AuthService {
     private final LoginAttemptService loginAttemptService;
     private final AnomalyRiskClient anomalyRiskClient;
     private final AnomalyBlockedEventService anomalyBlockedEventService;
+    private final LoginRateLimiter loginRateLimiter;
+    private final TokenRevocationService tokenRevocationService;
 
     public AuthService(LdapDirectory ldapDirectory,
                        ClientRegistry clientRegistry,
@@ -64,7 +66,9 @@ public class AuthService {
                        EventPublisher eventPublisher,
                        LoginAttemptService loginAttemptService,
                        AnomalyRiskClient anomalyRiskClient,
-                       AnomalyBlockedEventService anomalyBlockedEventService) {
+                       AnomalyBlockedEventService anomalyBlockedEventService,
+                       LoginRateLimiter loginRateLimiter,
+                       TokenRevocationService tokenRevocationService) {
         this.ldapDirectory = ldapDirectory;
         this.clientRegistry = clientRegistry;
         this.accessTokenIssuer = accessTokenIssuer;
@@ -74,9 +78,14 @@ public class AuthService {
         this.loginAttemptService = loginAttemptService;
         this.anomalyRiskClient = anomalyRiskClient;
         this.anomalyBlockedEventService = anomalyBlockedEventService;
+        this.loginRateLimiter = loginRateLimiter;
+        this.tokenRevocationService = tokenRevocationService;
     }
 
     public LoginResponse login(LoginRequest request, String ipAddress, String userAgent) {
+        // Capa 0: tope por IP ANTES de tocar LDAP (frena credential stuffing
+        // distribuido, que el lockout por usuario no cubre).
+        loginRateLimiter.assertWithinLimit(ipAddress);
         try {
             return doLogin(request, ipAddress, userAgent);
         } catch (AccountLockedException ex) {
@@ -196,6 +205,7 @@ public class AuthService {
      * tokens frescos con permisos viejos durante horas, sin que nada falle.
      */
     public LoginResponse refresh(RefreshRequest request, String ipAddress, String userAgent) {
+        loginRateLimiter.assertWithinRefreshLimit(ipAddress);
         RefreshTokenService.ChainContinuation continuation =
                 refreshTokenService.continueChain(request.refreshToken());
 
@@ -218,13 +228,22 @@ public class AuthService {
         return refresh(request, null, null);
     }
 
-    /** Logout por refresh_token (contrato público): persiste la revocación. */
-    public void logout(String refreshToken, String ipAddress, String userAgent) {
+    /**
+     * Logout por refresh_token (contrato público): persiste la revocación y,
+     * si el cliente presentó su access token (header Authorization), lo
+     * denylista por jti para que no siga sirviendo hasta expirar.
+     */
+    public void logout(String refreshToken, String accessToken, String ipAddress, String userAgent) {
         refreshTokenService.revokeSingle(refreshToken, ipAddress, userAgent);
+        tokenRevocationService.revokeRawAccessToken(accessToken);
+    }
+
+    public void logout(String refreshToken, String ipAddress, String userAgent) {
+        logout(refreshToken, null, ipAddress, userAgent);
     }
 
     public void logout(String refreshToken) {
-        refreshTokenService.revokeSingle(refreshToken);
+        logout(refreshToken, null, null, null);
     }
 
     /**

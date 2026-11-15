@@ -40,6 +40,8 @@ class AuthServiceTest {
     private LoginAttemptService attempts;
     private AnomalyRiskClient anomaly;
     private AnomalyBlockedEventService anomalyEvents;
+    private LoginRateLimiter rateLimiter;
+    private TokenRevocationService tokenRevocationService;
     private AuthService service;
 
     @BeforeEach
@@ -53,9 +55,25 @@ class AuthServiceTest {
         attempts = mock(LoginAttemptService.class);
         anomaly = mock(AnomalyRiskClient.class);
         anomalyEvents = mock(AnomalyBlockedEventService.class);
+        rateLimiter = mock(LoginRateLimiter.class);
+        tokenRevocationService = mock(TokenRevocationService.class);
         service = new AuthService(
-                ldap, clients, issuer, refresh, jwtProperties, events, attempts, anomaly, anomalyEvents);
+                ldap, clients, issuer, refresh, jwtProperties, events, attempts, anomaly,
+                anomalyEvents, rateLimiter, tokenRevocationService);
         when(clients.requireHuman(client.clientId())).thenReturn(client);
+    }
+
+    @Test
+    void loginRejectedByRateLimitBeforeTouchingLdap() {
+        doThrow(new citypass.loginfederado.exception.TooManyRequestsException("limit"))
+                .when(rateLimiter).assertWithinLimit("1.2.3.4");
+
+        assertThatThrownBy(() -> service.login(
+                new LoginRequest("jperez", "secret", client.clientId()), "1.2.3.4", "ua"))
+                .isInstanceOf(citypass.loginfederado.exception.TooManyRequestsException.class);
+
+        verify(ldap, never()).findByUid(anyString());
+        verify(attempts, never()).recordAttempt(anyString(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -239,6 +257,14 @@ class AuthServiceTest {
     @Test
     void logoutDelegatesToRefreshService() {
         service.logout("refresh");
-        verify(refresh).revokeSingle("refresh");
+        verify(refresh).revokeSingle("refresh", null, null);
+    }
+
+    @Test
+    void logoutRevokesPresentedAccessToken() {
+        service.logout("refresh", "access-jwt", "ip", "ua");
+
+        verify(refresh).revokeSingle("refresh", "ip", "ua");
+        verify(tokenRevocationService).revokeRawAccessToken("access-jwt");
     }
 }

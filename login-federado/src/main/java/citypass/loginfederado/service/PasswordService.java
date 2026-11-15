@@ -64,6 +64,7 @@ public class PasswordService {
     private final PasswordResetTokenStore tokenStore;
     private final PasswordResetProperties properties;
     private final Executor resetExecutor;
+    private final TokenRevocationService tokenRevocationService;
 
     public PasswordService(LdapDirectory ldapDirectory,
                            PanelAccountService directory,
@@ -72,7 +73,8 @@ public class PasswordService {
                            PasswordResetLimiter limiter,
                            PasswordResetTokenStore tokenStore,
                            PasswordResetProperties properties,
-                           @Qualifier("passwordResetExecutor") Executor resetExecutor) {
+                           @Qualifier("passwordResetExecutor") Executor resetExecutor,
+                           TokenRevocationService tokenRevocationService) {
         this.ldapDirectory = ldapDirectory;
         this.directory = directory;
         this.emailSender = emailSender;
@@ -81,6 +83,7 @@ public class PasswordService {
         this.tokenStore = tokenStore;
         this.properties = properties;
         this.resetExecutor = resetExecutor;
+        this.tokenRevocationService = tokenRevocationService;
     }
 
     /**
@@ -200,6 +203,9 @@ public class PasswordService {
             person.sub(),
             person.module()
         );
+        // También los access tokens vigentes: si no, el que fue robado sigue
+        // sirviendo hasta 15 min después de cambiar la clave.
+        tokenRevocationService.revokeAllForSub(person.sub());
         securityLog.info("Contraseña restablecida vía token para sub={} (sesiones revocadas={})",
                 person.sub(), revoked);
     }
@@ -261,6 +267,7 @@ public class PasswordService {
             person.sub(),
             person.module()
         );
+        tokenRevocationService.revokeAllForSub(person.sub());
         securityLog.info("Contraseña cambiada por el usuario sub={} (sesiones revocadas={})",
                 person.sub(), revoked);
     }

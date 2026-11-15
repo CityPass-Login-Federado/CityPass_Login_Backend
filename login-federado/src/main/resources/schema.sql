@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 
 CREATE INDEX IF NOT EXISTS idx_login_attempts_username ON login_attempts (username);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_attempted_at ON login_attempts (attempted_at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip_attempted_at
+    ON login_attempts (ip_address, attempted_at);
 
 -- Eventos rechazados por el detector de anomalías y su revisión administrativa.
 -- La aprobación es temporal, contextual y se consume en un único login.
@@ -125,3 +127,17 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_uid ON password_reset_requests (uid);
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_ip ON password_reset_requests (ip_address);
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_at ON password_reset_requests (requested_at);
+
+-- Denylist de access tokens revocados por jti (logout). El access token es
+-- stateless: sin esto sigue sirviendo hasta 15 min tras cerrar sesión. La fila
+-- vive hasta la expiración natural del token y luego se purga.
+CREATE TABLE IF NOT EXISTS revoked_access_tokens (
+    jti VARCHAR(64) PRIMARY KEY,               -- claim jti del JWT
+    sub VARCHAR(16),                           -- employeeNumber del dueño
+    expires_at TIMESTAMP NOT NULL              -- exp del token revocado
+);
+
+CREATE INDEX IF NOT EXISTS idx_revoked_access_tokens_expires_at
+    ON revoked_access_tokens (expires_at);
+CREATE INDEX IF NOT EXISTS idx_revoked_access_tokens_sub
+    ON revoked_access_tokens (sub);
