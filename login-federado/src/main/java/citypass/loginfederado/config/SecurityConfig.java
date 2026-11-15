@@ -150,7 +150,8 @@ public class SecurityConfig {
                     + "https://daii-grupo-8-frontend.vercel.app,"
                     + "https://citypass-residuos-frontend.onrender.com,"
                     + "https://citypass-frontend-prod-eha0gebyesbvhdg2.brazilsouth-01.azurewebsites.net,"
-                    + "https://test.citypass.mrfranco.net.ar}") String allowedOrigins) {
+                    + "https://test.citypass.mrfranco.net.ar,"
+                    + "https://frontend-krds.onrender.com}") String allowedOrigins) {
         List<String> origins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
