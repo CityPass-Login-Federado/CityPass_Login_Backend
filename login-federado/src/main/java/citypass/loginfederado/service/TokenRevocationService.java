@@ -69,6 +69,7 @@ public class TokenRevocationService {
      * expirado, es basura o no tiene jti, no hay nada que denylistar: se
      * ignora en silencio (igual que el logout con refresh desconocido).
      */
+    @Transactional
     public void revokeRawAccessToken(String rawAccessToken) {
         if (rawAccessToken == null || rawAccessToken.isBlank()) {
             return;

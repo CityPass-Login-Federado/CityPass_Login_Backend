@@ -104,6 +104,18 @@ class TokenRevocationServiceTest {
     }
 
     @Test
+    void revokeAllForSubAdvancesExistingCutoff() {
+        RevokedSubjectCutoff existing = new RevokedSubjectCutoff(
+                "U000042", Instant.now().minusSeconds(100), Instant.now().plusSeconds(500));
+        when(cutoffRepository.findById("U000042")).thenReturn(java.util.Optional.of(existing));
+
+        service.revokeAllForSub("U000042");
+
+        verify(cutoffRepository).save(existing);
+        assertThat(existing.getRevokedBefore()).isAfter(Instant.now().minusSeconds(5));
+    }
+
+    @Test
     void revokeAllForSubIgnoresBlankSubject() {
         service.revokeAllForSub(null);
         service.revokeAllForSub("   ");
@@ -114,9 +126,36 @@ class TokenRevocationServiceTest {
     @Test
     void purgeExpiredDeletesOldEntries() {
         when(repository.deleteByExpiresAtBefore(any())).thenReturn(2L);
+        when(cutoffRepository.deleteByExpiresAtBefore(any())).thenReturn(3L);
 
-        assertThatCode(service::purgeExpired).doesNotThrowAnyException();
+        int total = service.purgeExpired();
+
+        assertThat(total).isEqualTo(5);
         verify(repository).deleteByExpiresAtBefore(any());
+        verify(cutoffRepository).deleteByExpiresAtBefore(any());
+    }
+
+    @Test
+    void purgeExpiredReturnsZeroWhenNothingDeleted() {
+        when(repository.deleteByExpiresAtBefore(any())).thenReturn(0L);
+        when(cutoffRepository.deleteByExpiresAtBefore(any())).thenReturn(0L);
+
+        int total = service.purgeExpired();
+
+        assertThat(total).isZero();
+    }
+
+    @Test
+    void customConstructorEnforcesMinimumTtl() {
+        TokenRevocationService customService = new TokenRevocationService(repository, cutoffRepository, 5);
+        when(cutoffRepository.findById("U000042")).thenReturn(java.util.Optional.empty());
+
+        customService.revokeAllForSub("U000042");
+
+        ArgumentCaptor<RevokedSubjectCutoff> saved = ArgumentCaptor.forClass(RevokedSubjectCutoff.class);
+        verify(cutoffRepository).save(saved.capture());
+        assertThat(saved.getValue().getExpiresAt())
+                .isAfterOrEqualTo(saved.getValue().getRevokedBefore().plusSeconds(15 * 60));
     }
 
     private static String signedToken(String jti, String sub, Instant exp) throws Exception {

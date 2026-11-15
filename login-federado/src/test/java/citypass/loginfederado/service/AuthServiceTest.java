@@ -261,6 +261,13 @@ class AuthServiceTest {
     }
 
     @Test
+    void logoutWithIpAndUaDelegatesToFourArgLogout() {
+        service.logout("refresh", "1.2.3.4", "Mozilla/5.0");
+        verify(refresh).revokeSingle("refresh", "1.2.3.4", "Mozilla/5.0");
+        verify(tokenRevocationService).revokeRawAccessToken(null);
+    }
+
+    @Test
     void logoutRevokesPresentedAccessToken() {
         service.logout("refresh", "access-jwt", "ip", "ua");
 

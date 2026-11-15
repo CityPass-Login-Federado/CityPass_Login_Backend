@@ -20,7 +20,9 @@ class SchemaSqlTest {
                     .doesNotContainIgnoringCase("DROP TABLE IF EXISTS login_lockouts")
                     .containsIgnoringCase("CREATE TABLE IF NOT EXISTS login_lockouts (")
                     .contains("username VARCHAR(255) PRIMARY KEY")
-                    .contains("locked_until TIMESTAMP NOT NULL");
+                    .contains("locked_until TIMESTAMP NOT NULL")
+                    .containsIgnoringCase("CREATE TABLE IF NOT EXISTS revoked_access_tokens (")
+                    .containsIgnoringCase("CREATE TABLE IF NOT EXISTS revoked_subject_cutoffs (");
         }
     }
 }

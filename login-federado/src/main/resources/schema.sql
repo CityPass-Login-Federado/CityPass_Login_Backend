@@ -141,3 +141,15 @@ CREATE INDEX IF NOT EXISTS idx_revoked_access_tokens_expires_at
     ON revoked_access_tokens (expires_at);
 CREATE INDEX IF NOT EXISTS idx_revoked_access_tokens_sub
     ON revoked_access_tokens (sub);
+
+-- Corte temporal de revocación por sujeto (cambio/recupero de contraseña o baja).
+-- Todo access token con iat <= revoked_before queda rechazado hasta expirar
+-- de forma natural (expires_at), momento en que la fila se purga.
+CREATE TABLE IF NOT EXISTS revoked_subject_cutoffs (
+    sub          VARCHAR(16) PRIMARY KEY,
+    revoked_before TIMESTAMP NOT NULL,
+    expires_at   TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_revoked_subject_cutoffs_expires_at
+    ON revoked_subject_cutoffs (expires_at);
