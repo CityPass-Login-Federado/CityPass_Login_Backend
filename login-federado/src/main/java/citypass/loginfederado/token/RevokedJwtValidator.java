@@ -25,6 +25,10 @@ public class RevokedJwtValidator implements OAuth2TokenValidator<Jwt> {
         this.cutoffRepository = cutoffRepository;
     }
 
+    public RevokedJwtValidator(RevokedAccessTokenRepository repository) {
+        this(repository, null);
+    }
+
     @Override
     public OAuth2TokenValidatorResult validate(Jwt token) {
         String jti = token.getId();
@@ -34,7 +38,7 @@ public class RevokedJwtValidator implements OAuth2TokenValidator<Jwt> {
 
         String sub = token.getSubject();
         Instant issuedAt = token.getIssuedAt();
-        if (sub != null && issuedAt != null) {
+        if (cutoffRepository != null && sub != null && issuedAt != null) {
             var cutoff = cutoffRepository.findById(sub);
             if (cutoff.isPresent() && !issuedAt.isAfter(cutoff.get().getRevokedBefore())) {
                 return failure();

@@ -32,9 +32,7 @@ class EdaHttpEventPublisherTest {
                 TOKEN_URL,
                 "/oauth/token",
                 "grupo2",
-                "secret",
-                null,
-                null
+                "secret"
         );
     }
 
@@ -73,9 +71,7 @@ class EdaHttpEventPublisherTest {
                 TOKEN_URL,
                 "/oauth/token",
                 "grupo2",
-                "secret",
-                null,
-                null
+                "secret"
         );
 
         assertThat(disabled.enabled()).isFalse();

@@ -1,7 +1,9 @@
 package citypass.loginfederado.service;
 
 import citypass.loginfederado.model.RevokedAccessToken;
+import citypass.loginfederado.model.RevokedSubjectCutoff;
 import citypass.loginfederado.repository.RevokedAccessTokenRepository;
+import citypass.loginfederado.repository.RevokedSubjectCutoffRepository;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.crypto.MACSigner;
@@ -27,12 +29,14 @@ class TokenRevocationServiceTest {
     private static final String SECRET = "01234567890123456789012345678901";
 
     private RevokedAccessTokenRepository repository;
+    private RevokedSubjectCutoffRepository cutoffRepository;
     private TokenRevocationService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(RevokedAccessTokenRepository.class);
-        service = new TokenRevocationService(repository);
+        cutoffRepository = mock(RevokedSubjectCutoffRepository.class);
+        service = new TokenRevocationService(repository, cutoffRepository);
     }
 
     @Test
@@ -88,12 +92,23 @@ class TokenRevocationServiceTest {
     }
 
     @Test
-    void revokeAllForSubDeletesBySubject() {
-        when(repository.deleteBySub("U000042")).thenReturn(3L);
+    void revokeAllForSubSavesCutoffForSubject() {
+        when(cutoffRepository.findById("U000042")).thenReturn(java.util.Optional.empty());
 
-        assertThat(service.revokeAllForSub("U000042")).isEqualTo(3);
-        assertThat(service.revokeAllForSub(null)).isZero();
-        verify(repository).deleteBySub("U000042");
+        service.revokeAllForSub("U000042");
+
+        ArgumentCaptor<RevokedSubjectCutoff> saved = ArgumentCaptor.forClass(RevokedSubjectCutoff.class);
+        verify(cutoffRepository).save(saved.capture());
+        assertThat(saved.getValue().getSub()).isEqualTo("U000042");
+        assertThat(saved.getValue().getRevokedBefore()).isNotNull();
+    }
+
+    @Test
+    void revokeAllForSubIgnoresBlankSubject() {
+        service.revokeAllForSub(null);
+        service.revokeAllForSub("   ");
+
+        verify(cutoffRepository, never()).save(any());
     }
 
     @Test

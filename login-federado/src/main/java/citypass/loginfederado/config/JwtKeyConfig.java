@@ -5,6 +5,7 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.repository.RevokedAccessTokenRepository;
+import citypass.loginfederado.repository.RevokedSubjectCutoffRepository;
 import citypass.loginfederado.token.AudienceValidator;
 import citypass.loginfederado.token.RevokedJwtValidator;
 import org.slf4j.Logger;
@@ -113,19 +114,20 @@ public class JwtKeyConfig {
 
     @Bean
     public JwtDecoder jwtDecoder(RSAPublicKey publicKey, ClientRegistry clientRegistry,
-                                 RevokedAccessTokenRepository revokedAccessTokenRepository) {
+                                 RevokedAccessTokenRepository revokedAccessTokenRepository,
+                                 RevokedSubjectCutoffRepository revokedSubjectCutoffRepository) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(publicKey).build();
         // withPublicKey() solo valida firma y expiración: un token firmado con
         // un iss ajeno se aceptaría igual. Se fija la validación estándar de
         // issuer (y claims genéricos) del IdP y, ADEMÁS, la de audience (el
         // token debe estar destinado a un cliente conocido) y la de revocación
-        // (jti en denylist tras el logout).
+        // (jti en denylist tras el logout o corte de sub por reset/baja).
         OAuth2TokenValidator<Jwt> issuerValidator =
                 JwtValidators.createDefaultWithIssuer(jwtProperties.issuer());
         OAuth2TokenValidator<Jwt> audienceValidator =
                 new AudienceValidator(clientRegistry.knownAudiences());
         OAuth2TokenValidator<Jwt> revokedValidator =
-                new RevokedJwtValidator(revokedAccessTokenRepository);
+                new RevokedJwtValidator(revokedAccessTokenRepository, revokedSubjectCutoffRepository);
         decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
                 issuerValidator, audienceValidator, revokedValidator));
         return decoder;

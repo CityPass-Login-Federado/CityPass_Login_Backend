@@ -2,6 +2,7 @@ package citypass.loginfederado.config;
 
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.repository.RevokedAccessTokenRepository;
+import citypass.loginfederado.repository.RevokedSubjectCutoffRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -35,6 +36,10 @@ class JwtKeyConfigTest {
         return mock(RevokedAccessTokenRepository.class);
     }
 
+    private RevokedSubjectCutoffRepository revokedSubjectCutoffRepository() {
+        return mock(RevokedSubjectCutoffRepository.class);
+    }
+
     @Test
     void failsFastWhenKeysAreMissingAndAutoGenerationIsDisabled() {
         JwtKeyConfig config = config(false);
@@ -51,7 +56,8 @@ class JwtKeyConfigTest {
         var privateKey = config.rsaPrivateKey();
         var publicKey = config.rsaPublicKey();
         var encoder = config.jwtEncoder(config.rsaKey(publicKey, privateKey));
-        var decoder = config.jwtDecoder(publicKey, clientRegistry(), revokedAccessTokenRepository());
+        var decoder = config.jwtDecoder(publicKey, clientRegistry(),
+                revokedAccessTokenRepository(), revokedSubjectCutoffRepository());
 
         String validToken = encoder.encode(org.springframework.security.oauth2.jwt.JwtEncoderParameters.from(
                 JwsHeader.with(SignatureAlgorithm.RS256).build(),
@@ -87,7 +93,8 @@ class JwtKeyConfigTest {
         var privateKey = config.rsaPrivateKey();
         var publicKey = config.rsaPublicKey();
         var encoder = config.jwtEncoder(config.rsaKey(publicKey, privateKey));
-        var decoder = config.jwtDecoder(publicKey, clientRegistry(), revokedAccessTokenRepository());
+        var decoder = config.jwtDecoder(publicKey, clientRegistry(),
+                revokedAccessTokenRepository(), revokedSubjectCutoffRepository());
 
         String foreignAudienceToken = encoder.encode(org.springframework.security.oauth2.jwt.JwtEncoderParameters.from(
                 JwsHeader.with(SignatureAlgorithm.RS256).build(),
