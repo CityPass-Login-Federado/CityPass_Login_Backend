@@ -180,7 +180,7 @@ class LoginAttemptServiceTest {
     }
 
     @Test
-    void clearsLockoutAndFailureWindowForApprovedAnomaly() {
+    void clearsLockoutAndFailureWindow() {
         LoginLockout lockout = new LoginLockout(
                 "jperez",
                 Instant.now().plusSeconds(60)
@@ -190,6 +190,17 @@ class LoginAttemptServiceTest {
         service.clearLockout("jperez");
 
         verify(lockoutRepository).delete(lockout);
+        verify(repository).deleteByUsernameAndSuccessfulFalse("jperez");
+    }
+
+    @Test
+    void clearLockoutIsIdempotentWhenNoLockoutExists() {
+        when(lockoutRepository.findById("jperez")).thenReturn(Optional.empty());
+
+        assertThatCode(() -> service.clearLockout("jperez"))
+                .doesNotThrowAnyException();
+
+        verify(lockoutRepository, never()).delete(any(LoginLockout.class));
         verify(repository).deleteByUsernameAndSuccessfulFalse("jperez");
     }
 }

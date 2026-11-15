@@ -1,5 +1,6 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.service.LoginAttemptService;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.stereotype.Service;
 
@@ -21,11 +22,14 @@ public class PanelAccountService {
     private final PanelLdapSupport support;
     private final LdapTemplate ldap;
     private final PanelAuditService audit;
+    private final LoginAttemptService loginAttempts;
 
-    public PanelAccountService(PanelLdapSupport support, PanelAuditService audit) {
+    public PanelAccountService(PanelLdapSupport support, PanelAuditService audit,
+                               LoginAttemptService loginAttempts) {
         this.support = support;
         this.ldap = support.ldap();
         this.audit = audit;
+        this.loginAttempts = loginAttempts;
     }
 
     /**
@@ -57,6 +61,20 @@ public class PanelAccountService {
             throw new IllegalStateException("No se pudo rehabilitar la cuenta", ex);
         }
         audit.record(actor, "PERSON_ENABLED", support.absPersonDn(module, uid), null);
+    }
+
+    /**
+     * Limpia exclusivamente el bloqueo temporal por fuerza bruta y la ventana
+     * de intentos fallidos. Es deliberadamente distinto de {@link #enablePerson}:
+     * no modifica LDAP ni rehabilita una cuenta deshabilitada. Tampoco aprueba
+     * eventos bloqueados por el detector de anomalías.
+     */
+    public void clearLoginLockout(PanelAuthorization.Delegate actor, String module, String uid) {
+        support.assertModule(module);
+        support.requireContext(support.personDn(module, uid));
+        loginAttempts.clearLockout(uid);
+        audit.record(actor, "LOGIN_LOCKOUT_CLEARED", support.absPersonDn(module, uid),
+                "Bloqueo temporal e intentos fallidos limpiados");
     }
 
     /**

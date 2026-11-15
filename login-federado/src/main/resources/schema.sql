@@ -13,7 +13,10 @@
 -- manual versionada (ver docs/runbooks/schema-prod.md), nunca editando
 -- este archivo para borrar y recrear.
 -- =============================================================================
-DROP TABLE IF EXISTS login_lockouts;
+CREATE TABLE IF NOT EXISTS login_lockouts (
+    username VARCHAR(255) PRIMARY KEY,
+    locked_until TIMESTAMP NOT NULL
+);
 
 -- Refresh tokens OPACOS con rotación y cadena (spec §4.2 / D9).
 CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -90,6 +93,10 @@ CREATE TABLE IF NOT EXISTS panel_audit (
 
 CREATE INDEX IF NOT EXISTS idx_panel_audit_module ON panel_audit (module);
 CREATE INDEX IF NOT EXISTS idx_panel_audit_occurred_at ON panel_audit (occurred_at);
+CREATE INDEX IF NOT EXISTS idx_panel_audit_module_occurred_at
+    ON panel_audit (module, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_panel_audit_actor_uid ON panel_audit (actor_uid);
+CREATE INDEX IF NOT EXISTS idx_panel_audit_action ON panel_audit (action);
 
 -- Recupero por token de un solo uso: se persiste SOLO el hash SHA-256, jamás
 -- el valor crudo. Una sola fila activa por cuenta (al pedir otro se borra el
@@ -113,11 +120,6 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
     uid VARCHAR(255) NOT NULL,                 -- normalizado (trim + minúsculas)
     ip_address VARCHAR(45),
     requested_at TIMESTAMP NOT NULL
-);
-
-CREATE TABLE login_lockouts (
-    username VARCHAR(255) PRIMARY KEY,
-    locked_until TIMESTAMP NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_password_reset_requests_uid ON password_reset_requests (uid);

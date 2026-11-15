@@ -1,5 +1,6 @@
 package citypass.loginfederado.panel;
 
+import citypass.loginfederado.service.LoginAttemptService;
 import javax.naming.directory.ModificationItem;
 import javax.naming.ldap.LdapName;
 
@@ -13,16 +14,20 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 class PanelAccountServiceTest {
     private LdapTemplate ldap;
     private PanelAuditService audit;
+    private LoginAttemptService loginAttempts;
     private PanelAccountService service;
     private final PanelAuthorization.Delegate actor = new PanelAuthorization.Delegate("U000001", "admin", "reclamos");
 
@@ -30,7 +35,8 @@ class PanelAccountServiceTest {
     void setUp() {
         ldap = mock(LdapTemplate.class);
         audit = mock(PanelAuditService.class);
-        service = new PanelAccountService(new PanelLdapSupport(ldap), audit);
+        loginAttempts = mock(LoginAttemptService.class);
+        service = new PanelAccountService(new PanelLdapSupport(ldap), audit, loginAttempts);
     }
 
     @Test
@@ -80,6 +86,35 @@ class PanelAccountServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
         verify(ldap).lookupContext(any(LdapName.class));
         verify(ldap).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+    }
+
+    @Test
+    void clearLoginLockoutValidatesPersonClearsFailuresAndAuditsWithoutWritingLdap() {
+        doReturn(personContext("jperez")).when(ldap).lookupContext(any(LdapName.class));
+
+        service.clearLoginLockout(actor, "reclamos", "jperez");
+
+        verify(loginAttempts).clearLockout("jperez");
+        verify(audit).record(actor, "LOGIN_LOCKOUT_CLEARED",
+                "uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local",
+                "Bloqueo temporal e intentos fallidos limpiados");
+        verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
+    }
+
+    @Test
+    void clearLoginLockoutReturns404AndDoesNothingWhenPersonDoesNotExist() {
+        doThrow(new org.springframework.ldap.NameNotFoundException("missing"))
+                .when(ldap).lookupContext(any(LdapName.class));
+
+        assertThatThrownBy(() -> service.clearLoginLockout(actor, "reclamos", "nobody"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(error -> org.assertj.core.api.Assertions.assertThat(
+                        ((ResponseStatusException) error).getStatusCode())
+                        .isEqualTo(HttpStatus.NOT_FOUND));
+
+        verifyNoInteractions(loginAttempts);
+        verifyNoInteractions(audit);
+        verify(ldap, never()).modifyAttributes(any(LdapName.class), any(ModificationItem[].class));
     }
 
     private DirContextOperations personContext(String uid) {

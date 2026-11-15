@@ -24,6 +24,7 @@
     { "name": "Perfil", "description": "Acciones autenticadas del usuario sobre su propia cuenta. Requiere access token humano (token_use=human); el servicio rechaza con 403." },
     { "name": "Panel — Personas", "description": "ABM de personas, exclusivo para delegados de módulo o admin-global (con ?module=)." },
     { "name": "Panel — Grupos", "description": "ABM de grupos y membresías, exclusivo para delegados de módulo o admin-global (con ?module=). Incluye GET /panel/modules." },
+    { "name": "Panel — Auditoría", "description": "Consulta paginada de acciones administrativas, limitada al módulo del delegado o transversal para admin-global." },
     { "name": "OAuth", "description": "Token de servicio backend-a-backend (client_credentials, contrato §7)." },
     { "name": "Infraestructura", "description": "Descubrimiento de claves públicas (JWKS) y estado del servicio (actuator/health)." }
   ],
@@ -368,6 +369,50 @@
         }
       }
     },
+    "/panel/audit": {
+      "get": {
+        "tags": ["Panel — Auditoría"],
+        "summary": "Consultar auditoría administrativa",
+        "description": "Devuelve el historial paginado, ordenado por occurredAt descendente e id descendente. Un delegado ve únicamente su módulo; el admin global puede consultar todos los módulos o filtrar uno con ?module=. Todos los filtros se combinan con AND.",
+        "operationId": "listAudit",
+        "parameters": [
+          { "name": "actor", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Coincidencia parcial por actorUid o exacta por actorSub, sin distinguir mayúsculas" },
+          { "name": "action", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Código exacto de acción, sin distinguir mayúsculas" },
+          { "name": "from", "in": "query", "required": false, "schema": { "type": "string", "format": "date-time" }, "description": "Instante inicial inclusivo en formato ISO-8601" },
+          { "name": "to", "in": "query", "required": false, "schema": { "type": "string", "format": "date-time" }, "description": "Instante final inclusivo en formato ISO-8601" },
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string", "enum": ["movilidad", "residuos", "reclamos", "emergencias", "espacios", "analitica", "eda"] }, "description": "Módulo a filtrar; solo tiene efecto para admin global" },
+          { "name": "page", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 0, "default": 0 }, "description": "Número de página (base 0)" },
+          { "name": "size", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }, "description": "Tamaño de página" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de eventos de auditoría",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaginatedPanelAuditResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtros, rango o paginación inválidos",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PanelRequestError" }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" }
+        }
+      }
+    },
     "/panel/admin/people": {
       "get": {
         "tags": ["Panel — Personas"],
@@ -641,6 +686,46 @@
         ],
         "responses": {
           "204": { "description": "Persona rehabilitada" },
+          "401": {
+            "description": "Token ausente o inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthErrorResponse" }
+              }
+            }
+          },
+          "403": { "$ref": "#/components/responses/AccessDenied" },
+          "404": {
+            "description": "Persona inexistente en el módulo",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/people/{uid}/unlock": {
+      "post": {
+        "tags": ["Panel — Personas"],
+        "summary": "Desbloquear login temporal por fuerza bruta",
+        "description": "Limpia el bloqueo temporal y los intentos fallidos asociados. Es una acción distinta de rehabilitar una cuenta deshabilitada en LDAP y de aprobar un evento bloqueado por anomalías: no realiza ninguna de esas operaciones.",
+        "operationId": "clearLoginLockout",
+        "parameters": [
+          { "name": "module", "in": "query", "required": false, "schema": { "type": "string" }, "description": "Módulo a operar. Obligatorio para admin global; ignorado para un delegado normal, que usa el módulo del token." },
+          { "$ref": "#/components/parameters/uid" }
+        ],
+        "responses": {
+          "204": { "description": "Bloqueo temporal e intentos fallidos limpiados; también si no había un bloqueo activo" },
+          "400": {
+            "description": "Admin global sin ?module= o módulo inválido",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusinessError" }
+              }
+            }
+          },
           "401": {
             "description": "Token ausente o inválido",
             "content": {
@@ -1058,7 +1143,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "JWT emitido por el IdP. Panel requiere: aud=citypass-admin-api, token_use=human, ver=1, claim module y grupo delegados (claim module) O grupo admin-global (módulo vía ?module= en cada request, obligatorio). Sin token → 401; sin claims → 403."
+        "description": "JWT emitido por el IdP. Panel requiere: aud=citypass-admin-api, token_use=human, ver=1 y grupo delegados (con claim module) O grupo admin-global. El uso de ?module= depende del endpoint. Sin token → 401; sin claims → 403."
       }
     },
     "parameters": {
@@ -1172,6 +1257,15 @@
           "status": { "type": "integer", "example": 403 },
           "error": { "type": "string", "example": "Acceso denegado" },
           "message": { "type": "string", "example": "No tiene permisos para acceder a este recurso" }
+        }
+      },
+      "PanelRequestError": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "string", "format": "date-time" },
+          "status": { "type": "integer", "example": 400 },
+          "error": { "type": "string", "example": "400 BAD_REQUEST" },
+          "message": { "type": "string", "example": "El instante 'from' no puede ser posterior a 'to'" }
         }
       },
       "BusinessError": {
@@ -1372,6 +1466,31 @@
             "description": "A lo sumo una advertencia por usuario, calculada con asignaciones efectivamente aplicadas.",
             "items": { "$ref": "#/components/schemas/MembershipWarning" }
           }
+        }
+      },
+      "PanelAuditView": {
+        "type": "object",
+        "required": ["id", "actorSub", "actorUid", "module", "action", "target", "occurredAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "description": "Identificador del evento" },
+          "actorSub": { "type": "string", "description": "Identificador estable del administrador", "example": "U000042" },
+          "actorUid": { "type": "string", "description": "Nombre de usuario del administrador", "example": "jperez" },
+          "module": { "type": "string", "description": "Módulo afectado", "example": "reclamos" },
+          "action": { "type": "string", "description": "Código de acción", "example": "PERSON_CREATED" },
+          "target": { "type": "string", "description": "Identificador del recurso afectado", "example": "jperez" },
+          "detail": { "type": "string", "nullable": true, "description": "Detalle adicional de la acción" },
+          "occurredAt": { "type": "string", "format": "date-time", "description": "Instante en que ocurrió la acción" }
+        }
+      },
+      "PaginatedPanelAuditResponse": {
+        "type": "object",
+        "required": ["content", "totalElements", "totalPages", "currentPage", "size"],
+        "properties": {
+          "content": { "type": "array", "items": { "$ref": "#/components/schemas/PanelAuditView" }, "description": "Eventos de la página actual" },
+          "totalElements": { "type": "integer", "format": "int64", "description": "Total de eventos que cumplen los filtros" },
+          "totalPages": { "type": "integer", "description": "Total de páginas" },
+          "currentPage": { "type": "integer", "description": "Página actual (base 0)" },
+          "size": { "type": "integer", "description": "Tamaño de página" }
         }
       },
       "MembershipChangeResponse": {
