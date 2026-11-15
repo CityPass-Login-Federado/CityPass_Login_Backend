@@ -182,6 +182,18 @@ class SecurityConfigTest {
     }
 
     @Test
+    void preflightFromEmergenciasFrontendSucceedsWithCorsHeaders() throws Exception {
+        // Emergencias frontend (Render) must be allowed by the default CORS config
+        String origin = "https://frontend-krds.onrender.com";
+
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", origin));
+    }
+
+    @Test
     void preflightFromUnknownOriginIsRejected() throws Exception {
         mockMvc.perform(options("/auth/login")
                 .header("Origin", "https://evil.example.com")
