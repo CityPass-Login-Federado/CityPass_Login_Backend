@@ -202,10 +202,22 @@ eda:
   token-path: ${EDA_TOKEN_PATH:/oauth/token}
   client-id: ${EDA_CLIENT_ID:grupo2}
   client-secret: ${EDA_CLIENT_SECRET:${SVC_GRUPO2_SECRET:grupo2-secret-dev}}
-  # Timeouts del RestClient hacia el gateway EDA: sin ellos un gateway colgado
-  # bloquea el hilo del login (publishSafely atrapa excepciones, no cuelgues).
-  connect-timeout-millis: ${EDA_CONNECT_TIMEOUT_MILLIS:2000}
-  read-timeout-millis: ${EDA_READ_TIMEOUT_MILLIS:5000}
+  # El POST a EDA no puede colgarse: connect 3s, lectura 5s.
+  connect-timeout: ${EDA_CONNECT_TIMEOUT:3s}
+  read-timeout: ${EDA_READ_TIMEOUT:5s}
+  outbox:
+    # Cada cuántos milisegundos el relay mira la tabla. Corre después de
+    # terminar la vuelta anterior, así que un gateway lento no apila hilos.
+    poll-interval-ms: ${EDA_OUTBOX_POLL_INTERVAL_MS:5000}
+    batch-size: ${EDA_OUTBOX_BATCH_SIZE:20}
+    # 20 intentos, espera que arranca en 5s y se duplica hasta 30 min.
+    # Alcanza para unas 6 horas de EDA caído antes de marcar FAILED.
+    max-attempts: ${EDA_OUTBOX_MAX_ATTEMPTS:20}
+    initial-backoff: ${EDA_OUTBOX_INITIAL_BACKOFF:5s}
+    max-backoff: ${EDA_OUTBOX_MAX_BACKOFF:30m}
+    # Mientras el relay tiene la fila, nadie más la agarra. Tiene que cubrir
+    # el token y el POST: 2 * (connect + read) = 16s. 30s le deja margen.
+    claim-lease: ${EDA_OUTBOX_CLAIM_LEASE:30s}
 
 springdoc:
   swagger-ui:
