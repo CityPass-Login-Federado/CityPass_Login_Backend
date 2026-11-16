@@ -6,6 +6,7 @@ import citypass.loginfederado.model.LoginAttempt;
 import citypass.loginfederado.model.LoginLockout;
 import citypass.loginfederado.repository.LoginAttemptRepository;
 import citypass.loginfederado.repository.LoginLockoutRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,7 @@ public class LoginAttemptService {
     private final LockoutProperties lockoutProperties;
     private final Clock clock;
 
+    @Autowired
     public LoginAttemptService(
             LoginAttemptRepository loginAttemptRepository,
             LoginLockoutRepository loginLockoutRepository,

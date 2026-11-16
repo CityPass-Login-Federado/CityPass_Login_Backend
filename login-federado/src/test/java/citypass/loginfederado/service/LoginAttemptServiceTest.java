@@ -9,6 +9,7 @@ import citypass.loginfederado.repository.LoginLockoutRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -260,5 +261,20 @@ class LoginAttemptServiceTest {
 
         assertThat(status.locked()).isFalse();
         assertThat(status.lockoutUntil()).isNull();
+    }
+
+    @Test
+    void springSelectsTheProductionConstructorWhenCreatingTheBean() {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(LoginAttemptRepository.class, () -> repository);
+            context.registerBean(LoginLockoutRepository.class, () -> lockoutRepository);
+            context.registerBean(LockoutProperties.class,
+                    () -> new LockoutProperties(5, 15, 10));
+            context.register(LoginAttemptService.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(LoginAttemptService.class)).isNotNull();
+        }
     }
 }
