@@ -1,7 +1,9 @@
 package citypass.loginfederado.panel;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -18,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -43,10 +46,12 @@ import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.AdminPersonView;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
+import citypass.loginfederado.service.LoginAttemptService;
 
 class PanelPersonServiceTest {
     private LdapTemplate ldap;
     private PanelAuditService audit;
+    private LoginAttemptService loginAttempts;
     private PanelPersonService service;
     private final PanelAuthorization.Delegate actor = new PanelAuthorization.Delegate("U000001", "admin", "reclamos");
 
@@ -54,7 +59,8 @@ class PanelPersonServiceTest {
     void setUp() {
         ldap = mock(LdapTemplate.class);
         audit = mock(PanelAuditService.class);
-        service = new PanelPersonService(new PanelLdapSupport(ldap), audit);
+        loginAttempts = mock(LoginAttemptService.class);
+        service = new PanelPersonService(new PanelLdapSupport(ldap), audit, loginAttempts);
     }
 
     @Test
@@ -75,9 +81,41 @@ class PanelPersonServiceTest {
     }
 
     @Test
+    void listPeopleAddsTemporaryLockoutStateWithOneBatchLookup() throws Exception {
+        Instant lockedUntil = Instant.parse("2026-11-15T15:30:00Z");
+        when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
+                ArgumentMatchers.<AttributesMapper<PersonView>>any()))
+                .thenAnswer(invocation -> {
+                    AttributesMapper<PersonView> mapper = invocation.getArgument(1);
+                    return List.of(mapper.mapFromAttributes(person("jperez")),
+                            mapper.mapFromAttributes(person("mlopez")));
+                });
+        when(loginAttempts.getLockoutStatuses(any()))
+                .thenReturn(Map.of(
+                        "jperez", new LoginAttemptService.LockoutStatus(true, lockedUntil),
+                        "mlopez", LoginAttemptService.LockoutStatus.notLocked()));
+
+        var result = service.listPeople("reclamos",
+                new PeopleSearchCriteria(0, 10, null, null, null));
+
+        assertThat(result.content()).filteredOn(PersonView::locked)
+                .singleElement()
+                .satisfies(person -> {
+                    assertThat(person.uid()).isEqualTo("jperez");
+                    assertThat(person.lockoutUntil()).isEqualTo(lockedUntil);
+                });
+        assertThat(result.content()).filteredOn(person -> !person.locked())
+                .extracting(PersonView::uid)
+                .containsExactly("mlopez");
+        verify(loginAttempts).getLockoutStatuses(argThat(usernames ->
+                usernames.containsAll(List.of("jperez", "mlopez")) && usernames.size() == 2));
+    }
+
+    @Test
     void listAllPeopleAggregatesEveryModuleWithModuleTag() {
         // Agnóstico a la cantidad de módulos: vale para 6, 7 o los que vengan.
         int modules = PanelDirectoryRules.MODULES.size();
+        Instant lockedUntil = Instant.parse("2026-11-15T15:30:00Z");
         when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
                 ArgumentMatchers.<AttributesMapper<PersonView>>any()))
                 .thenAnswer(invocation -> {
@@ -85,6 +123,9 @@ class PanelPersonServiceTest {
                     return List.of(mapper.mapFromAttributes(person("zeta")),
                             mapper.mapFromAttributes(person("alpha")));
                 });
+        when(loginAttempts.getLockoutStatuses(any()))
+                .thenReturn(Map.of("alpha",
+                        new LoginAttemptService.LockoutStatus(true, lockedUntil)));
 
         var all = service.listAllPeople(new PeopleSearchCriteria(0, 2 * modules, null, null, null));
         assertThat(all.totalElements()).isEqualTo(2L * modules);
@@ -95,6 +136,9 @@ class PanelPersonServiceTest {
                 .containsExactlyInAnyOrderElementsOf(PanelDirectoryRules.MODULES);
         assertThat(all.content().subList(modules, 2 * modules)).extracting(AdminPersonView::uid)
                 .containsOnly("zeta");
+        assertThat(all.content()).filteredOn(AdminPersonView::locked)
+                .extracting(AdminPersonView::uid)
+                .containsOnly("alpha");
 
         var page = service.listAllPeople(new PeopleSearchCriteria(0, 10, null, null, null));
         assertThat(page.totalElements()).isEqualTo(2L * modules);
@@ -173,6 +217,7 @@ class PanelPersonServiceTest {
     @Test
     void listAllPeopleGlobalAggregatesAcrossModulesAndSorts() {
         AtomicInteger callIndex = new AtomicInteger();
+        Instant lockedUntil = Instant.parse("2026-11-15T15:30:00Z");
         when(ldap.search(any(org.springframework.ldap.query.LdapQuery.class),
                 ArgumentMatchers.<AttributesMapper<PersonView>>any()))
                 .thenAnswer(invocation -> {
@@ -184,6 +229,9 @@ class PanelPersonServiceTest {
                     }
                     return List.of();
                 });
+        when(loginAttempts.getLockoutStatuses(any()))
+                .thenReturn(Map.of("zeta",
+                        new LoginAttemptService.LockoutStatus(true, lockedUntil)));
 
         var result = service.listAllPeopleGlobal();
 
@@ -192,6 +240,10 @@ class PanelPersonServiceTest {
                 .containsExactly("alpha", "zeta");
         assertThat(result).extracting(GlobalPersonView::module)
                 .containsExactly("movilidad", "movilidad");
+        assertThat(result).filteredOn(GlobalPersonView::locked)
+                .singleElement()
+                .satisfies(person -> assertThat(person.lockoutUntil()).isEqualTo(lockedUntil));
+        verify(loginAttempts).getLockoutStatuses(any());
     }
 
     @Test
@@ -294,7 +346,16 @@ class PanelPersonServiceTest {
         when(ctx.getStringAttribute("mail")).thenReturn("j@x.com");
         when(ctx.getStringAttribute("pwdAccountLockedTime")).thenReturn("000001010000Z");
         when(ldap.lookupContext(any(LdapName.class))).thenReturn(ctx);
-        assertThat(service.findPerson("reclamos", "jperez").orElseThrow().disabled()).isTrue();
+        Instant lockedUntil = Instant.parse("2026-11-15T15:30:00Z");
+        when(loginAttempts.getLockoutStatuses(List.of("jperez")))
+                .thenReturn(Map.of("jperez",
+                        new LoginAttemptService.LockoutStatus(true, lockedUntil)));
+
+        PersonView person = service.findPerson("reclamos", "jperez").orElseThrow();
+
+        assertThat(person.disabled()).isTrue();
+        assertThat(person.locked()).isTrue();
+        assertThat(person.lockoutUntil()).isEqualTo(lockedUntil);
     }
 
     @Test

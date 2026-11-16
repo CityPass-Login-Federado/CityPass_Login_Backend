@@ -205,7 +205,9 @@ public class PanelController {
                                 person.givenName(),
                                 person.sn(),
                                 person.email(),
-                                person.disabled()
+                                person.disabled(),
+                                person.locked(),
+                                person.lockoutUntil()
                         ))
                         .sorted(java.util.Comparator.comparing(GlobalPersonView::uid))
                         .toList();

@@ -6,6 +6,7 @@ import citypass.loginfederado.panel.dto.PaginatedResponse;
 import citypass.loginfederado.panel.dto.PeopleSearchCriteria;
 import citypass.loginfederado.panel.dto.PersonView;
 import citypass.loginfederado.panel.dto.UpdatePersonRequest;
+import citypass.loginfederado.service.LoginAttemptService;
 import org.springframework.http.HttpStatus;
 import citypass.loginfederado.panel.dto.GlobalPersonView;
 import org.springframework.ldap.AttributeInUseException;
@@ -48,14 +49,42 @@ public class PanelPersonService {
     private final PanelLdapSupport support;
     private final LdapTemplate ldap;
     private final PanelAuditService audit;
+    private final LoginAttemptService loginAttempts;
 
-    public PanelPersonService(PanelLdapSupport support, PanelAuditService audit) {
+    public PanelPersonService(PanelLdapSupport support, PanelAuditService audit,
+                              LoginAttemptService loginAttempts) {
         this.support = support;
         this.ldap = support.ldap();
         this.audit = audit;
+        this.loginAttempts = loginAttempts;
     }
 
     public PaginatedResponse<PersonView> listPeople(String module, PeopleSearchCriteria criteria) {
+        List<PersonView> allFiltered = searchPeople(module, criteria);
+
+        int totalElements = allFiltered.size();
+        int size = criteria.size() > 0 ? criteria.size() : 10;
+        int page = criteria.page() >= 0 ? criteria.page() : 0;
+
+        int totalPages = (int) Math.ceil((double) totalElements / size);
+        int fromIndex = page * size;
+        int toIndex = Math.min(fromIndex + size, totalElements);
+
+        List<PersonView> pageContent = fromIndex < totalElements
+                ? allFiltered.subList(fromIndex, toIndex)
+                : List.of();
+        pageContent = withLockoutStatuses(pageContent);
+
+        return new PaginatedResponse<>(
+                pageContent,
+                totalElements,
+                totalPages,
+                page,
+                size
+        );
+    }
+
+    private List<PersonView> searchPeople(String module, PeopleSearchCriteria criteria) {
         support.assertModule(module);
 
         AndFilter andFilter = new AndFilter();
@@ -85,33 +114,13 @@ public class PanelPersonService {
                 .attributes("uid", "cn", "sn", "givenName", "mail", "employeeNumber", "pwdAccountLockedTime")
                 .filter(andFilter);
 
-        List<PersonView> allFiltered = ldap.search(
+        return ldap.search(
                 query,
                 (AttributesMapper<PersonView>) PanelLdapSupport::toView
         ).stream()
          .filter(p -> criteria.disabled() == null || p.disabled() == criteria.disabled().booleanValue())
          .sorted(java.util.Comparator.comparing(PersonView::uid))
          .toList();
-
-        int totalElements = allFiltered.size();
-        int size = criteria.size() > 0 ? criteria.size() : 10;
-        int page = criteria.page() >= 0 ? criteria.page() : 0;
-
-        int totalPages = (int) Math.ceil((double) totalElements / size);
-        int fromIndex = page * size;
-        int toIndex = Math.min(fromIndex + size, totalElements);
-
-        List<PersonView> pageContent = fromIndex < totalElements
-                ? allFiltered.subList(fromIndex, toIndex)
-                : List.of();
-
-        return new PaginatedResponse<>(
-                pageContent,
-                totalElements,
-                totalPages,
-                page,
-                size
-        );
     }
 
     /**
@@ -123,10 +132,7 @@ public class PanelPersonService {
     public PaginatedResponse<AdminPersonView> listAllPeople(PeopleSearchCriteria criteria) {
         List<AdminPersonView> all = new ArrayList<>();
         for (String module : PanelDirectoryRules.MODULES) {
-            PaginatedResponse<PersonView> page = listPeople(module,
-                    new PeopleSearchCriteria(0, Integer.MAX_VALUE,
-                            criteria.search(), criteria.group(), criteria.disabled()));
-            for (PersonView person : page.content()) {
+            for (PersonView person : searchPeople(module, criteria)) {
                 all.add(AdminPersonView.of(module, person));
             }
         }
@@ -143,6 +149,7 @@ public class PanelPersonService {
         List<AdminPersonView> pageContent = fromIndex < totalElements
                 ? all.subList(fromIndex, toIndex)
                 : List.of();
+        pageContent = withAdminLockoutStatuses(pageContent);
 
         return new PaginatedResponse<>(
                 pageContent,
@@ -157,13 +164,16 @@ public class PanelPersonService {
         support.assertModule(module);
         try {
             var ctx = ldap.lookupContext(support.personDn(module, uid));
-            return Optional.of(new PersonView(
+            PersonView person = new PersonView(
                     ctx.getStringAttribute("employeeNumber"),
                     ctx.getStringAttribute("uid"),
                     ctx.getStringAttribute("givenName"),
                     ctx.getStringAttribute("sn"),
                     ctx.getStringAttribute("mail"),
-                    PanelLdapSupport.isDisabled(ctx)));
+                    PanelLdapSupport.isDisabled(ctx),
+                    false,
+                    null);
+            return Optional.of(withLockoutStatuses(List.of(person)).getFirst());
         } catch (org.springframework.ldap.NameNotFoundException ex) {
             return Optional.empty();
         }
@@ -214,7 +224,7 @@ public class PanelPersonService {
             audit.record(actor, "PERSON_CREATED",
                     support.absPersonDn(module, req.username()), "employeeNumber=" + employeeNumber);
             return new PersonView(employeeNumber, req.username(), req.givenName(), req.sn(),
-                    req.email(), false);
+                    req.email(), false, false, null);
         }
         throw new IllegalStateException("No se pudo crear la persona");
     }
@@ -334,11 +344,10 @@ public class PanelPersonService {
     }
 
     public List<GlobalPersonView> listAllPeopleGlobal() {
-        return PanelDirectoryRules.MODULES.stream()
-            .flatMap(module -> listPeople(
-                    module,
-                    new PeopleSearchCriteria(0, Integer.MAX_VALUE, null, null, null)
-            ).content().stream()
+        List<GlobalPersonView> people = PanelDirectoryRules.MODULES.stream()
+            .flatMap(module -> searchPeople(
+                    module, new PeopleSearchCriteria(0, Integer.MAX_VALUE, null, null, null)
+            ).stream()
             .map(person -> new GlobalPersonView(
                     module,
                     person.employeeNumber(),
@@ -346,11 +355,59 @@ public class PanelPersonService {
                     person.givenName(),
                     person.sn(),
                     person.email(),
-                    person.disabled()
+                    person.disabled(),
+                    person.locked(),
+                    person.lockoutUntil()
             )))
             .sorted(java.util.Comparator
                     .comparing(GlobalPersonView::module)
                     .thenComparing(GlobalPersonView::uid))
             .toList();
+        return withGlobalLockoutStatuses(people);
+    }
+
+    private List<PersonView> withLockoutStatuses(List<PersonView> people) {
+        if (people.isEmpty()) {
+            return List.of();
+        }
+        var statuses = loginAttempts.getLockoutStatuses(
+                people.stream().map(PersonView::uid).toList());
+        return people.stream()
+                .map(person -> {
+                    var status = statuses.getOrDefault(person.uid(),
+                            LoginAttemptService.LockoutStatus.notLocked());
+                    return person.withLockout(status.locked(), status.lockoutUntil());
+                })
+                .toList();
+    }
+
+    private List<AdminPersonView> withAdminLockoutStatuses(List<AdminPersonView> people) {
+        if (people.isEmpty()) {
+            return List.of();
+        }
+        var statuses = loginAttempts.getLockoutStatuses(
+                people.stream().map(AdminPersonView::uid).toList());
+        return people.stream()
+                .map(person -> {
+                    var status = statuses.getOrDefault(person.uid(),
+                            LoginAttemptService.LockoutStatus.notLocked());
+                    return person.withLockout(status.locked(), status.lockoutUntil());
+                })
+                .toList();
+    }
+
+    private List<GlobalPersonView> withGlobalLockoutStatuses(List<GlobalPersonView> people) {
+        if (people.isEmpty()) {
+            return List.of();
+        }
+        var statuses = loginAttempts.getLockoutStatuses(
+                people.stream().map(GlobalPersonView::uid).toList());
+        return people.stream()
+                .map(person -> {
+                    var status = statuses.getOrDefault(person.uid(),
+                            LoginAttemptService.LockoutStatus.notLocked());
+                    return person.withLockout(status.locked(), status.lockoutUntil());
+                })
+                .toList();
     }
 }

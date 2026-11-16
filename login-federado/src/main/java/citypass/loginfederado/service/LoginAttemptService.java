@@ -6,10 +6,15 @@ import citypass.loginfederado.model.LoginAttempt;
 import citypass.loginfederado.model.LoginLockout;
 import citypass.loginfederado.repository.LoginAttemptRepository;
 import citypass.loginfederado.repository.LoginLockoutRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Service
 public class LoginAttemptService {
@@ -17,15 +22,27 @@ public class LoginAttemptService {
     private final LoginAttemptRepository loginAttemptRepository;
     private final LoginLockoutRepository loginLockoutRepository;
     private final LockoutProperties lockoutProperties;
+    private final Clock clock;
 
+    @Autowired
     public LoginAttemptService(
             LoginAttemptRepository loginAttemptRepository,
             LoginLockoutRepository loginLockoutRepository,
             LockoutProperties lockoutProperties
     ) {
+        this(loginAttemptRepository, loginLockoutRepository, lockoutProperties, Clock.systemUTC());
+    }
+
+    LoginAttemptService(
+            LoginAttemptRepository loginAttemptRepository,
+            LoginLockoutRepository loginLockoutRepository,
+            LockoutProperties lockoutProperties,
+            Clock clock
+    ) {
         this.loginAttemptRepository = loginAttemptRepository;
         this.loginLockoutRepository = loginLockoutRepository;
         this.lockoutProperties = lockoutProperties;
+        this.clock = clock;
     }
 
     /**
@@ -34,12 +51,12 @@ public class LoginAttemptService {
      */
     @Transactional
     public void assertNotLocked(String username) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
 
         loginLockoutRepository.findById(username)
                 .ifPresent(lockout -> {
 
-                    if (now.isBefore(lockout.getLockedUntil())) {
+                    if (evaluate(lockout, now).locked()) {
                         throw new AccountLockedException(
                                 "Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intente nuevamente más tarde."
                         );
@@ -50,6 +67,30 @@ public class LoginAttemptService {
                     loginAttemptRepository
                             .deleteByUsernameAndSuccessfulFalse(username);
                 });
+    }
+
+    /**
+     * Returns the current temporary lockout state for all requested users in
+     * one repository query. Expired rows are intentionally projected as not
+     * locked; authentication performs the existing cleanup when that user
+     * next logs in.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, LockoutStatus> getLockoutStatuses(Collection<String> usernames) {
+        Map<String, LockoutStatus> statuses = new LinkedHashMap<>();
+        usernames.forEach(username -> statuses.put(username, LockoutStatus.notLocked()));
+
+        Instant now = clock.instant();
+        loginLockoutRepository.findAllById(statuses.keySet())
+                .forEach(lockout -> statuses.put(lockout.getUsername(), evaluate(lockout, now)));
+        return Map.copyOf(statuses);
+    }
+
+    private static LockoutStatus evaluate(LoginLockout lockout, Instant now) {
+        if (now.isBefore(lockout.getLockedUntil())) {
+            return new LockoutStatus(true, lockout.getLockedUntil());
+        }
+        return LockoutStatus.notLocked();
     }
 
     /**
@@ -64,7 +105,7 @@ public class LoginAttemptService {
             String userAgent,
             boolean successful
     ) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
 
         loginAttemptRepository.save(
                 new LoginAttempt(
@@ -115,5 +156,11 @@ public class LoginAttemptService {
         loginLockoutRepository.findById(username)
                 .ifPresent(loginLockoutRepository::delete);
         loginAttemptRepository.deleteByUsernameAndSuccessfulFalse(username);
+    }
+
+    public record LockoutStatus(boolean locked, Instant lockoutUntil) {
+        public static LockoutStatus notLocked() {
+            return new LockoutStatus(false, null);
+        }
     }
 }

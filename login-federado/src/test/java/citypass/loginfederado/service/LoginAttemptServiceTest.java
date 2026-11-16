@@ -9,8 +9,13 @@ import citypass.loginfederado.repository.LoginLockoutRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +31,8 @@ import static org.mockito.Mockito.when;
 
 class LoginAttemptServiceTest {
 
+    private static final Instant NOW = Instant.parse("2026-11-15T15:00:00Z");
+
     private LoginAttemptRepository repository;
     private LoginLockoutRepository lockoutRepository;
     private LoginAttemptService service;
@@ -38,7 +45,8 @@ class LoginAttemptServiceTest {
         service = new LoginAttemptService(
                 repository,
                 lockoutRepository,
-                new LockoutProperties(5, 15, 10)
+                new LockoutProperties(5, 15, 10),
+                Clock.fixed(NOW, ZoneOffset.UTC)
         );
     }
 
@@ -56,7 +64,7 @@ class LoginAttemptServiceTest {
     void blocksWhenLockoutIsStillActive() {
         LoginLockout lockout = new LoginLockout(
                 "jperez",
-                Instant.now().plusSeconds(5 * 60)
+                NOW.plusSeconds(5 * 60)
         );
 
         when(lockoutRepository.findById("jperez"))
@@ -75,7 +83,7 @@ class LoginAttemptServiceTest {
     void allowsLoginWhenLockoutExpired() {
         LoginLockout lockout = new LoginLockout(
                 "jperez",
-                Instant.now().minusSeconds(60)
+                NOW.minusSeconds(60)
         );
 
         when(lockoutRepository.findById("jperez"))
@@ -110,7 +118,7 @@ class LoginAttemptServiceTest {
         verify(lockoutRepository).save(
                 argThat(lockout ->
                         lockout.getUsername().equals("jperez")
-                                && lockout.getLockedUntil().isAfter(Instant.now())
+                                && lockout.getLockedUntil().equals(NOW.plusSeconds(10 * 60))
                 )
         );
     }
@@ -133,6 +141,11 @@ class LoginAttemptServiceTest {
 
         verify(lockoutRepository, never())
                 .save(any(LoginLockout.class));
+
+        when(lockoutRepository.findAllById(List.of("jperez"))).thenReturn(List.of());
+        var status = service.getLockoutStatuses(List.of("jperez")).get("jperez");
+        assertThat(status.locked()).isFalse();
+        assertThat(status.lockoutUntil()).isNull();
     }
 
     @Test
@@ -191,6 +204,11 @@ class LoginAttemptServiceTest {
 
         verify(lockoutRepository).delete(lockout);
         verify(repository).deleteByUsernameAndSuccessfulFalse("jperez");
+
+        when(lockoutRepository.findAllById(List.of("jperez"))).thenReturn(List.of());
+        var status = service.getLockoutStatuses(List.of("jperez")).get("jperez");
+        assertThat(status.locked()).isFalse();
+        assertThat(status.lockoutUntil()).isNull();
     }
 
     @Test
@@ -202,5 +220,61 @@ class LoginAttemptServiceTest {
 
         verify(lockoutRepository, never()).delete(any(LoginLockout.class));
         verify(repository).deleteByUsernameAndSuccessfulFalse("jperez");
+    }
+
+    @Test
+    void reportsNotLockedWhenNoLockoutExists() {
+        when(lockoutRepository.findAllById(List.of("jperez"))).thenReturn(List.of());
+
+        var status = service.getLockoutStatuses(List.of("jperez")).get("jperez");
+
+        assertThat(status.locked()).isFalse();
+        assertThat(status.lockoutUntil()).isNull();
+    }
+
+    @Test
+    void reportsActiveLockoutsAndTheirExactEndInOneBatch() {
+        Instant lockedUntil = NOW.plusSeconds(10 * 60);
+        when(lockoutRepository.findAllById(any()))
+                .thenReturn(List.of(new LoginLockout("jperez", lockedUntil)));
+
+        Map<String, LoginAttemptService.LockoutStatus> statuses =
+                service.getLockoutStatuses(List.of("jperez", "mlopez"));
+
+        assertThat(statuses.get("jperez").locked()).isTrue();
+        assertThat(statuses.get("jperez").lockoutUntil()).isEqualTo(lockedUntil);
+        assertThat(statuses.get("mlopez").locked()).isFalse();
+        assertThat(statuses.get("mlopez").lockoutUntil()).isNull();
+        verify(lockoutRepository).findAllById(argThat(usernames -> {
+            var values = new java.util.HashSet<String>();
+            usernames.forEach(values::add);
+            return values.equals(java.util.Set.of("jperez", "mlopez"));
+        }));
+    }
+
+    @Test
+    void reportsExpiredLockoutAsInactiveWithoutExposingItsOldEnd() {
+        when(lockoutRepository.findAllById(List.of("jperez")))
+                .thenReturn(List.of(new LoginLockout("jperez", NOW)));
+
+        var status = service.getLockoutStatuses(List.of("jperez")).get("jperez");
+
+        assertThat(status.locked()).isFalse();
+        assertThat(status.lockoutUntil()).isNull();
+    }
+
+    @Test
+    void springSelectsTheProductionConstructorWhenCreatingTheBean() {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(LoginAttemptRepository.class, () -> repository);
+            context.registerBean(LoginLockoutRepository.class, () -> lockoutRepository);
+            context.registerBean(LockoutProperties.class,
+                    () -> new LockoutProperties(5, 15, 10));
+            context.register(LoginAttemptService.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(LoginAttemptService.class)).isNotNull();
+        }
     }
 }

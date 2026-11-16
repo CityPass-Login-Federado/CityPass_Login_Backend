@@ -1312,7 +1312,9 @@
           "givenName": { "type": "string", "description": "Nombre", "example": "Juan" },
           "sn": { "type": "string", "description": "Apellido", "example": "Perez" },
           "email": { "type": "string", "description": "Mail", "example": "jperez@citypass.local" },
-          "disabled": { "type": "boolean", "description": "true si la cuenta está bloqueada vía ppolicy (D7)" }
+          "disabled": { "type": "boolean", "description": "true si la cuenta está deshabilitada en LDAP vía ppolicy (D7)" },
+          "locked": { "type": "boolean", "description": "true únicamente mientras está activo el bloqueo temporal por intentos fallidos" },
+          "lockoutUntil": { "type": "string", "format": "date-time", "nullable": true, "description": "Fin del bloqueo temporal activo; null cuando locked=false", "example": "2026-11-15T15:30:00Z" }
         }
       },
       "PaginatedPersonResponse": {
@@ -1327,7 +1329,7 @@
       },
       "AdminPersonView": {
         "type": "object",
-        "required": ["module", "employeeNumber", "uid", "givenName", "sn", "disabled"],
+        "required": ["module", "employeeNumber", "uid", "givenName", "sn", "disabled", "locked"],
         "properties": {
           "module": { "type": "string", "description": "Módulo de la ficha", "example": "reclamos" },
           "employeeNumber": { "type": "string", "description": "ID estable, formato U000000 (inmutable, D3)", "example": "U000042" },
@@ -1335,7 +1337,9 @@
           "givenName": { "type": "string", "description": "Nombre", "example": "Juan" },
           "sn": { "type": "string", "description": "Apellido", "example": "Perez" },
           "email": { "type": "string", "description": "Mail", "example": "jperez@citypass.local" },
-          "disabled": { "type": "boolean", "description": "true si la cuenta está bloqueada vía ppolicy (D7)" }
+          "disabled": { "type": "boolean", "description": "true si la cuenta está deshabilitada en LDAP vía ppolicy (D7)" },
+          "locked": { "type": "boolean", "description": "true únicamente mientras está activo el bloqueo temporal por intentos fallidos" },
+          "lockoutUntil": { "type": "string", "format": "date-time", "nullable": true, "description": "Fin del bloqueo temporal activo; null cuando locked=false" }
         }
       },
       "PaginatedAdminPersonResponse": {

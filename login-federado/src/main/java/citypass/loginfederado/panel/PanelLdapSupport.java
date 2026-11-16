@@ -191,7 +191,9 @@ class PanelLdapSupport {
                 attrValue(attrs, "givenName"),
                 attrValue(attrs, "sn"),
                 attrValue(attrs, "mail"),
-                locked != null && !locked.isBlank());
+                locked != null && !locked.isBlank(),
+                false,
+                null);
     }
 
     static boolean isDisabled(DirContextOperations ctx) {
