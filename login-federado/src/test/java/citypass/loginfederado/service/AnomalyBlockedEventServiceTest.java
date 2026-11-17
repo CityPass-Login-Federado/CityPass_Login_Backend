@@ -10,8 +10,13 @@ import citypass.loginfederado.repository.AnomalyBlockedEventRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -23,7 +28,9 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -98,6 +105,27 @@ class AnomalyBlockedEventServiceTest {
         assertThat(result.content()).hasSize(1);
         assertThat(result.content().getFirst().riskScore()).isEqualTo(0.91);
         assertThat(result.content().getFirst().reasons()).containsExactly("IP nueva");
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "   "})
+    void treatsMissingOrBlankUsernameAsAbsent(String username) {
+        when(repository.search(isNull(), eq(AnomalyEventStatus.BLOCKED), isNull(), any()))
+                .thenReturn(Page.empty());
+
+        service.listEvents("   ", AnomalyEventStatus.BLOCKED, username, 2, 5);
+
+        verify(repository).search(
+                isNull(),
+                eq(AnomalyEventStatus.BLOCKED),
+                isNull(),
+                argThat(pageable -> pageable.getPageNumber() == 2
+                        && pageable.getPageSize() == 5
+                        && pageable.getSort().getOrderFor("blockedAt") != null
+                        && pageable.getSort().getOrderFor("blockedAt").getDirection()
+                        == Sort.Direction.DESC)
+        );
     }
 
     @Test

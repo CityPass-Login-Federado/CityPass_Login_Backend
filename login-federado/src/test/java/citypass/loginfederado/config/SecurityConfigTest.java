@@ -76,6 +76,12 @@ class SecurityConfigTest {
     }
 
     @Test
+    void permitsHealthEndpointWithoutAuthentication() throws Exception {
+        mockMvc.perform(get("/health"))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401));
+    }
+
+    @Test
     void appliesSecurityHeadersOnApiResponses() throws Exception {
         mockMvc.perform(get("/auth/unknown"))
                 .andExpect(header().string("Content-Security-Policy",
@@ -83,6 +89,15 @@ class SecurityConfigTest {
                 .andExpect(header().string("X-Frame-Options", "DENY"))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(header().string("Referrer-Policy", "no-referrer"));
+    }
+
+    @Test
+    void analyticsRouteCanBeFramedAndDoesNotReplaceUpstreamCsp() throws Exception {
+        mockMvc.perform(get("/admin/analitica").with(jwt()))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401))
+                .andExpect(header().doesNotExist("X-Frame-Options"))
+                .andExpect(header().doesNotExist("Content-Security-Policy"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"));
     }
 
     @Test
@@ -221,7 +236,7 @@ class SecurityConfigTest {
 
     @RestController
     public static class ProbeController {
-        @GetMapping({"/docs/unknown", "/auth/unknown", "/private/unknown"})
+        @GetMapping({"/docs/unknown", "/auth/unknown", "/private/unknown", "/admin/analitica", "/health"})
         String probe() {
             return "ok";
         }

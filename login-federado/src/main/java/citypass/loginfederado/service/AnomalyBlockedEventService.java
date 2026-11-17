@@ -22,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
@@ -86,7 +87,10 @@ public class AnomalyBlockedEventService {
             int size
     ) {
         validatePage(page, size);
-        String normalizedModule = module == null ? null : module.toLowerCase();
+        String normalizedModule = normalizeSearch(module);
+        if (normalizedModule != null) {
+            normalizedModule = normalizedModule.toLowerCase(Locale.ROOT);
+        }
         String normalizedUsername = normalizeSearch(username);
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "blockedAt"));
         var result = repository.search(normalizedModule, status, normalizedUsername, pageable);

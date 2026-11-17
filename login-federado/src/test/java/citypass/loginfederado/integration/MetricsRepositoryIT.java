@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -22,6 +23,7 @@ import citypass.loginfederado.repository.RefreshTokenRepository;
 import citypass.loginfederado.repository.SessionSpanProjection;
 
 @Testcontainers
+@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @DataJpaTest(properties = {
         "spring.jpa.hibernate.ddl-auto=create-drop",
         "spring.sql.init.mode=never"
@@ -102,7 +104,7 @@ class MetricsRepositoryIT {
 
         UUID expiredChain = UUID.randomUUID();
         RefreshToken expired = token("expired", expiredChain,
-                from.plusSeconds(180), Instant.parse("2020-01-01T00:00:00Z"));
+                from.plusSeconds(180), from.plusSeconds(3600));
 
         refreshTokens.saveAllAndFlush(List.of(first, last, active, expired));
 

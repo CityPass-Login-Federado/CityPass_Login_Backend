@@ -19,7 +19,7 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
      * los anteriores de ese sub (activos, usados o vencidos) en la misma
      * transacción que inserta el reemplazo. El anterior queda inválido.
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from PasswordResetToken t where t.sub = :sub")
     int deleteBySub(@Param("sub") String sub);
 
@@ -29,13 +29,13 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
      * estaba usado o venció — el perdedor se trata como token inválido.
      * Mismo patrón anti-TOCTOU que revokeIfActive de refresh tokens.
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update PasswordResetToken t set t.usedAt = :now " +
             "where t.tokenHash = :tokenHash and t.usedAt is null and t.expiresAt > :now")
     int markUsedIfActive(@Param("tokenHash") String tokenHash, @Param("now") Instant now);
 
     /** Limpieza de tokens vencidos (job o mantenimiento). */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from PasswordResetToken t where t.expiresAt < :now")
     int deleteExpiredBefore(@Param("now") Instant now);
 }

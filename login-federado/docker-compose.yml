@@ -66,6 +66,10 @@ services:
       SVC_GRUPO2_SECRET: "${SVC_GRUPO2_SECRET:-grupo2-secret-dev}"
       ANOMALY_SERVICE_URL: "http://anomaly-detection:8000"
       ANOMALY_APPROVAL_TTL_MINUTES: "${ANOMALY_APPROVAL_TTL_MINUTES:-15}"
+      ANALYTICS_BASE_URL: "${ANALYTICS_BASE_URL:-https://citypass-backend-prod-becqetepcjbqa8c7.brazilsouth-01.azurewebsites.net}"
+      ANALYTICS_EMBED_PATH: "${ANALYTICS_EMBED_PATH:-/embed/identidad}"
+      ANALYTICS_CONNECT_TIMEOUT: "${ANALYTICS_CONNECT_TIMEOUT:-3s}"
+      ANALYTICS_READ_TIMEOUT: "${ANALYTICS_READ_TIMEOUT:-15s}"
       # --- SMTP (recupero de contraseña) ---
       # OJO: el default vacío ("${VAR:-}") está prohibido acá: Boot lo
       # interpreta como host configurado, crea JavaMailSender igual y se

@@ -43,11 +43,6 @@ USER appuser
 # Puerto de la aplicación
 EXPOSE 8081
 
-# Variables de entorno con defaults para desarrollo
-ENV LDAP_ADMIN_PASSWORD=admin
-ENV DB_USERNAME=citypass
-ENV DB_PASSWORD=citypass
-
 # Health check básico
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD wget -qO- http://localhost:8081/actuator/health || exit 1

@@ -11,6 +11,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -71,6 +72,28 @@ public class GlobalExceptionHandler {
                 HttpStatus.SERVICE_UNAVAILABLE,
                 "Servicio no disponible",
                 "Servicio de validación temporalmente no disponible"
+        );
+    }
+
+    @ExceptionHandler(AnalyticsServiceUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> handleAnalyticsUnavailable(
+            AnalyticsServiceUnavailableException ex
+    ) {
+        return securityFailure(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Servicio no disponible",
+                "El tablero de Analítica no está disponible temporalmente"
+        );
+    }
+
+    @ExceptionHandler(AnalyticsInvalidResponseException.class)
+    public ResponseEntity<Map<String, Object>> handleAnalyticsInvalidResponse(
+            AnalyticsInvalidResponseException ex
+    ) {
+        return securityFailure(
+                HttpStatus.BAD_GATEWAY,
+                "Respuesta inválida",
+                "El tablero de Analítica devolvió una respuesta inválida"
         );
     }
 
@@ -170,6 +193,16 @@ public class GlobalExceptionHandler {
         body.put("error", "Método no permitido");
         body.put("message", "Verbo HTTP no soportado para esta ruta");
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(body);
+    }
+
+    /** Spring MVC representa una ruta sin recurso estático como esta excepción. */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(NoResourceFoundException ex) {
+        return securityFailure(
+                HttpStatus.NOT_FOUND,
+                "Recurso no encontrado",
+                "Recurso no encontrado"
+        );
     }
 
     @ExceptionHandler(Exception.class)

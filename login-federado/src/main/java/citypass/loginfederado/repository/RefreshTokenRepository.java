@@ -22,7 +22,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
      * dos hilos pueden pasar la validación a la vez con la misma palabra
      * de paso; el UPDATE condicional arbitra quién queda.
          */
-        @Modifying
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
         @Query("update RefreshToken t set t.revokedAt = :now " +
                 "where t.tokenHash = :tokenHash and t.revokedAt is null")
         int revokeIfActive(@Param("tokenHash") String tokenHash, @Param("now") Instant now);
@@ -31,13 +31,13 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
      * Revoca TODA la cadena en un solo UPDATE persistido (reuso = robo).
      * Devuelve la cantidad de filas afectadas.
         */
-        @Modifying
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
         @Query("update RefreshToken t set t.revokedAt = :now " +
                 "where t.chainId = :chainId and t.revokedAt is null")
         int revokeChain(@Param("chainId") UUID chainId, @Param("now") Instant now);
 
     /** Logout global de una persona: mata todas sus sesiones activas. */
-        @Modifying
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
         @Query("update RefreshToken t set t.revokedAt = :now " +
                 "where t.sub = :sub and t.revokedAt is null")
         int revokeAllForSub(@Param("sub") String sub, @Param("now") Instant now);

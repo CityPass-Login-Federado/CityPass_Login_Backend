@@ -2,6 +2,7 @@ package citypass.loginfederado.exception;
 
 import citypass.loginfederado.event.EdaOAuthException;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -9,6 +10,7 @@ import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.lang.reflect.Constructor;
@@ -38,6 +40,11 @@ class GlobalExceptionHandlerTest {
                 .isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(handler.handleAnomalyServiceUnavailable(new AnomalyServiceUnavailableException("down", new RuntimeException()))
                 .getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(handler.handleAnalyticsUnavailable(new AnalyticsServiceUnavailableException(
+                "down", new RuntimeException())).getStatusCode())
+                .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(handler.handleAnalyticsInvalidResponse(new AnalyticsInvalidResponseException("bad"))
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
         assertThat(handler.handleTooManyRequests(new TooManyRequestsException("limit")).getStatusCode())
                 .isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
     }
@@ -94,5 +101,16 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).containsEntry("status", 500);
         assertThat(response.getBody()).containsEntry("error", "Error interno");
         assertThat(response.getBody()).containsEntry("message", "Ocurrió un error inesperado. Intente nuevamente.");
+    }
+
+    @Test
+    void handlesMissingStaticResourceAsNotFound() {
+        var response = handler.handleNotFound(
+                new NoResourceFoundException(HttpMethod.GET, "/missing")
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).containsEntry("status", 404);
+        assertThat(response.getBody()).containsEntry("message", "Recurso no encontrado");
     }
 }

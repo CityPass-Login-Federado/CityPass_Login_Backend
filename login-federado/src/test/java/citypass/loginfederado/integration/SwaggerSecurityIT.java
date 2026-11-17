@@ -55,7 +55,7 @@ class SwaggerSecurityIT {
     void exposesSwaggerUiAndOpenApiWithoutJwt() throws Exception {
         mockMvc.perform(get("/docs"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(header().string("Location", "/docs/swagger-ui/index.html"));
+                .andExpect(header().string("Location", "/swagger-ui/index.html"));
 
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk());
@@ -111,6 +111,7 @@ class SwaggerSecurityIT {
                 .build();
         Jwt withoutGroups = Jwt.withTokenValue("token")
                 .header("alg", "RS256")
+                .subject("test-user")
                 .build();
 
         assertThat(converter.convert(withGroups).getAuthorities())
