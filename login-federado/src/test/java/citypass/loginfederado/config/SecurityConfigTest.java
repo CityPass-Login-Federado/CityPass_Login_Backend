@@ -185,6 +185,17 @@ class SecurityConfigTest {
     }
 
     @Test
+    void preflightFromAzureTestFrontendSucceedsWithCorsHeaders() throws Exception {
+        String origin = "https://citypass-frontend-test-eagbdnh6afdqakac.brazilsouth-01.azurewebsites.net";
+
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", origin));
+    }
+
+    @Test
     void preflightFromEdaFrontendSucceedsWithCorsHeaders() throws Exception {
         String origin = "https://test.citypass.mrfranco.net.ar";
 
