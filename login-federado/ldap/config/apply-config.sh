@@ -363,7 +363,68 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 6) Re-touch de membresías (registro memberOf)
+# 6) Migraciones idempotentes de datos históricos
+# -----------------------------------------------------------------------------
+# Las primeras versiones del seed ubicaban admin-global dentro de Analitica.
+# El seed actual lo define en Login, fuera de los módulos administrables, pero
+# ldapadd no mueve una entrada que ya existe en un volumen persistente. Se usa
+# modrdn (no delete+add) para conservar employeeNumber, password y atributos.
+OLD_ADMIN_DN="uid=admin-global,ou=People,ou=Analitica,dc=citypass,dc=local"
+LOGIN_PEOPLE_DN="ou=People,ou=Login,dc=citypass,dc=local"
+TARGET_ADMIN_DN="uid=admin-global,${LOGIN_PEOPLE_DN}"
+ADMIN_GROUP_DN="cn=admin-global,ou=admin,dc=citypass,dc=local"
+
+echo "--> Ubicación de admin-global"
+if ldapsearch -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -b "$TARGET_ADMIN_DN" -s base '(objectClass=inetOrgPerson)' dn 2>/dev/null \
+    | grep -q '^dn: '; then
+  echo "    ya está en ou=Login — se omite"
+elif ldapsearch -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -b "$OLD_ADMIN_DN" -s base '(objectClass=inetOrgPerson)' dn 2>/dev/null \
+    | grep -q '^dn: '; then
+  if ldapmodrdn -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" -r \
+      -s "$LOGIN_PEOPLE_DN" "$OLD_ADMIN_DN" 'uid=admin-global' \
+      >"$TMP/admin-move.log" 2>&1; then
+    echo "    migrado de ou=Analitica a ou=Login"
+  else
+    echo "ERROR migrando admin-global:"; cat "$TMP/admin-move.log"; exit 1
+  fi
+else
+  echo "ERROR: no se encontró admin-global ni en Analitica ni en Login"; exit 1
+fi
+
+# Refint debería actualizar `member` durante el modrdn. Esta normalización
+# cubre también volúmenes creados cuando el overlay todavía no estaba activo.
+if ldapsearch -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -b "$ADMIN_GROUP_DN" -s base '(objectClass=groupOfNames)' member 2>/dev/null \
+    | grep -Fqx "member: $OLD_ADMIN_DN"; then
+  cat >"$TMP/admin-old-member.ldif" <<EOF
+dn: ${ADMIN_GROUP_DN}
+changetype: modify
+delete: member
+member: ${OLD_ADMIN_DN}
+EOF
+  ldapmodify -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -f "$TMP/admin-old-member.ldif" >/dev/null
+fi
+
+if ! ldapsearch -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+    -b "$ADMIN_GROUP_DN" -s base '(objectClass=groupOfNames)' member 2>/dev/null \
+    | grep -Fqx "member: $TARGET_ADMIN_DN"; then
+  cat >"$TMP/admin-new-member.ldif" <<EOF
+dn: ${ADMIN_GROUP_DN}
+changetype: modify
+add: member
+member: ${TARGET_ADMIN_DN}
+EOF
+  if ! ldapmodify -x -H "$URL" -D "$ADMIN_DN" -w "$ADMIN_PW" \
+      -f "$TMP/admin-new-member.ldif" >"$TMP/admin-member.log" 2>&1; then
+    echo "ERROR normalizando el grupo admin-global:"; cat "$TMP/admin-member.log"; exit 1
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 7) Re-touch de membresías (registro memberOf)
 # -----------------------------------------------------------------------------
 # El overlay memberof de esta build (2.4.57) solo registra las membresías que
 # entran por MODIFY sobre un grupo existente: los `member` que vienen inline

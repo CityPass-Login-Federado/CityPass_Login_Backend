@@ -31,6 +31,7 @@ public class SecurityConfig {
             "/oauth/**",
             "/.well-known/**",
             "/jwks/**",
+            "/health",
             "/actuator/health"
     };
 
@@ -43,6 +44,8 @@ public class SecurityConfig {
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
                     + "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
                     + "frame-ancestors 'none'; base-uri 'none'";
+
+    private static final String ANALYTICS_ENDPOINT = "/admin/analitica";
 
     /**
      * Cabeceras de seguridad comunes a las dos cadenas: sin MIME sniffing,
@@ -60,6 +63,21 @@ public class SecurityConfig {
                         .includeSubDomains(true)
                         .maxAgeInSeconds(31536000))
                 .contentSecurityPolicy(policy -> policy.policyDirectives(csp));
+    }
+
+    /**
+     * El HTML de Analítica trae su propia CSP. No se agrega X-Frame-Options
+     * porque DENY impediría embeber esta única respuesta en el iframe del panel.
+     */
+    private static void applyAnalyticsSecurityHeaders(HeadersConfigurer<HttpSecurity> headers) {
+        headers
+                .contentTypeOptions(Customizer.withDefaults())
+                .frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)
+                .referrerPolicy(referrer -> referrer
+                        .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .httpStrictTransportSecurity(hsts -> hsts
+                        .includeSubDomains(true)
+                        .maxAgeInSeconds(31536000));
     }
 
     /**
@@ -95,6 +113,35 @@ public class SecurityConfig {
      */
     @Bean
     @Order(2)
+    public SecurityFilterChain analyticsFilterChain(
+            HttpSecurity http,
+            CorsConfigurationSource corsConfigurationSource) throws Exception {
+        http
+                .securityMatcher(ANALYTICS_ENDPOINT)
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
+                .headers(SecurityConfig::applyAnalyticsSecurityHeaders)
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
+                )
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint((request, response, ex) ->
+                                response.sendError(401, "Token invalido, expirado o ausente")
+                        )
+                        .accessDeniedHandler((request, response, ex) ->
+                                response.sendError(403, "No tiene permisos para acceder a este recurso")
+                        )
+                );
+
+        return http.build();
+    }
+
+    @Bean
+    @Order(3)
     public SecurityFilterChain apiFilterChain(HttpSecurity http,
                                                CorsConfigurationSource corsConfigurationSource) throws Exception {
 

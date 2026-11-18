@@ -141,8 +141,8 @@ Usar el botón **Authorize** (arriba a la derecha) con un access token (`Bearer 
 - `/me` y `/me/change-password` exigen access token de persona (`token_use=human`).
 - `/auth/**`, `/oauth/token`, `/.well-known/jwks.json` y `/health` son públicos.
 
-Las 29 rutas del servicio quedan auto-documentadas (5 de `/auth`, perfil, JWKS, token
-de servicio, health y el ABM del panel).
+Las rutas del servicio quedan auto-documentadas (5 de `/auth`, perfil, JWKS, token
+de servicio, health, el ABM del panel y el proxy de Analítica).
 
 ## Probar con Postman
 
@@ -170,6 +170,47 @@ lockout y anomalías. Los scripts capturan los tokens automáticamente entre req
 | GET | `/panel/anomaly-events` | Lista paginada de bloqueos anómalos con `riskScore` |
 | POST | `/panel/anomaly-events/{id}/approve` | Autoriza un reintento contextual, temporal y de un solo uso |
 | GET/POST/PUT/DELETE | `/panel/**` | Backend del panel (delegados + admin global; también `/modules` y `/admin/*`) |
+| GET | `/admin/analitica` | Proxy del HTML de Analítica para Identidad (solo admin global) |
+
+### Tablero de Analítica
+
+`GET /admin/analitica` requiere un access token humano de `citypass-admin-web`
+con el grupo `admin-global`. El backend reenvía ese mismo token como Bearer a
+`${ANALYTICS_BASE_URL}${ANALYTICS_EMBED_PATH}` (por defecto, el endpoint HTTPS
+de producción y `/embed/identidad`) y devuelve los bytes del HTML sin
+modificarlos. También conserva `Content-Type`, `Cache-Control`,
+`Content-Security-Policy`, `X-Content-Type-Options` y `Referrer-Policy`.
+
+La respuesta no agrega `X-Frame-Options: DENY`, de modo que la CSP entregada
+por Analítica controla el embebido. Analítica ya entrega en `/embed/identidad`
+el HTML autocontenido definitivo (incluido `citypass-datos`), no el antiguo
+`{"status":"ok"}`. Una respuesta `2xx` vacía o que no sea HTML se traduce a
+`502`; los errores 401/403 del upstream conservan su estado y cuerpo, y los
+fallos de red se traducen a `503`.
+
+El frontend debe consumir exclusivamente
+`https://api.citypass-login.pp.ua/admin/analitica`: no debe llamar directamente
+a Analítica. El flujo utiliza un único access token humano, sin token de servicio,
+y el token viaja solamente en `Authorization: Bearer ...`, nunca en la URL.
+
+En desarrollo, un 401 devuelto por Analítica productiva es esperable: el JWT local
+tiene issuer y claves RSA locales. No se debe copiar la clave privada productiva ni
+relajar la validación. Las alternativas seguras son usar un ambiente de Analítica
+que confíe en el JWKS local, probar el frontend local contra este backend productivo
+una vez desplegado, o probar el proxy con un token emitido por el IdP productivo.
+
+Configuración explícita del proxy (también disponible en `.env.example` y ambos
+archivos de Docker Compose):
+
+```dotenv
+ANALYTICS_BASE_URL=https://citypass-backend-prod-becqetepcjbqa8c7.brazilsouth-01.azurewebsites.net
+ANALYTICS_EMBED_PATH=/embed/identidad
+ANALYTICS_CONNECT_TIMEOUT=3s
+ANALYTICS_READ_TIMEOUT=15s
+```
+
+El procedimiento de release, rollback y smoke test está en
+[`login-federado/docs/runbooks/analytics-dashboard-deploy.md`](login-federado/docs/runbooks/analytics-dashboard-deploy.md).
 
 Login (notar **camelCase**, así lo implementa este proyecto):
 
@@ -359,6 +400,7 @@ el árbol pero tampoco lee `userPassword`.
 
 ```
 config/      Beans de Spring Security, LDAP (readonly + panel-writer), JWT y claves
+analytics/   Proxy autenticado y transparente del tablero HTML de Analítica
 controller/  AuthController (/auth), OAuthTokenController (/oauth/token), ProfileController (/me),
              JwksController, HealthController
 service/     AuthService, RefreshTokenService (rotación/reuso), LoginAttemptService, PasswordService
@@ -378,7 +420,7 @@ dto/ model/ repository/
 
 ```bash
 cd login-federado
-./mvnw clean verify
+mvn clean verify
 ```
 
 - Unit tests (JUnit 5 + Mockito) sobre emisión de tokens, claims, reglas del panel,

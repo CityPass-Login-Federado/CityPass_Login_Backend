@@ -217,6 +217,14 @@ anomaly:
   approval:
     ttl-minutes: ${ANOMALY_APPROVAL_TTL_MINUTES:15}
 
+# Proxy backend del HTML autocontenido de Analítica para Identidad/Login.
+# La URL debe permanecer en HTTPS; el token humano entrante se reenvía como Bearer.
+analytics:
+  base-url: ${ANALYTICS_BASE_URL:https://citypass-backend-prod-becqetepcjbqa8c7.brazilsouth-01.azurewebsites.net}
+  embed-path: ${ANALYTICS_EMBED_PATH:/embed/identidad}
+  connect-timeout: ${ANALYTICS_CONNECT_TIMEOUT:3s}
+  read-timeout: ${ANALYTICS_READ_TIMEOUT:15s}
+
 # --- Self-service de contraseñas (POST /auth/forgot-password + /auth/reset-password) ---
 # Flujo por token de un solo uso: la solicitud NUNCA escribe en LDAP, solo
 # persiste el hash de un token y lo manda por mail (enlace). LDAP se toca
