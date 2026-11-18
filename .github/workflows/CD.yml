@@ -190,6 +190,11 @@ jobs:
                       SPRING_MAIL_SMTP_STARTTLS=true
                       PASSWORD_RESET_FROM=${{ secrets.PASSWORD_RESET_FROM }}
                       PASSWORD_RESET_LINK_BASE=${{ secrets.PASSWORD_RESET_LINK_BASE }}
+                      EDA_PUBLISHER=${{ secrets.EDA_PUBLISHER }}
+                      EDA_GATEWAY_URL=${{ secrets.EDA_GATEWAY_URL }}
+                      EDA_TOKEN_URL=${{ secrets.EDA_TOKEN_URL }}
+                      EDA_TOKEN_PATH=${{ secrets.EDA_TOKEN_PATH }}
+                      EDA_CLIENT_ID=${{ secrets.SVC_GRUPO2_SECRET }}
                       ENVEOF
                       printf 'LOGIN_IMAGE_TAG=%s\n' "$IMAGE_TAG" >> .env
                       docker compose -f docker-compose.prod.yml pull

@@ -66,6 +66,13 @@ services:
       SVC_GRUPO7_SECRET: "${SVC_GRUPO7_SECRET:?Falta SVC_GRUPO7_SECRET}"
       SVC_GRUPO8_SECRET: "${SVC_GRUPO8_SECRET:?Falta SVC_GRUPO8_SECRET}"
 
+      # EDA - Event Gateway integration
+      EDA_PUBLISHER: "${EDA_PUBLISHER:-logging}"
+      EDA_GATEWAY_URL: "${EDA_GATEWAY_URL:-}"
+      EDA_TOKEN_URL: "${EDA_TOKEN_URL:-http://localhost:8081}"
+      EDA_TOKEN_PATH: "${EDA_TOKEN_PATH:-/oauth/token}"
+      EDA_CLIENT_ID: "${EDA_CLIENT_ID:-grupo2}"
+      EDA_CLIENT_SECRET: "${SVC_GRUPO2_SECRET:?Falta SVC_GRUPO2_SECRET}"
       ANOMALY_SERVICE_URL: "${ANOMALY_SERVICE_URL}"
       ANOMALY_APPROVAL_TTL_MINUTES: "${ANOMALY_APPROVAL_TTL_MINUTES:-15}"
       ANALYTICS_BASE_URL: "${ANALYTICS_BASE_URL:-https://citypass-backend-prod-becqetepcjbqa8c7.brazilsouth-01.azurewebsites.net}"
