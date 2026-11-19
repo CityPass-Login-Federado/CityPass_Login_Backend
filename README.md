@@ -92,10 +92,12 @@ flowchart LR
 ```
 
 **Importante:** el microservicio `anomaly-detection` es obligatorio en desarrollo:
-sin él corriendo, ningún login funciona (por diseño, fail-closed). El modelado
-(`IsolationForest`, entrenado con datos sintéticos y métricas P 79% / R 78% / F1 79%)
-está validado como PoC en el repo `anomaly-detection/`; el empaquetado del artefacto
-para el contenedor está documentado en ADR-009.
+sin él corriendo, ningún login funciona (por diseño, fail-closed). El runtime carga
+el bundle Isolation Forest **v4** y su política versionada; valida hashes, semántica
+y orden de features al iniciar. Producción usa `ANOMALY_MODE=SHADOW`: una propuesta
+ML `BLOCK` se registra pero se devuelve como `REVIEW`, por lo que el modelo no
+bloquea accesos en ese modo. Las métricas vigentes son sintéticas y se documentan,
+con sus límites, en `anomaly-detection/ML/ML_README.md` y ADR-009.
 
 ## Requisitos
 
@@ -401,7 +403,10 @@ el árbol pero tampoco lee `userPassword`.
 - **EDA**: login, refresh y logout se guardan primero en `event_outbox`.
   `EventOutboxRelay` entrega pendientes por `EventPublisher`; el modo default es
   `logging` y `EDA_PUBLISHER=http` usa el Gateway real del Grupo 1. La publicación
-  HTTP obtiene un token de servicio `grupo2`; ver ADR-010 y `docs/eda/`.
+  HTTP obtiene un token de servicio `grupo2`; ver ADR-010 y `docs/eda/`. Al corte,
+  los workflows CD asignan incorrectamente un secreto a `EDA_CLIENT_ID` (y el
+  manual referencia `SVC_GROUPO2_SECRET`): corregir y verificar el `.env` antes de
+  una demo o despliegue integrado.
 - **Editar archivos bajo `login-federado/ldap/config/`**: deben tener fin de línea LF.
   El `.gitattributes` del repo lo fuerza — respetarlo o el bash del contenedor falla
   con `$'\r': command not found`.
@@ -445,6 +450,9 @@ mvn verify
   sobre las clases no excluidas. Reporte: `target/site/jacoco/index.html`.
 - El CI actual ejecuta `mvn test jacoco:report`: publica resultados unitarios, pero
   no corre los `*IT` ni aplica el gate ligado a la fase `verify`.
+- La CI de `anomaly-detection` ejecuta `unittest`; al corte existen 62 métodos de
+  prueba y la auditoría informa ejecución verde con scikit-learn 1.5.2, sin warnings
+  de incompatibilidad del artefacto v4.
 
 ---
 

@@ -11,7 +11,7 @@ Fuente original: [Diagramas UML (CU, ER) — Módulo 2](https://app.notion.com/p
 El módulo utiliza tres orígenes de datos diferentes:
 
 - **LDAP:** identidades, contraseñas, estado de cuenta, módulos y grupos.
-- **PostgreSQL:** diez tablas para sesiones, intentos y lockouts, anomalías bloqueadas, revocación de access tokens, auditoría, recuperación de contraseña y Outbox EDA.
+- **PostgreSQL:** once tablas para sesiones, intentos y lockouts, evaluaciones y bloqueos de anomalías, revocación de access tokens, auditoría, recuperación de contraseña y Outbox EDA.
 - **Configuración:** registro de clientes humanos y de servicio cargado desde `application.yml` y variables de entorno.
 
 Las relaciones entre distintos orígenes son lógicas. No existen claves foráneas físicas entre LDAP, PostgreSQL y la configuración.
@@ -27,10 +27,13 @@ erDiagram
     LDAP_PERSON ||--o| PASSWORD_RESET_TOKEN : owns_logically
     LDAP_PERSON ||--o{ PANEL_AUDIT : acts_logically
     LDAP_PERSON ||--o{ ANOMALY_BLOCKED_EVENT : affected_logically
+    LDAP_PERSON ||--o{ ANOMALY_ASSESSMENT : assessed_logically
     LDAP_PERSON ||--o{ REVOKED_ACCESS_TOKEN : owns_logically
     LDAP_PERSON ||--o| REVOKED_SUBJECT_CUTOFF : has_logically
     CLIENT_CONFIG ||--o{ REFRESH_TOKEN : issued_for
     CLIENT_CONFIG ||--o{ ANOMALY_BLOCKED_EVENT : evaluated_for
+    CLIENT_CONFIG ||--o{ ANOMALY_ASSESSMENT : evaluated_for
+    ANOMALY_BLOCKED_EVENT ||--o| ANOMALY_ASSESSMENT : referenced_by
 
     LDAP_MODULE {
         string ou PK
@@ -101,6 +104,25 @@ erDiagram
         string approved_by_uid
         datetime consumed_at
         long version
+    }
+
+    ANOMALY_ASSESSMENT {
+        uuid id PK
+        string user_sub
+        string username
+        string module
+        string client_id
+        datetime assessed_at
+        double risk_score
+        string proposed_decision
+        string effective_decision
+        string access_disposition
+        string model_version
+        string model_sha256
+        string policy_sha256
+        string mode
+        text assessment_json
+        uuid blocked_event_id
     }
 
     EVENT_OUTBOX {
@@ -206,7 +228,7 @@ Representa cada unidad organizativa funcional. Los módulos vigentes son `movili
 
 - Registra intentos exitosos y fallidos para el bloqueo por ventana deslizante.
 - `username` no posee relación obligatoria con LDAP porque también se registran nombres inexistentes.
-- Actualmente no existe una columna para persistir la decisión de anomalías `REVIEW`.
+- La decisión ML no se duplica en esta tabla: la evaluación completa se persiste en `ANOMALY_ASSESSMENT`.
 
 #### `LOGIN_LOCKOUT`
 
@@ -219,6 +241,12 @@ Representa cada unidad organizativa funcional. Los módulos vigentes son `movili
 - Persiste cada decisión `BLOCK` con el sujeto, módulo, cliente, contexto, puntaje y razones devueltos por el servicio de anomalías.
 - Su estado avanza de `BLOCKED` a `APPROVED` y luego a `CONSUMED`. La aprobación tiene vencimiento, queda asociada al administrador y habilita un solo login con el mismo contexto.
 - `version` implementa control optimista; el listado y la aprobación se exponen por el panel con aislamiento por módulo.
+
+#### `ANOMALY_ASSESSMENT`
+
+- Persiste todas las evaluaciones, no solo bloqueos: score, decisión propuesta y efectiva, disposición del acceso, modo, versión, hashes y JSON completo.
+- En `SHADOW`, permite auditar `proposed_decision=BLOCK` junto con `effective_decision=REVIEW`.
+- `blocked_event_id` referencia lógicamente el evento administrativo cuando una decisión efectiva `BLOCK` genera una fila en `ANOMALY_BLOCKED_EVENT`; el esquema no declara una foreign key física.
 
 #### `EVENT_OUTBOX`
 
@@ -292,13 +320,13 @@ Representa cada unidad organizativa funcional. Los módulos vigentes son `movili
 - `PANEL_AUDIT.target` puede representar un DN, username, grupo u otro identificador; no referencia una única entidad.
 - `EVENT_OUTBOX.payload` conserva el evento a entregar, pero no crea una clave foránea hacia LDAP: el sujeto puede cambiar o dejar de existir antes del reintento.
 - Los JWT completos no se almacenan. Solo se conserva el `jti` revocado o el corte temporal del sujeto; la firma y el resto de claims se validan mediante JWKS.
-- Las decisiones `BLOCK` se persisten en `ANOMALY_BLOCKED_EVENT`; la decisión `REVIEW` todavía no tiene una columna en `LOGIN_ATTEMPT`.
+- Las evaluaciones `ALLOW`, `REVIEW` y `BLOCK` se persisten en `ANOMALY_ASSESSMENT`; los bloqueos efectivos agregan además `ANOMALY_BLOCKED_EVENT` para el workflow administrativo.
 
 ## 6. Correcciones respecto del diagrama original
 
 - Se reemplazó `revoked` por `revoked_at`, que es la columna real.
 - Se agregó `chain_id`, `client_id`, `audience`, `issued_at` y el identificador estable `sub` al refresh token.
-- Se completaron las diez tablas de `schema.sql`, incluidas `LOGIN_LOCKOUT`, `ANOMALY_BLOCKED_EVENT`, `EVENT_OUTBOX`, `REVOKED_ACCESS_TOKEN` y `REVOKED_SUBJECT_CUTOFF`.
+- Se completaron las once tablas de `schema.sql`, incluidas `LOGIN_LOCKOUT`, `ANOMALY_BLOCKED_EVENT`, `ANOMALY_ASSESSMENT`, `EVENT_OUTBOX`, `REVOKED_ACCESS_TOKEN` y `REVOKED_SUBJECT_CUTOFF`.
 - Se corrigió la falsa clave foránea física entre PostgreSQL y LDAP: la relación es lógica.
 - Se eliminó el atributo inexistente `module` de `LDAP_GROUP`; el módulo se deriva del DN.
 - Se incorporó la entidad conceptual `LDAP_MODULE` y la separación entre `People` y `Groups`.

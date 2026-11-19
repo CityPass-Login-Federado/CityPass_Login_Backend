@@ -20,7 +20,7 @@ flowchart TB
             KEYS[(Volumen keysdata<br/>claves RSA)]
         end
         subgraph VM2[VM 2 - Anomalías]
-            ANOM[FastAPI /score]
+            ANOM[FastAPI /score<br/>modelo v4 en SHADOW]
         end
     end
 
@@ -66,7 +66,7 @@ flowchart TB
 | Claves RSA | Volumen `keysdata` montado en `/app/keys` en VM 1 |
 | Credenciales y hosts | Inyectados desde secretos/variables de despliegue |
 | LDAP | Ejecutado en VM 1; el Compose productivo no declara volumen de datos LDAP |
-| Modelo de anomalía | Incluido sólo si el artefacto runtime se incorpora a la imagen de FastAPI |
+| Modelo de anomalía | Bundle v4 incluido en la imagen; carga obligatoria con validación de hashes y `ANOMALY_MODE=SHADOW` |
 
 ## Riesgos y acciones pendientes de infraestructura
 
@@ -74,7 +74,9 @@ flowchart TB
 - **Perímetro y TLS:** documentar reverse proxy, certificados, DNS, puertos publicados y reglas de red; no están definidos por los Compose revisados.
 - **Comunicación entre VMs:** restringir el acceso a FastAPI y cifrar o aislar el tráfico según la red disponible.
 - **Claves de firma:** definir respaldo, rotación y conservación del volumen `keysdata`, manteniendo la clave privada fuera de imágenes y repositorio.
-- **EDA:** validar en cada despliegue `EDA_PUBLISHER=http`, las URLs y la pareja `EDA_CLIENT_ID=grupo2` / secreto correspondiente; monitorear filas `PENDING` y `FAILED` del Outbox.
+- **EDA:** validar en cada despliegue `EDA_PUBLISHER=http`, las URLs y la pareja `EDA_CLIENT_ID=grupo2` / secreto correspondiente; monitorear filas `PENDING` y `FAILED` del Outbox. Al corte, los workflows CD asignan por error un secreto a `EDA_CLIENT_ID` —y el manual usa además `SVC_GROUPO2_SECRET`—, por lo que deben corregirse antes de presentar una entrega real.
+- **Timeouts EDA:** `EdaProperties` espera `eda.connect-timeout` y `eda.read-timeout`, mientras `application.yml` declara claves `*-timeout-millis`; esas variables no enlazan la propiedad esperada y se aplican los defaults del record (3 s / 5 s).
+- **IA/ML:** mantener `SHADOW` hasta contar con validación real, monitoreo y un criterio explícito de aprobación/rollback para `ENFORCE`.
 - **Analítica:** el backend externo se configura con `ANALYTICS_BASE_URL` y `ANALYTICS_EMBED_PATH`; conservar timeouts y conectividad saliente desde VM 1.
 - **Infraestructura como código:** el repositorio automatiza aplicaciones y contenedores, pero no aprovisiona VMs, red, DNS, certificados ni Supabase. Ese alcance debe documentarse o incorporarse antes de afirmar IaC completa.
 - **Retención de eventos:** definir una política de archivo o purga para filas `SENT` y tratamiento operativo de filas `FAILED`; el código actual no las elimina automáticamente.

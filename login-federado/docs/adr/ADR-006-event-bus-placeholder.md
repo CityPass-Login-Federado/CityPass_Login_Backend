@@ -75,7 +75,7 @@ Razones principales:
 ### Negativas
 
 - Con el default (logging) no hay entrega real ni durabilidad
-- El publisher HTTP **no tiene reintentos ni timeouts configurados**: un gateway colgado puede colgar el request que publica (pendiente: backoff + timeouts + criterio de entrega)
+- Esta consecuencia pertenecía a la publicación directa original. La implementación vigente usa Outbox, reintentos y timeouts según ADR-010. Al corte persiste una observación de configuración: `application.yml` declara claves `*-timeout-millis` que no enlazan los campos `Duration` de `EdaProperties`, por lo que se aplican sus defaults de 3 s y 5 s.
 - Dependemos de decisiones del Grupo 1 para cerrar la integración (endpoint definitivo, envelope final, URL alcanzable desde Docker)
 
 ## Referencias (benchmark)

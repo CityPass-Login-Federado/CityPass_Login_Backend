@@ -50,6 +50,17 @@ EDA_CLIENT_ID=grupo2
 EDA_CLIENT_SECRET=<secret administrado fuera del repositorio>
 ```
 
+Validar el archivo `.env` resultante: `EDA_CLIENT_ID` debe contener `grupo2` y
+`EDA_CLIENT_SECRET` el secreto. Al corte, los workflows CD no cumplen esa separación
+(`CD.yml` asigna el secreto al id y `manual-deploy.yml` referencia además
+`SVC_GROUPO2_SECRET`), por lo que la configuración generada debe corregirse antes de
+probar la salida real.
+
+Los timeouts efectivos actuales son los defaults de `EdaProperties` (3 s de conexión
+y 5 s de lectura). Las claves `*-timeout-millis` de `application.yml` no enlazan esos
+campos `Duration`; no presentar las variables `EDA_*_TIMEOUT_MILLIS` como configurables
+hasta corregir el binding.
+
 ## Verificación
 
 ```sql

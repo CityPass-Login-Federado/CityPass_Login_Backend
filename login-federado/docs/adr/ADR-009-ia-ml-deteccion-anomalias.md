@@ -1,84 +1,42 @@
-# ADR-009: Detección híbrida de anomalías con Isolation Forest y reglas deterministas
+# ADR-009: Detección híbrida v4 con Isolation Forest y modo Shadow
+
+**Estado:** aceptada e implementada
+
+**Última actualización:** 19 de noviembre de 2026
 
 ## Quiénes
 
 | Nombre | Rol |
-|--------|-----|
-| Nicolas Hernandez| Backend |
+|---|---|
+| Nicolas Hernandez | Backend / IA |
 
-## Consideraciones
+## Contexto
 
-El sistema debe identificar intentos de login potencialmente anómalos y devolver una decisión operativa para el flujo de autenticación.
+El flujo de autenticación necesita identificar intentos potencialmente anómalos después de validar las credenciales LDAP y antes de emitir tokens. Las señales disponibles son hora, IP, dispositivo, fallos recientes e historial del usuario.
 
-Las señales disponibles incluyen:
+El sistema dispone de pocos ejemplos reales etiquetados de ataque. Un bloqueo incorrecto afecta disponibilidad y soporte, por lo que la introducción de ML debe ser gradual, observable y reversible.
 
-- Hora del intento.
-- Dirección IP nueva para el usuario.
-- Dispositivo nuevo para el usuario.
-- Cantidad de fallos recientes en una ventana de 15 minutos.
-- Historial reciente de intentos del usuario.
+La versión v4 agrega un modelo Isolation Forest, una política calibrada y dos resultados distintos:
 
-Restricciones y supuestos:
+- `proposed_decision`: resultado que propone el modelo y la política;
+- `decision`: resultado efectivo que consume `login-federado`.
 
-- La detección no debe bloquear por sí sola el acceso sin una política explícita.
-- El modelo puede no estar disponible durante un despliegue o una incidencia.
-- Las decisiones deben ser explicables para facilitar auditoría y soporte.
-- El modelo debe funcionar con datos mayoritariamente normales y pocos ejemplos etiquetados de fraude.
-- El resultado debe normalizarse a un score entre `0` y `1`.
+## Opciones consideradas
 
-### Opciones consideradas
+| Opción | Ventajas | Desventajas |
+|---|---|---|
+| Reglas deterministas | Explicables y sin entrenamiento | Ajuste manual y menor capacidad para patrones combinados |
+| Clasificador supervisado | Optimiza métricas conocidas | Requiere etiquetas reales confiables y representativas |
+| Isolation Forest directo | No requiere etiquetas de fraude | Score no probabilístico y riesgo de falsos positivos |
+| Política híbrida + Shadow | Permite calibrar, observar y activar gradualmente | Mayor complejidad y necesidad de monitoreo |
 
-#### Opción A: Reglas deterministas únicamente
+## Decisión
 
-| Pros | Contras |
-|------|---------|
-| Fácil de explicar y auditar | Detecta peor patrones combinados |
-| No necesita entrenamiento | Requiere ajustar manualmente los umbrales |
-| Funciona sin modelo | Puede generar más falsos positivos |
-| Comportamiento predecible | No aprende de los datos históricos |
+Adoptar **Isolation Forest v4 con política híbrida** y desplegarlo inicialmente en modo `SHADOW`.
 
-#### Opción B: Clasificador supervisado
+### Contrato de features
 
-| Pros | Contras |
-|------|---------|
-| Puede alcanzar buena precisión con datos etiquetados | Requiere un conjunto de datos confiable |
-| Permite optimizar métricas concretas | El fraude real suele estar poco representado |
-| Puede incorporar muchas señales | Requiere mantener etiquetas y procesos de reentrenamiento |
-
-#### Opción C: Isolation Forest
-
-| Pros | Contras |
-|------|---------|
-| Adecuado para detección no supervisada | No explica completamente cada anomalía |
-| No requiere etiquetas de fraude | El score necesita calibración |
-| Detecta combinaciones inusuales de señales | Puede cambiar su comportamiento al variar los datos |
-| Disponible en scikit-learn | Requiere monitoreo y reentrenamiento |
-
-#### Opción D: Enfoque híbrido
-
-| Pros | Contras |
-|------|---------|
-| Combina explicabilidad y detección estadística | Tiene mayor complejidad que usar solo reglas |
-| Mantiene una alternativa si el modelo no está disponible | Deben coordinarse los dos mecanismos |
-| Permite evolucionar gradualmente hacia ML | Los resultados pueden diferir entre ambos modos |
-
-## Por todo esto, definimos
-
-Adoptar un enfoque **híbrido**:
-
-1. Utilizar reglas deterministas como mecanismo de respaldo.
-2. Utilizar `IsolationForest` cuando exista un modelo entrenado y disponible.
-3. Construir las features a partir del historial de intentos del usuario.
-4. Normalizar el resultado a un score entre `0` y `1`.
-5. Traducir el score a tres decisiones:
-   - `ALLOW` si el score es menor que `0.4`.
-   - `REVIEW` si el score está entre `0.4` y `0.7`.
-   - `BLOCK` si el score es igual o superior a `0.7`.
-6. Devolver motivos asociados al resultado para permitir auditoría y diagnóstico.
-7. Entrenar el modelo offline y cargarlo como artefacto versionado durante el despliegue: el contrato de runtime es `models/isolation_forest.pkl` dentro de la imagen del servicio (si el archivo no existe, el servicio opera solo con reglas). El Dockerfile copia el artefacto versionado desde `ML/models/isolation_forest.pkl`.
-8. Permitir reentrenamiento offline con intentos reales persistidos en `login_attempts`, usando los fallos para construir contexto pero ajustando el modelo solo con logins exitosos por defecto.
-
-El modelo se basará inicialmente en:
+El orden forma parte del contrato:
 
 ```text
 hour_of_day
@@ -88,29 +46,87 @@ recent_failures_15min
 history_size
 ```
 
+La semántica `successful_history_v1` considera confiables únicamente IP y user-agent observados en autenticaciones exitosas previas. Los fallos anteriores sí se usan para la ventana de 15 minutos. El historial se limita a 200 eventos y excluye registros con timestamp igual o posterior al evento evaluado.
+
+### Artefactos
+
+El bundle productivo está formado por:
+
+- `ML/models/isolation_forest_v4.pkl`;
+- `ML/models/risk_policy_v4.json`.
+
+El Dockerfile copia ambos a `/app/models`. El runtime no reentrena y no usa un fallback silencioso: valida presencia, hash, política, semántica y features, y falla al iniciar si el bundle es incompatible. `requirements.txt` fija `scikit-learn==1.5.2`.
+
+### Score y umbrales
+
+El score se calcula con `clip(0.5 - decision_score, 0, 1)`. No representa probabilidad de fraude.
+
+La política versionada define:
+
+- `REVIEW` desde `0.479`;
+- `BLOCK` desde `0.543`;
+- FPR objetivo de bloqueo menor o igual a 1 % durante calibración;
+- FPR objetivo combinado de revisión/bloqueo menor o igual a 10 % durante calibración.
+
+Un `BLOCK` también exige todas estas señales: historial mínimo 5, IP nueva, dispositivo nuevo y al menos 2 fallos recientes. Sin ese contexto, se degrada a `REVIEW`.
+
+### Modo operativo
+
+`ANOMALY_MODE` admite:
+
+| Valor | Decisión efectiva |
+|---|---|
+| `SHADOW` | Convierte una propuesta `BLOCK` en `REVIEW` y conserva la propuesta para observabilidad |
+| `ENFORCE` | Aplica la decisión propuesta |
+
+`SHADOW` es el valor por defecto y el configurado en el Compose productivo. Solo una `decision=BLOCK` activa el bloqueo y la aprobación administrativa del backend; por ello, los bloqueos propuestos por el modelo v4 no se aplican en el modo productivo actual.
+
+### Trazabilidad
+
+`POST /score` devuelve score, razones, decisión propuesta, decisión efectiva, versión, hashes, semántica, modo y vector de features. `/health` expone el estado del bundle y sus umbrales.
+
+## Evidencia de calibración
+
+La política v4 versionada se calibró sobre 2.000 targets sintéticos de validation: 100 anomalías y 1.900 casos legítimos.
+
+| Salida | Precision | Recall | FPR | F1 |
+|---|---:|---:|---:|---:|
+| `BLOCK` | 22,73 % | 5,00 % | 0,895 % | 8,20 % |
+| `REVIEW` o `BLOCK` | 18,61 % | 43,00 % | 9,895 % | 25,98 % |
+
+Las cifras P 79,15 %, R 78,20 % y F1 78,67 % corresponden a un experimento anterior y no son evidencia del modelo v4 desplegado. Ninguna métrica sintética debe presentarse como rendimiento sobre fraude real.
+
 ## Consecuencias
 
 ### Positivas
 
-- El servicio continúa funcionando aunque el modelo no esté disponible.
-- Las reglas proporcionan un comportamiento inicial y auditable.
-- Isolation Forest permite detectar patrones anómalos sin disponer inicialmente de etiquetas.
-- Las decisiones se expresan mediante umbrales claros.
-- El modelo puede reentrenarse sin modificar el backend Java.
-- La respuesta incluye motivos útiles para operaciones y seguridad.
+- El modo Shadow permite observar bloqueos propuestos sin afectar accesos.
+- El modelo y la política quedan unidos por SHA-256 y contrato de features.
+- La política exige contexto adicional antes de proponer bloqueos.
+- La respuesta conserva evidencia suficiente para auditoría técnica.
+- El runtime y la CI usan scikit-learn 1.5.2; la suite verifica carga y compatibilidad.
 
-### Negativas
+### Negativas y riesgos
 
-- El modelo puede producir falsos positivos o falsos negativos.
-- Los umbrales `0.4` y `0.7` requieren validación con datos reales.
-- El score normalizado es aproximado y no representa directamente una probabilidad.
-- La calidad depende de que las features de entrenamiento e inferencia sean idénticas.
-- Se necesita monitorear la distribución de los datos y el rendimiento del modelo.
-- El archivo del modelo debe gestionarse como artefacto de despliegue confiable.
+- El dataset y las etiquetas disponibles siguen siendo sintéticos.
+- El score expresa rareza, no causalidad ni probabilidad.
+- En `SHADOW`, el sistema observa pero no previene ataques únicamente detectados por ML.
+- Activar `ENFORCE` sin validación real puede introducir falsos bloqueos.
+- El pipeline heredado de reentrenamiento con `login_attempts` genera `isolation_forest.pkl`; no promueve automáticamente el bundle v4.
 
-## Referencias (benchmark)
+## Criterios para pasar a `ENFORCE`
 
-- Isolation Forest — https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html
-- scikit-learn User Guide — https://scikit-learn.org/stable/user_guide.html
-- OWASP Machine Learning Security Top Ten — https://owasp.org/www-project-machine-learning-security-top-10/
-- NIST AI Risk Management Framework — https://www.nist.gov/itl/ai-risk-management-framework
+1. Validación temporal con datos reales representativos y tratamiento de privacidad.
+2. Monitoreo de `proposed_decision`, `decision`, tasas de revisión y falsos positivos.
+3. Criterios de aceptación, responsable de aprobación y plan de rollback documentados.
+4. Verificación del SHA-256 y versión desplegados.
+5. Evidencia de pruebas y smoke test asociados al mismo commit.
+
+## Referencias
+
+- `anomaly-detection/ML/ML_README.md`
+- `anomaly-detection/ML/models/risk_policy_v4.json`
+- `anomaly-detection/app/model.py`
+- [Isolation Forest — scikit-learn](https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html)
+- [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework)
+- [OWASP Machine Learning Security Top Ten](https://owasp.org/www-project-machine-learning-security-top-10/)

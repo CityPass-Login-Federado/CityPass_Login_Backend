@@ -44,13 +44,14 @@ flowchart TB
 | Aplicación Spring Boot | REST, OAuth, panel, JWT, LDAP, eventos y correo | Estado durable en LDAP/PostgreSQL; claves locales al contenedor |
 | OpenLDAP | Identidades, atributos, grupos y membresías | Datos del contenedor; inicialización por `ldap-config` |
 | `ldap-config` | Aplica configuración y datos LDIF | Proceso de una sola ejecución |
-| PostgreSQL | Diez tablas para sesiones, lockouts, anomalías, revocación, auditoría, recuperación y Outbox | Volumen Docker `pgdata` |
-| FastAPI | Puntaje de anomalía | Consulta PostgreSQL; usa modelo sólo si existe en la ruta runtime |
+| PostgreSQL | Once tablas para sesiones, lockouts, evaluaciones y bloqueos de anomalías, revocación, auditoría, recuperación y Outbox | Volumen Docker `pgdata` |
+| FastAPI | Puntaje de anomalía | Consulta PostgreSQL y carga obligatoriamente el bundle v4 empaquetado |
 
 ## Observaciones
 
 - El esquema SQL usa creación idempotente de tablas y no recrea destructivamente la base en cada inicio.
-- El runtime de anomalías puede operar con reglas determinísticas. El repositorio no contiene actualmente `anomaly-detection/models/isolation_forest.pkl` como artefacto desplegable.
+- El Dockerfile incluye `isolation_forest_v4.pkl` y `risk_policy_v4.json`. El runtime valida presencia, hashes, política y contrato de features; una incompatibilidad impide el arranque.
+- `ANOMALY_MODE` usa `SHADOW` por defecto: una propuesta ML `BLOCK` se observa como tal, pero la decisión efectiva enviada al backend es `REVIEW`.
 - El publicador predeterminado es local por logging; el gateway EDA no es necesario para levantar el módulo aislado.
 - El relay se ejecuta dentro de Spring Boot y procesa `event_outbox` aun en modo logging; no existe un contenedor separado para él.
 - El proxy de Analítica requiere un backend externo accesible mediante `ANALYTICS_BASE_URL`; su indisponibilidad no impide iniciar el módulo.
