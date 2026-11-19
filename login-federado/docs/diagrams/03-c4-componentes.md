@@ -31,7 +31,7 @@ C4Component
         Component(eventPort, "Puerto de Eventos", "EventPublisher", "Abstrae la entrega de hechos de identidad")
         Component(eventAdapters, "Adaptadores de Eventos", "LoggingEventPublisher y EdaHttpEventPublisher", "Registra localmente o publica datos de negocio por HTTP")
         Component(analyticsClient, "Cliente de Analítica", "AnalyticsClient", "Reenvía el Bearer token y valida la respuesta HTML")
-        Component(repositories, "Repositorios Operativos", "Spring Data JPA", "Diez tablas de sesiones, seguridad, auditoría, recuperación y Outbox")
+        Component(repositories, "Repositorios Operativos", "Spring Data JPA / JDBC", "Once tablas de sesiones, seguridad, evaluaciones, auditoría, recuperación y Outbox")
     }
 
     ContainerDb(ldap, "OpenLDAP", "Directorio de identidades")

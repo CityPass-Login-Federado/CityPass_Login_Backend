@@ -66,6 +66,12 @@ Una fila `FAILED` no se reintenta automáticamente. La causa debe corregirse ant
 - No existe purga automática de filas `SENT`.
 - Las credenciales y URLs productivas viven fuera del repositorio.
 
+## Hallazgos operativos abiertos
+
+- `.github/workflows/CD.yml` asigna `secrets.SVC_GRUPO2_SECRET` a `EDA_CLIENT_ID`; ese valor debe ser el identificador literal `grupo2`, no el secreto.
+- `.github/workflows/manual-deploy.yml` usa además el nombre mal escrito `SVC_GROUPO2_SECRET`. Verificar el `.env` generado antes de una demo o despliegue.
+- `application.yml` declara `eda.connect-timeout-millis` y `eda.read-timeout-millis`, pero `EdaProperties` enlaza `connectTimeout` y `readTimeout` como `Duration`. Las variables `EDA_*_TIMEOUT_MILLIS` no controlan hoy esos campos; se aplican los defaults 3 s y 5 s.
+
 ## Referencias
 
 - ADR-006: decisión histórica y abstracción inicial.

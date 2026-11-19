@@ -42,7 +42,7 @@ C4Container
 ## Decisiones y límites
 
 - OpenLDAP es la fuente de verdad de identidades, credenciales, estado de cuenta y membresías.
-- PostgreSQL conserva las diez tablas operativas: refresh tokens, intentos, lockouts, anomalías bloqueadas, revocaciones de access tokens, cortes de revocación por sujeto, auditoría, recuperación y Outbox; no almacena contraseñas.
+- PostgreSQL conserva once tablas operativas: refresh tokens, intentos, lockouts, evaluaciones y bloqueos de anomalías, revocaciones de access tokens, cortes de revocación por sujeto, auditoría, recuperación y Outbox; no almacena contraseñas.
 - El servicio FastAPI consulta `login_attempts` y es una dependencia sincrónica del login. La API aplica fallo cerrado cuando no puede evaluarse el riesgo.
 - La API persiste los eventos de login, refresh y logout en `event_outbox`. `EventOutboxRelay`, ejecutado dentro del mismo proceso Spring Boot, reclama filas con `SKIP LOCKED` y aplica reintentos con *backoff*; no es un contenedor desplegable separado.
 - El proxy de Analítica solo está disponible para `admin-global`; el frontend nunca consume directamente el backend externo.

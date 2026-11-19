@@ -21,6 +21,7 @@ sequenceDiagram
     participant RT as RefreshTokenService
     participant DB as PostgreSQL
     participant AE as AnomalyBlockedEventService
+    participant AA as AnomalyAssessmentService
     participant OB as EventOutboxService
 
     U->>C: Ingresa credenciales
@@ -51,12 +52,16 @@ sequenceDiagram
             else Decisión BLOCK sin aprobación consumible
                 AS->>AE: Guardar evento BLOCKED y contexto
                 AE->>DB: INSERT anomaly_blocked_events
+                AS->>AA: Guardar evaluación y referencia al bloqueo
+                AA->>DB: INSERT anomaly_assessments
                 AS->>LA: recordFailure(username)
                 LA->>DB: Registrar intento fallido
                 AS-->>AC: AnomalyBlockedException
                 AC-->>C: 403 Forbidden
             else Decisión ALLOW o REVIEW
-                Note over AS,RA: REVIEW permite continuar,<br/>la decisión no se persiste actualmente
+                AS->>AA: Guardar propuesta, decisión efectiva,<br/>modo, versión y hashes
+                AA->>DB: INSERT anomaly_assessments
+                Note over AS,RA: En SHADOW, BLOCK propuesto<br/>llega como REVIEW efectivo
                 AS->>LA: recordSuccess(username)
                 LA->>DB: Limpiar estado de bloqueo
                 AS->>JWT: Emitir access token humano RS256, 15 min
@@ -77,5 +82,6 @@ sequenceDiagram
 - El límite de bloqueo se evalúa por identidad: cinco fallos dentro de una ventana de quince minutos.
 - La evaluación de anomalías es obligatoria y opera en modo *fail closed*: una indisponibilidad impide el acceso.
 - Una decisión `BLOCK` queda en `anomaly_blocked_events`. Una aprobación administrativa vigente y coincidente puede consumirse una única vez en un intento posterior.
+- Todas las evaluaciones quedan en `anomaly_assessments`, incluidas propuestas y decisiones efectivas, modo, versión, hashes y disposición de acceso.
 - El refresh token se almacena únicamente mediante su hash SHA-256; el valor en claro sólo se entrega al cliente.
 - `identidad.login` se persiste en `event_outbox`; la entrega al adaptador configurado ocurre luego en el relay y no bloquea la respuesta de login.

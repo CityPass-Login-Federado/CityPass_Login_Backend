@@ -209,19 +209,18 @@ Fuentes de contraste:
 
 **Historia.** Como responsable de seguridad, quiero evaluar el riesgo de un inicio de sesión válido para bloquear accesos anómalos antes de emitir tokens.
 
-**Estado:** Parcial.
+**Estado:** Implementada en modo `SHADOW`, con limitaciones declaradas.
 
 **Criterios de aceptación cubiertos:**
 
 - La evaluación se ejecuta después de validar las credenciales LDAP y antes de emitir tokens.
 - La solicitud al evaluador incluye username, IP, agente de usuario, fecha y resultado de autenticación.
-- Una decisión `BLOCK` rechaza el login con `403` y persiste el evento, su contexto, puntaje y razones.
+- Una decisión efectiva `BLOCK` rechaza el login con `403` y persiste el evento, su contexto, puntaje y razones.
 - Si el servicio no responde dentro de sus tiempos de conexión y lectura, el login falla de forma cerrada.
 - Delegados del mismo módulo o `admin-global` pueden aprobar el bloqueo por 15 minutos. La aprobación limpia el lockout y se consume una sola vez si coinciden username, cliente, IP y user-agent.
 
-**Criterio pendiente:**
-
-- Una decisión `REVIEW` permite continuar, pero aún no queda persistida como señal de revisión en los intentos de login. El propio código identifica esta mejora como pendiente.
+- Todas las evaluaciones se persisten en `anomaly_assessments` con propuesta, decisión efectiva, modo, versión, hashes y disposición del acceso.
+- El modelo v4 opera en `SHADOW`: una propuesta `BLOCK` se registra, pero se convierte en `REVIEW` y permite continuar. La activación de `ENFORCE` queda pendiente de validación real, monitoreo y rollback.
 
 **Evidencia principal:** `AnomalyRiskClient`, `AuthService`, `AnomalyRiskClientTest` y ADR-009.
 
@@ -470,7 +469,7 @@ Todas las operaciones de `/panel/**` requieren un JWT con audiencia `citypass-ad
 ## 10. Reglas transversales
 
 - LDAP es la fuente de verdad de identidades, contraseñas, estado de cuenta y membresías.
-- PostgreSQL conserva las diez tablas de sesiones, lockout, anomalías, revocación, recuperación, auditoría y Outbox.
+- PostgreSQL conserva once tablas de sesiones, lockout, evaluaciones y bloqueos de anomalías, revocación, recuperación, auditoría y Outbox.
 - `sub` identifica de forma estable a una persona mediante `employeeNumber`; el username puede cambiar.
 - Este backend valida access tokens por firma y claims, y además contra la denylist por `jti` y el corte temporal por sujeto. Los módulos externos que solo usan JWKS no consultan esas tablas.
 - Los módulos vigentes son `movilidad`, `residuos`, `reclamos`, `emergencias`, `espacios`, `analitica` y `eda`.

@@ -89,7 +89,7 @@ flowchart TB
     MS --> SMTP
 ```
 
-La identidad y los grupos viven en LDAP. PostgreSQL conserva las diez tablas operativas de sesiones, seguridad, anomalías, auditoría, recuperación y Outbox. La clave privada RSA queda restringida al emisor; la pública se expone mediante JWKS. Analítica y el Event Gateway son sistemas externos accedidos a través de adaptadores explícitos.
+La identidad y los grupos viven en LDAP. PostgreSQL conserva once tablas operativas de sesiones, seguridad, evaluaciones y bloqueos de anomalías, auditoría, recuperación y Outbox. La clave privada RSA queda restringida al emisor; la pública se expone mediante JWKS. Analítica y el Event Gateway son sistemas externos accedidos a través de adaptadores explícitos.
 
 ## 2. Vista de desarrollo
 
@@ -110,7 +110,7 @@ flowchart LR
         subgraph Python[Servicio FastAPI]
             RUNTIME[anomaly-detection<br/>runtime /score]
             EXP[anomaly-detection/ML<br/>experimentación y entrenamiento]
-            MODEL[models/isolation_forest.pkl<br/>artefacto runtime opcional]
+            MODEL[models/isolation_forest_v4.pkl<br/>+ risk_policy_v4.json]
         end
         DEPLOY[Docker, Compose y workflows]
         DOCS[docs/diagrams]
@@ -126,13 +126,13 @@ flowchart LR
     ANALYTICSJAVA --> SECURITY
     CONFIG --> CONTROLLERS
     CONFIG --> SERVICES
-    RUNTIME -. carga si existe .-> MODEL
-    EXP -. genera un modelo experimental;<br/>no se copia automáticamente .-> MODEL
+    RUNTIME -->|carga obligatoria y valida hashes| MODEL
+    EXP -. entrena y calibra candidatos;<br/>promoción controlada .-> MODEL
     DEPLOY --> Java
     DEPLOY --> RUNTIME
 ```
 
-La aplicación Java concentra el contrato de identidad. FastAPI es un proceso separado y su modelo de aislamiento es opcional: si el archivo no está en la ruta runtime, aplica reglas determinísticas. El artefacto entrenado bajo `ML/models` no se empaqueta automáticamente como `models/isolation_forest.pkl`.
+La aplicación Java concentra el contrato de identidad. FastAPI es un proceso separado y carga obligatoriamente el bundle v4 empaquetado por el Dockerfile. Si falta el modelo o la política, no coincide su hash o cambia el contrato de features, el servicio falla al iniciar. El modo productivo `SHADOW` conserva propuestas `BLOCK` para observación, pero devuelve `REVIEW` como decisión efectiva.
 
 ## 3. Vista de procesos
 
