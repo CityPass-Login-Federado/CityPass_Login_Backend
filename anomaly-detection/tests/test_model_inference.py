@@ -1,11 +1,15 @@
+import hashlib
 import json
+import os
+import runpy
 import tempfile
 import unittest
-
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app import model as runtime_model
+from app.feature_contract import FEATURE_ORDER
 
 
 class ModelInferenceTests(unittest.TestCase):
@@ -36,6 +40,17 @@ class ModelInferenceTests(unittest.TestCase):
 
         self.assertTrue(status["loaded"])
         self.assertEqual(status["version"], "v4")
+
+    def test_invalid_anomaly_mode_fails_startup(self):
+        with patch.dict(os.environ, {"ANOMALY_MODE": "invalid"}):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Invalid ANOMALY_MODE",
+            ):
+                runpy.run_path(
+                    str(Path(runtime_model.__file__)),
+                    run_name="invalid_anomaly_mode",
+                )
 
     def test_calibrated_thresholds(self):
 
@@ -138,6 +153,101 @@ class ModelInferenceTests(unittest.TestCase):
                     runtime_model.MODEL_PATH,
                     policy_path,
                 )
+
+    def test_load_bundle_rejects_missing_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            model_path = base / "missing.pkl"
+            policy_path = base / "missing.json"
+
+            with self.assertRaisesRegex(RuntimeError, "ML model not found"):
+                runtime_model.load_bundle(model_path, policy_path)
+
+            model_path.write_bytes(b"model")
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "Risk policy not found",
+            ):
+                runtime_model.load_bundle(model_path, policy_path)
+
+    def test_load_bundle_rejects_incompatible_policy_and_model(self):
+        invalid_policies = [
+            ("policy_type", {"policy_type": "hybrid_v3"}),
+            ("feature_semantics", {"feature_semantics": "legacy"}),
+            ("score_transform", {"score_transform": "raw"}),
+            (
+                "context_requirements",
+                {"context_requirements": {"minimum_history": 0}},
+            ),
+            (
+                "risk_thresholds",
+                {"review_threshold": 0.7, "block_threshold": 0.6},
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            model_path = base / "model.pkl"
+            policy_path = base / "policy.json"
+            model_path.write_bytes(b"model")
+
+            valid_policy = json.loads(
+                runtime_model.POLICY_PATH.read_text(encoding="utf-8")
+            )
+            valid_policy["model_sha256"] = hashlib.sha256(
+                model_path.read_bytes()
+            ).hexdigest()
+            compatible_model = SimpleNamespace(
+                feature_names_in_=FEATURE_ORDER,
+                n_features_in_=len(FEATURE_ORDER),
+            )
+
+            for name, changes in invalid_policies:
+                with self.subTest(policy=name):
+                    policy = {**valid_policy, **changes}
+                    policy_path.write_text(
+                        json.dumps(policy),
+                        encoding="utf-8",
+                    )
+
+                    with patch.object(
+                        runtime_model.joblib,
+                        "load",
+                        return_value=compatible_model,
+                    ):
+                        with self.assertRaises(RuntimeError):
+                            runtime_model.load_bundle(
+                                model_path,
+                                policy_path,
+                            )
+
+            policy_path.write_text(
+                json.dumps(valid_policy),
+                encoding="utf-8",
+            )
+            invalid_models = [
+                SimpleNamespace(
+                    feature_names_in_=["different"],
+                    n_features_in_=len(FEATURE_ORDER),
+                ),
+                SimpleNamespace(
+                    feature_names_in_=FEATURE_ORDER,
+                    n_features_in_=len(FEATURE_ORDER) - 1,
+                ),
+            ]
+
+            for model in invalid_models:
+                with self.subTest(model=model):
+                    with patch.object(
+                        runtime_model.joblib,
+                        "load",
+                        return_value=model,
+                    ):
+                        with self.assertRaises(RuntimeError):
+                            runtime_model.load_bundle(
+                                model_path,
+                                policy_path,
+                            )
 
 
 if __name__ == "__main__":

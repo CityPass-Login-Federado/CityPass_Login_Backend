@@ -180,93 +180,92 @@ class FeatureTrustTests(unittest.TestCase):
             offline_features,
         )
 
-        def test_simultaneous_events_are_not_used_as_history(self):
+    def test_simultaneous_events_are_not_used_as_history(self):
 
-            events = create_events()
+        events = create_events()
 
-            events.loc[2, "occurredAt"] = (
-                events.loc[1, "occurredAt"]
+        events.loc[2, "occurredAt"] = (
+            events.loc[1, "occurredAt"]
+        )
+
+        processed = build_offline_features(events)
+
+        self.assertEqual(
+            processed.loc[1, "history_size"],
+            1,
+        )
+
+        self.assertEqual(
+            processed.loc[2, "history_size"],
+            1,
+        )
+
+        self.assertEqual(
+            processed.loc[2, "recent_failures_15min"],
+            0,
+        )
+
+        self.assertEqual(
+            processed.loc[3, "recent_failures_15min"],
+            2,
+        )
+
+    def test_runtime_uses_utc_cutoff(self):
+
+        with patch.dict(
+            os.environ,
+            {"ANOMALY_DB_URL": "sqlite:///:memory:"},
+        ):
+            from app import features as runtime_features
+
+        mock_engine = MagicMock()
+
+        connection = (
+            mock_engine.connect
+            .return_value
+            .__enter__
+            .return_value
+        )
+
+        connection.execute.return_value.fetchall.return_value = []
+
+        timestamp = datetime(
+            2026, 1, 1, 7, 9,
+            tzinfo=timezone(timedelta(hours=-3)),
+        )
+
+        with patch.object(
+            runtime_features,
+            "engine",
+            mock_engine,
+        ):
+
+            result = runtime_features.build_features(
+                username="test-user",
+                ip="10.0.0.2",
+                user_agent="Firefox",
+                ts=timestamp,
             )
 
-            processed = build_offline_features(events)
+        args = connection.execute.call_args.args
 
-            self.assertEqual(
-                processed.loc[1, "history_size"],
-                1,
-            )
+        query = str(args[0])
+        parameters = args[1]
 
-            self.assertEqual(
-                processed.loc[2, "history_size"],
-                1,
-            )
+        self.assertIn(
+            "attempted_at < :ts",
+            query,
+        )
 
-            self.assertEqual(
-                processed.loc[2, "recent_failures_15min"],
-                0,
-            )
+        self.assertEqual(
+            parameters["ts"],
+            datetime(2026, 1, 1, 10, 9),
+        )
 
-            self.assertEqual(
-                processed.loc[3, "recent_failures_15min"],
-                2,
-            )
-
-
-        def test_runtime_uses_utc_cutoff(self):
-
-            with patch.dict(
-                os.environ,
-                {"ANOMALY_DB_URL": "sqlite:///:memory:"},
-            ):
-                from app import features as runtime_features
-
-            mock_engine = MagicMock()
-
-            connection = (
-                mock_engine.connect
-                .return_value
-                .__enter__
-                .return_value
-            )
-
-            connection.execute.return_value.fetchall.return_value = []
-
-            timestamp = datetime(
-                2026, 1, 1, 7, 9,
-                tzinfo=timezone(timedelta(hours=-3)),
-            )
-
-            with patch.object(
-                runtime_features,
-                "engine",
-                mock_engine,
-            ):
-
-                result = runtime_features.build_features(
-                    username="test-user",
-                    ip="10.0.0.2",
-                    user_agent="Firefox",
-                    ts=timestamp,
-                )
-
-            args = connection.execute.call_args.args
-
-            query = str(args[0])
-            parameters = args[1]
-
-            self.assertIn(
-                "attempted_at < :ts",
-                query,
-            )
-
-            self.assertEqual(
-                parameters["ts"],
-                datetime(2026, 1, 1, 10, 9),
-            )
-
-            self.assertEqual(
-                result["hour_of_day"],
-                10,
-            )
+        self.assertEqual(
+            result["hour_of_day"],
+            10,
+        )
 
 
 if __name__ == "__main__":
