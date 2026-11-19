@@ -1,8 +1,4 @@
-﻿# ADR-003: Refresh tokens opacos con rotación y hash SHA-256
-
-## Estado
-
-Accepted — 14 de noviembre de 2026.
+# ADR-003: Refresh tokens opacos con rotación y hash SHA-256
 
 ## Quiénes
 
@@ -10,23 +6,23 @@ Accepted — 14 de noviembre de 2026.
 |--------|-----|
 | Antonio Wu | Seguridad / Backend |
 
-## Contexto y Problema
+## Consideraciones
 
-Los access tokens JWT tienen vida corta (15 min) para seguridad. Se necesita un mecanismo de refresh que permita al usuario obtener nuevos access tokens sin re-autenticarse. En la configuración actual, el refresh token vive 8 horas y debe poder ser revocado.
+Los access tokens JWT tienen vida corta (15 min) para seguridad. Se necesita un mecanismo de refresh que permita al usuario obtener nuevos access tokens sin re-autenticarse. El refresh token tiene vida limitada (8 horas, configurable vía `jwt.refresh-token-expiration-hours`) y debe poder ser revocado.
 
 Restricciones y supuestos adicionales:
-- El refresh token es una credencial de alto valor: su fuga permite renovar durante su vigencia de ocho horas
+- El refresh token es un credencial de alto valor: su fuga habilita sesiones indefinidas
 - Debe soportar logout individual y masivo (revocar todas las sesiones del usuario)
 - La detección de robo de tokens es deseable, no opcional
 
-## Opciones Consideradas (Pros y Contras de cada una)
+### Opciones consideradas
 
 #### Opción A: JWT como refresh token (sin refresh token dedicado)
 
 | Pros | Contras |
 |------|---------|
 | Un solo tipo de token | No se puede revocar sin blacklist (Redis/BD) |
-| Simplifica la arquitectura de tokens | Si se compromete, vale durante toda su vigencia |
+| Simplifica la arquitectura de tokens | Si se compromete, vale por 7 días |
 | | Requiere lookup en blacklist en cada refresh |
 
 #### Opción B: Refresh token opaco + rotación de uso único
@@ -46,19 +42,19 @@ Restricciones y supuestos adicionales:
 | Más simple que con rotación | Token reutilizable: si se roba, se puede usar indefinidamente |
 | | No detecta robo de tokens |
 
-## Decisión Tomada y Justificación
+## Por todo esto, definimos
 
 Adoptar **refresh tokens opacos de alta entropía (64 bytes aleatorios), con rotación de uso único y almacenamiento exclusivo del hash SHA-256**.
 
 Razones principales:
 1. **Rotación de uso único**: Cada refresh genera un token nuevo y revoca el viejo. Si alguien reutiliza un token ya usado, se detecta como intento de fraude
 2. **SHA-256 hash**: Nunca almacenamos el token crudo — solo su hash. Si la BD se compromete, los tokens no se pueden reutilizar
-3. **Revocación persistente**: `revoked_at` marca el eslabón usado; el reuso revoca toda la `chain_id`
+3. **Revocación instantánea**: Un simple `UPDATE SET revoked=true` invalida la sesión
 4. **Logout masivo**: Se revocan todos los tokens activos del usuario
 
 Esta práctica coincide con la recomendación de la IETF en RFC 9700 (rotar refresh tokens tras cada uso).
 
-## Consecuencias Técnicas
+## Consecuencias
 
 ### Positivas
 
@@ -72,7 +68,7 @@ Esta práctica coincide con la recomendación de la IETF en RFC 9700 (rotar refr
 - Cada refresh genera 2 escrituras en BD (revocar viejo + insertar nuevo)
 - El token crudo se muestra UNA sola vez al cliente: el cliente debe persistirlo de forma segura
 - Complejidad adicional frente a un JWT de larga vida sin estado
-- Expiración absoluta a las 8 horas: obliga re-login aunque haya uso continuo
+- Expiración absoluta a las 8 horas (`refresh-token-expiration-hours`, verificado en `RefreshTokenService`): obliga re-login aunque haya uso continuo
 
 ## Referencias (benchmark)
 

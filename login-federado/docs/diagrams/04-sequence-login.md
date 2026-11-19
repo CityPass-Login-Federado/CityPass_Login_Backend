@@ -1,144 +1,81 @@
-# Diagramas de interacción
+# Secuencia — Inicio de sesión federado
 
-## Flujo 1 — login, riesgo, tokens y evento
+**Fecha de revisión:** 19 de noviembre de 2026
+**Endpoint:** `POST /auth/login`
 
-```mermaid
-sequenceDiagram
-    actor U as Usuario
-    participant F as Frontend
-    participant C as AuthController
-    participant A as AuthService
-    participant L as LoginAttemptService
-    participant D as OpenLDAP
-    participant R as anomaly-detection
-    participant P as PostgreSQL
-    participant T as Token services
-    participant E as LoggingEventPublisher
-
-    U->>F: usuario + contraseña
-    F->>C: POST /auth/login {username,password,clientId}
-    C->>A: login(request, IP, User-Agent)
-    A->>L: assertNotLocked(username)
-    L->>P: contar fallos en últimos 15 min
-    A->>D: buscar uid global
-    A->>D: bind con DN y contraseña
-    D-->>A: autenticado
-    A->>R: POST /score
-    R->>P: leer hasta 200 login_attempts
-    R-->>A: ALLOW, REVIEW o BLOCK
-    Note over R: Sin .pkl versionado usa reglas;<br/>REVIEW no se persiste como flag.
-    A->>L: recordAttempt(success=true)
-    L->>P: INSERT login_attempts
-    A->>T: issueHuman + issueInitial
-    T->>P: INSERT refresh_tokens (hash)
-    T-->>A: JWT RS256 + refresh opaco
-    A->>E: publish(usuario.autenticado)
-    E-->>E: serializar JSON y escribir log
-    A-->>F: 200 access_token + refresh_token
-    F-->>U: sesión en memoria
-```
-
-El riesgo se consulta después de un bind LDAP exitoso, no antes. No existe la entidad `RawAuthenticationEvent`: el histórico real es `login_attempts`.
-
-## Flujo 2 — fuerza bruta, anomalía o indisponibilidad
+El inicio de sesión humano exige `username`, `password` y `clientId`. Las fallas de identidad, contraseña, cliente, módulo y lockout comparten el mismo `401`; anomalías usa categorías explícitas `403`/`503` sin exponer puntaje, razones ni datos de la cuenta.
 
 ```mermaid
 sequenceDiagram
+    autonumber
     actor U as Usuario
-    participant A as AuthService
-    participant L as LoginAttemptService
-    participant D as OpenLDAP
-    participant R as AnomalyRiskClient
-    participant H as GlobalExceptionHandler
-    participant P as PostgreSQL
+    participant C as Cliente del módulo
+    participant AC as AuthController
+    participant AS as AuthService
+    participant CR as ClientRegistry
+    participant RL as LoginRateLimiter
+    participant LA as LoginAttemptService
+    participant LDAP as LDAP corporativo
+    participant RA as Servicio de anomalías
+    participant JWT as AccessTokenIssuer
+    participant RT as RefreshTokenService
+    participant DB as PostgreSQL
+    participant AE as AnomalyBlockedEventService
+    participant OB as EventOutboxService
 
-    U->>A: login
-    A->>L: assertNotLocked
-    alt 5 o más fallos en 15 minutos
-        L-->>A: AccountLockedException
-        A-->>H: se convierte en BadCredentialsException
-        H-->>U: HTTP 401 genérico
-    else credencial o módulo inválido
-        A->>D: búsqueda/bind
-        A->>L: recordAttempt(false)
-        L->>P: INSERT login_attempts
-        A-->>H: BadCredentialsException
-        H-->>U: HTTP 401 genérico
-    else LDAP válido
-        A->>R: score
-        alt decision BLOCK
-            R-->>A: BLOCK + reasons
-            A->>L: recordAttempt(false)
-            L->>P: INSERT login_attempts
-            A-->>H: BadCredentialsException
-            H-->>U: HTTP 401 genérico
-        else servicio de riesgo no disponible
-            R-->>A: AnomalyServiceUnavailableException
-            H-->>U: HTTP 401 genérico
-            Note over A,P: Este camino no registra login_attempts.
-        else REVIEW o ALLOW
-            R-->>A: continuar
+    U->>C: Ingresa credenciales
+    C->>AC: POST /auth/login<br/>{username, password, clientId}
+    AC->>AS: authenticate(request)
+    AS->>RL: Validar límite previo por IP
+    AS->>CR: requireHumanClient(clientId)
+    CR-->>AS: Cliente, audiencia y módulo
+    AS->>LA: assertNotLocked(username)
+    LA->>DB: Consultar intentos recientes
+    alt Cinco fallos en 15 minutos
+        LA-->>AS: Cuenta temporalmente bloqueada
+        AS-->>AC: Error de autenticación
+        AC-->>C: 401 Unauthorized genérico
+    else Puede intentar autenticarse
+        AS->>LDAP: Buscar identidad global<br/>y validar pertenencia al módulo
+        AS->>LDAP: bind(username, password)
+        alt Credenciales o pertenencia inválidas
+            AS->>LA: recordFailure(username)
+            LA->>DB: Registrar intento fallido
+            AS-->>AC: Error genérico de autenticación
+            AC-->>C: 401 Unauthorized
+        else Identidad válida
+            AS->>RA: POST /score con señales del intento
+            alt Servicio de anomalías no disponible
+                AS-->>AC: AnomalyServiceUnavailableException
+                AC-->>C: 503 Service Unavailable
+            else Decisión BLOCK sin aprobación consumible
+                AS->>AE: Guardar evento BLOCKED y contexto
+                AE->>DB: INSERT anomaly_blocked_events
+                AS->>LA: recordFailure(username)
+                LA->>DB: Registrar intento fallido
+                AS-->>AC: AnomalyBlockedException
+                AC-->>C: 403 Forbidden
+            else Decisión ALLOW o REVIEW
+                Note over AS,RA: REVIEW permite continuar,<br/>la decisión no se persiste actualmente
+                AS->>LA: recordSuccess(username)
+                LA->>DB: Limpiar estado de bloqueo
+                AS->>JWT: Emitir access token humano RS256, 15 min
+                Note over JWT: sub=employeeNumber, aud=cliente,<br/>token_use=human, ver, preferred_username,<br/>module y groups
+                AS->>RT: createInitialToken(subject, client)
+                RT->>DB: Guardar hash SHA-256, cadena y vencimiento de 8 h
+                AS->>OB: Encolar identidad.login
+                OB->>DB: INSERT event_outbox (PENDING)
+                AS-->>AC: Access token y refresh token
+                AC-->>C: 200 OK
+            end
         end
     end
 ```
 
-Aunque las clases `AnomalyBlockedException` y `AnomalyServiceUnavailableException` tienen handlers, `AuthService` convierte `BLOCK` directamente en `BadCredentialsException`. Todos estos caminos responden 401, no 403/503, para evitar enumeración; por tanto, una defensa que afirme 403/503 no coincide con el código.
+## Consideraciones técnicas
 
-## Flujo 3 — operación administrativa
-
-```mermaid
-sequenceDiagram
-    actor D as Delegado
-    participant F as Frontend
-    participant S as Spring Security
-    participant C as PanelController
-    participant Z as PanelAuthorization
-    participant P as PanelDirectoryService
-    participant L as OpenLDAP
-    participant A as PanelAuditService
-    participant DB as PostgreSQL
-
-    D->>F: alta/edición/membresía
-    F->>S: request con Bearer JWT
-    S->>S: validar firma y expiración
-    S->>C: Jwt autenticado
-    C->>Z: requireDelegate(jwt)
-    Z->>Z: aud + token_use + ver + delegados + module
-    Z-->>C: Delegate(sub, uid, module)
-    C->>P: operación dentro del module del token
-    P->>L: bind/modify/rename/unbind
-    L-->>P: resultado
-    P->>A: record(actor, action, target, detail)
-    A->>DB: INSERT panel_audit
-    A-->>P: éxito o error absorbido y logueado
-    P-->>F: DTO o 204
-```
-
-No se publica un evento de dominio administrativo. La auditoría SQL es el único efecto secundario, y `PanelAuditService` absorbe fallos de persistencia; por ello no garantiza atomicidad LDAP/SQL ni auditoría inmutable a nivel de base.
-
-## Flujo de refresh y detección de reuso
-
-```mermaid
-sequenceDiagram
-    participant F as Frontend
-    participant R as RefreshTokenService
-    participant P as PostgreSQL
-    participant L as OpenLDAP
-    participant T as AccessTokenIssuer
-
-    F->>R: POST /auth/refresh {refreshToken}
-    R->>P: buscar SHA-256(token)
-    alt token ya revocado
-        R->>P: revocar toda chain_id
-        R-->>F: 401 genérico
-    else expirado o desconocido
-        R-->>F: 401 genérico
-    else usable
-        R->>P: marcar token actual revoked_at
-        R->>L: reloadBySub y grupos actuales
-        L-->>R: persona vigente
-        R->>T: emitir nuevo access token
-        R->>P: insertar siguiente refresh en misma chain_id
-        R-->>F: nuevo par de tokens
-    end
-```
+- El límite de bloqueo se evalúa por identidad: cinco fallos dentro de una ventana de quince minutos.
+- La evaluación de anomalías es obligatoria y opera en modo *fail closed*: una indisponibilidad impide el acceso.
+- Una decisión `BLOCK` queda en `anomaly_blocked_events`. Una aprobación administrativa vigente y coincidente puede consumirse una única vez en un intento posterior.
+- El refresh token se almacena únicamente mediante su hash SHA-256; el valor en claro sólo se entrega al cliente.
+- `identidad.login` se persiste en `event_outbox`; la entrega al adaptador configurado ocurre luego en el relay y no bloquea la respuesta de login.

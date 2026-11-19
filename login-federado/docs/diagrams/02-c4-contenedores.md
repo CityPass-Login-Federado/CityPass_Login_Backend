@@ -1,37 +1,50 @@
-# C4 Container Diagram — CityPass+ (Nivel 2)
+# C4 — Contenedores (nivel 2)
 
-Estado auditado al 14 de noviembre de 2026. Se muestran contenedores comprobados; el Event Bus figura como integración pendiente.
+**Sistema de interés:** Módulo de Login Federado e Identidad de CityPass+
+**Fecha de revisión:** 19 de noviembre de 2026
+
+En C4, un contenedor es una aplicación o almacén de datos ejecutable de manera independiente. Este diagrama representa la arquitectura lógica de ejecución y no una topología cloud específica.
 
 ```mermaid
 C4Container
-    title Contenedores del módulo de identidad
+    title Login Federado - Contenedores y dependencias
 
-    Person(usuario, "Usuario o delegado", "Usa login y panel")
+    Person(user, "Persona usuaria", "Utiliza una aplicación CityPass+")
+    Person(admin, "Delegado o administrador global", "Gestiona identidades y grupos")
 
-    System_Boundary(citypass, "CityPass+ — Squad 2") {
-        Container(frontend, "Login Frontend", "React 18 / TypeScript", "Login, tokens en memoria y panel")
-        Container(login, "Login Federado", "Spring Boot 3.3.13 / Java 21", "LDAP, JWT, refresh y administración")
-        Container(risk, "Anomaly Detection", "FastAPI / Python 3.12", "Scoring por reglas o Isolation Forest si existe modelo")
+    System_Ext(frontend, "Frontend de Login y Administración", "React, TypeScript y navegador web")
+    System_Ext(modules, "Módulos consumidores", "APIs independientes de CityPass+")
+    System_Ext(gateway, "Event Gateway - Grupo 1", "Ingreso real a la plataforma EDA")
+    System_Ext(analytics, "Backend de Analítica - Grupo 8", "Tablero HTML de Identidad")
+    System_Ext(mail, "Proveedor SMTP", "Servicio de correo")
+
+    System_Boundary(loginSystem, "Login Federado") {
+        Container(api, "API de Identidad + Relay de Outbox", "Java 21 y Spring Boot 3", "Login, revocación de tokens, perfil, panel, proxy de Analítica y relay EDA programado")
+        Container(risk, "Servicio de Anomalías", "Python 3.12 y FastAPI", "Construye señales y devuelve ALLOW, REVIEW o BLOCK")
+        ContainerDb(ldap, "Directorio de Identidades", "OpenLDAP", "Personas, credenciales, grupos y membresías")
+        ContainerDb(db, "Persistencia Operativa", "PostgreSQL", "Sesiones, lockouts, anomalías, revocaciones, auditoría, recuperación y event_outbox")
     }
 
-    System_Ext(openldap, "OpenLDAP", "Personas, contraseñas y grupos")
-    System_Ext(postgres, "PostgreSQL 16", "Refresh, intentos y auditoría")
-    System_Ext(consumers, "APIs de otros squads", "Validan JWT con JWKS")
-    System_Ext(eventbus, "Event Bus Squad 1", "No integrado")
-
-    Rel(usuario, frontend, "HTTPS")
-    Rel(frontend, login, "REST JSON")
-    Rel(login, openldap, "Búsqueda, bind y administración")
-    Rel(login, postgres, "JPA / JDBC")
-    Rel(login, risk, "POST /score")
-    Rel(risk, postgres, "Lee login_attempts")
-    Rel(login, consumers, "JWT RS256 y JWKS")
-    Rel(login, eventbus, "Pendiente; hoy solo LoggingEventPublisher")
+    Rel(user, frontend, "Utiliza", "HTTPS")
+    Rel(admin, frontend, "Utiliza", "HTTPS")
+    Rel(frontend, api, "Login, sesión, perfil y panel", "HTTPS/JSON")
+    Rel(modules, api, "Solicitan client_credentials y consultan JWKS", "HTTPS")
+    Rel(api, ldap, "Busca, autentica y administra identidades", "LDAP")
+    Rel(api, db, "Lee y persiste estado operativo", "JDBC/TLS")
+    Rel(api, risk, "Evalúa el riesgo de un login LDAP válido", "HTTP/JSON")
+    Rel(risk, db, "Consulta historial de intentos", "SQL/TLS")
+    Rel(api, mail, "Envía enlaces de recuperación", "SMTP/TLS")
+    Rel(api, gateway, "El relay entrega eventos pendientes con reintentos cuando el adaptador HTTP está activo", "OAuth 2.0/HTTPS")
+    Rel(gateway, api, "Solicita token de servicio y consulta JWKS", "HTTPS")
+    Rel(api, analytics, "Reenvía el JWT humano y devuelve el tablero HTML", "HTTPS")
 ```
 
-## Estado de integración
+## Decisiones y límites
 
-- La autenticación frontend/backend coincide en login, refresh y logout.
-- El panel no es interoperable todavía: el frontend usa rutas inglesas y el backend españolas.
-- Sin `models/isolation_forest.pkl`, FastAPI usa reglas determinísticas.
-- `usuario.autenticado` se escribe al log; no existe publicación a un broker.
+- OpenLDAP es la fuente de verdad de identidades, credenciales, estado de cuenta y membresías.
+- PostgreSQL conserva las diez tablas operativas: refresh tokens, intentos, lockouts, anomalías bloqueadas, revocaciones de access tokens, cortes de revocación por sujeto, auditoría, recuperación y Outbox; no almacena contraseñas.
+- El servicio FastAPI consulta `login_attempts` y es una dependencia sincrónica del login. La API aplica fallo cerrado cuando no puede evaluarse el riesgo.
+- La API persiste los eventos de login, refresh y logout en `event_outbox`. `EventOutboxRelay`, ejecutado dentro del mismo proceso Spring Boot, reclama filas con `SKIP LOCKED` y aplica reintentos con *backoff*; no es un contenedor desplegable separado.
+- El proxy de Analítica solo está disponible para `admin-global`; el frontend nunca consume directamente el backend externo.
+- El pipeline `anomaly-detection/ML` es una capacidad de desarrollo offline, no un contenedor runtime; se representa en la vista de desarrollo 4+1.
+- La topología, las réplicas, los volúmenes y los nodos cloud se documentan en los diagramas de despliegue 12 y 13.

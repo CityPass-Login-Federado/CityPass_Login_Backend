@@ -1,36 +1,70 @@
-# Sequence Diagram — Rotación de Refresh Token
+# Secuencia — Rotación del refresh token
+
+**Fecha de revisión:** 19 de noviembre de 2026
+**Endpoint:** `POST /auth/refresh`
+
+Cada uso válido rota el refresh token. La reutilización, incluida una carrera concurrente, invalida la cadena completa de la sesión.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant C as Cliente
+    actor U as Usuario
+    participant C as Cliente del módulo
     participant AC as AuthController
     participant AS as AuthService
-    participant RTS as RefreshTokenService
+    participant RT as RefreshTokenService
     participant DB as PostgreSQL
-    participant LDAP as OpenLDAP
+    participant LDAP as LDAP corporativo
+    participant CR as ClientRegistry
     participant JWT as AccessTokenIssuer
+    participant OB as EventOutboxService
 
-    C->>AC: POST /auth/refresh {refreshToken}
-    AC->>AS: refresh(request)
-    AS->>RTS: continueChain(rawToken)
-    RTS->>DB: findByTokenHash(SHA-256(rawToken))
-
-    alt desconocido o expirado
-        RTS-->>C: 401 genérico
-    else ya revocado: posible robo
-        RTS->>DB: revocar toda chain_id
-        RTS-->>C: 401 genérico
-    else token usable
-        RTS->>DB: guardar revoked_at del eslabón actual
-        RTS->>LDAP: reloadBySub(sub)
-        LDAP-->>RTS: persona y grupos actuales
-        RTS-->>AS: persona, chain_id y cliente
-        AS->>JWT: issueHuman(persona, cliente)
-        AS->>RTS: issueNext(persona, chain_id, cliente)
-        RTS->>DB: INSERT siguiente refresh token
-        AS-->>C: 200 + nuevo access y refresh
+    U->>C: Solicita renovar la sesión
+    C->>AC: POST /auth/refresh<br/>{refreshToken}
+    AC->>AS: refresh(refreshToken)
+    AS->>RT: Buscar por hash SHA-256
+    RT->>DB: Consultar token
+    alt Token inexistente o vencido
+        RT-->>AS: Refresh token inválido
+        AS-->>AC: 401 Unauthorized
+        AC-->>C: 401 Unauthorized
+    else Token ya revocado
+        RT->>DB: Revocar la cadena completa
+        RT-->>AS: Reutilización detectada
+        AS-->>AC: 401 Unauthorized
+        AC-->>C: 401 Unauthorized
+    else Token vigente
+        RT->>DB: Revocación condicional atómica
+        alt Otro proceso lo rotó primero
+            RT->>DB: Revocar la cadena completa
+            RT-->>AS: Reutilización concurrente detectada
+            AS-->>AC: 401 Unauthorized
+            AC-->>C: 401 Unauthorized
+        else Revocación confirmada
+            AS->>LDAP: Recargar identidad por subject
+            LDAP-->>AS: Identidad y grupos actuales
+            AS->>CR: Revalidar cliente, audiencia y módulo
+            CR-->>AS: Configuración vigente
+            alt Identidad o acceso al módulo dejó de ser válido
+                AS-->>AC: 401 Unauthorized
+                AC-->>C: 401 Unauthorized
+            else Acceso todavía válido
+                AS->>JWT: Emitir nuevo access token RS256, 15 min
+                AS->>RT: Crear sucesor en la misma cadena
+                RT->>DB: Guardar nuevo hash y vencimiento de 8 h
+                AS->>OB: Encolar identidad.refresh
+                OB->>DB: INSERT event_outbox (PENDING)
+                AS-->>AC: Nuevo access token y refresh token
+                AC-->>C: 200 OK
+            end
+        end
     end
 ```
 
-El refresh vive ocho horas, rota en cada uso y solo se persiste como hash. La relectura LDAP evita renovar permisos obsoletos o cuentas deshabilitadas.
+## Garantías
+
+- La rotación condicional evita que dos solicitudes válidas consuman el mismo token simultáneamente.
+- La detección de reutilización revoca la cadena de refresh tokens, no sólo el token presentado.
+- Antes de renovar, se consulta nuevamente LDAP y se comprueba que la audiencia y el módulo continúen habilitados.
+- El evento de renovación se entrega de forma asíncrona mediante el relay del Outbox.
+- En los endpoints protegidos por este backend, un access token puede invalidarse antes de expirar por denylist de `jti` o por un corte del sujeto. Las APIs externas que solo validan JWKS no consultan estas tablas.

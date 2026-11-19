@@ -1,0 +1,21 @@
+
+{
+  "name": "LoginExitoso",
+  "fields": [
+    { "name": "authEventId", "type": "string" },
+    { "name": "actorSub", "type": "string" },
+    {
+      "name": "occurredAt",
+      "type": {
+        "type": "long",
+        "logicalType": "timestamp-millis"
+      }
+    },
+    { "name": "username", "type": ["null", "string"], "default": null },
+    { "name": "department", "type": ["null", "string"], "default": null },
+    { "name": "clientId", "type": ["null", "string"], "default": null },
+    { "name": "chainId", "type": ["null", "string"], "default": null },
+    { "name": "ipAddress", "type": ["null", "string"], "default": null },
+    { "name": "userAgent", "type": ["null", "string"], "default": null }
+  ]
+}

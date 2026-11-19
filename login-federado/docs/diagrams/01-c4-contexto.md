@@ -1,160 +1,46 @@
-# Arquitectura y despliegue
+# C4 — Contexto del sistema (nivel 1)
 
-Estas vistas representan el estado comprobado en los repositorios backend y frontend al 14 de noviembre de 2026. Las líneas punteadas indican una integración prevista o incompleta, no un flujo productivo.
+**Sistema de interés:** Módulo de Login Federado e Identidad de CityPass+
+**Fecha de revisión:** 19 de noviembre de 2026
 
-## C4 — contexto
-
-```mermaid
-flowchart LR
-    U[Usuario final]
-    A[Delegado de módulo]
-    FE[CityPass_Login_Frontend\nReact 18 + TypeScript]
-    IDP[CityPass_Login_Backend\nSpring Boot 3.3.13]
-    LDAP[(OpenLDAP\nidentidades y grupos)]
-    DB[(PostgreSQL 16\ntokens, intentos, auditoría)]
-    ML[anomaly-detection\nFastAPI]
-    SQ[APIs de otros squads]
-    BUS[Event Bus Squad 1\nno integrado]
-
-    U -->|HTTPS / login| FE
-    A -->|HTTPS / panel| FE
-    FE -->|REST JSON| IDP
-    IDP -->|búsqueda y bind LDAP| LDAP
-    IDP -->|JPA / JDBC| DB
-    IDP -->|POST /score| ML
-    ML -->|SQL de solo lectura pretendido| DB
-    IDP -->|JWKS + JWT RS256| SQ
-    IDP -.->|usuario.autenticado\nhoy solo log| BUS
-```
-
-Los consumidores validan localmente JWT mediante `/.well-known/jwks.json`. No hay introspección ni sesión HTTP compartida.
-
-## C4 — contenedores y componentes principales
+El nivel de contexto presenta personas y sistemas externos directamente relacionados con Login Federado. Los detalles de tecnología, almacenamiento y despliegue se reservan para los niveles siguientes.
 
 ```mermaid
-flowchart TB
-    subgraph Browser[Browser]
-        UI[Pages y componentes]
-        AUTHF[Feature auth]
-        PANELF[Feature systemManagement]
-        HTTP[Axios + refresh coordinado]
-        MEM[(tokenVault en memoria)]
-        UI --> AUTHF
-        UI --> PANELF
-        AUTHF --> HTTP
-        PANELF --> HTTP
-        AUTHF --> MEM
-    end
+C4Context
+    title Login Federado - Contexto del sistema
 
-    subgraph Java[Contenedor login-federado :8081]
-        CTRL[Controllers REST]
-        AUTH[AuthService]
-        DIR[LdapDirectory]
-        PNL[PanelDirectoryService]
-        TOK[AccessTokenIssuer y RefreshTokenService]
-        RISK[AnomalyRiskClient]
-        AUD[PanelAuditService]
-        EVT[EventPublisher]
-        SEC[Spring Security Resource Server]
-        CTRL --> AUTH
-        CTRL --> PNL
-        AUTH --> DIR
-        AUTH --> TOK
-        AUTH --> RISK
-        AUTH --> EVT
-        PNL --> AUD
-        SEC --> CTRL
-    end
+    Person(user, "Persona usuaria", "Accede a una aplicación CityPass+")
+    Person(delegate, "Delegado de módulo", "Administra personas y grupos de su módulo")
+    Person(globalAdmin, "Administrador global", "Administra identidades de todos los módulos")
 
-    subgraph Infra[Infraestructura local]
-        LDAP[(OpenLDAP :389/:636)]
-        PG[(PostgreSQL :5432)]
-        PY[FastAPI :8000]
-        LOG[(Logs de aplicación)]
-    end
+    System(login, "Login Federado", "Autentica identidades, emite y revoca tokens, administra el directorio, publica eventos y protege el acceso a Analítica")
 
-    HTTP -->|REST; contrato de panel hoy divergente| CTRL
-    DIR --> LDAP
-    PNL --> LDAP
-    TOK --> PG
-    AUD --> PG
-    AUTH --> PG
-    RISK --> PY
-    PY --> PG
-    EVT --> LOG
+    System_Ext(frontend, "Frontend de Login y Administración", "Interfaz web del módulo")
+    System_Ext(modules, "Módulos CityPass+", "Aplicaciones y APIs que consumen la identidad federada")
+    System_Ext(gateway, "Event Gateway - Grupo 1", "Recibe eventos de identidad de forma autenticada")
+    System_Ext(analytics, "Backend de Analítica - Grupo 8", "Entrega el tablero HTML de Identidad")
+    System_Ext(mail, "Proveedor SMTP", "Entrega enlaces de recuperación de contraseña")
+
+    Rel(user, frontend, "Inicia sesión, consulta su perfil y administra su contraseña", "HTTPS")
+    Rel(delegate, frontend, "Gestiona personas y grupos", "HTTPS")
+    Rel(globalAdmin, frontend, "Realiza consultas y operaciones transversales", "HTTPS")
+    Rel(frontend, login, "Consume la API REST de identidad", "HTTPS/JSON")
+    Rel(modules, login, "Obtienen tokens de servicio y claves JWKS", "HTTPS")
+    Rel(login, gateway, "Publica identidad.login, identidad.refresh e identidad.logout", "OAuth 2.0/HTTPS")
+    Rel(gateway, login, "Obtiene token de servicio y consulta JWKS", "HTTPS")
+    Rel(login, analytics, "Proxy autenticado del tablero; reenvía el JWT humano", "HTTPS/text-html")
+    Rel(login, mail, "Envía enlaces de recuperación", "SMTP/TLS")
 ```
 
-### Responsabilidades
+## Responsabilidad y límites
 
-| Contenedor | Responsabilidad | Persistencia |
-|---|---|---|
-| Frontend | navegación, formularios, caché, token en memoria y renovación | ninguna persistente |
-| Spring Boot | autenticación, emisión/validación JWT, refresh, lockout y panel | PostgreSQL + LDAP |
-| OpenLDAP | fuente de verdad de personas, contraseñas, estado y grupos | DIT LDAP |
-| PostgreSQL | refresh tokens, intentos y auditoría del panel | tres tablas de `schema.sql` |
-| FastAPI | features históricas y decisión de riesgo | lee `login_attempts` |
+- Login Federado centraliza autenticación humana, sesiones renovables, identidad de servicios, perfil y administración del directorio.
+- Los módulos consumidores validan JWT localmente mediante JWKS; no consultan al IdP en cada request.
+- La lógica de movilidad, residuos, reclamos, emergencias, espacios, Analítica y EDA queda fuera del sistema de interés. Login solo integra sus contratos de identidad, eventos y tablero.
+- OpenLDAP, PostgreSQL y detección de anomalías son contenedores internos del módulo y se muestran en el nivel 2, no como sistemas externos de este contexto.
+- Los eventos se guardan primero en `event_outbox`; un relay programado los entrega al Gateway o al adaptador de logging con reintentos y *backoff*. La salida HTTP se habilita con `EDA_PUBLISHER=http` y las variables `EDA_*`.
+- `GET /admin/analitica` exige `admin-global`, reenvía el Bearer token al backend de Analítica y propaga su HTML y encabezados permitidos.
 
-## Despliegue local real
+## Correspondencia con C4
 
-```mermaid
-flowchart LR
-    subgraph Host[Host Docker]
-        subgraph Net[Red de Docker Compose del backend]
-            APP[login-federado\nJava 21 JRE\n:8081]
-            PY[anomaly-detection\nPython 3.12\n:8000]
-            LDAP[openldap\n1.5.0\n:389/:636]
-            INIT[ldap-config\none-shot]
-            PG[postgres\n16-alpine\n:5432]
-            VOL[(pgdata)]
-            INIT --> LDAP
-            APP --> LDAP
-            APP --> PG
-            APP --> PY
-            PY --> PG
-            PG --> VOL
-        end
-        NGINX[Frontend Nginx 1.27\n:8080 interno / :5173 host]
-        NGINX -->|host.docker.internal:8081| APP
-    end
-    B[Browser] -->|localhost:5173| NGINX
-```
-
-No se configura TLS, balanceador, réplica, observabilidad central ni orquestador cloud en el backend.
-
-## CI/CD y cloud comprobados
-
-```mermaid
-flowchart LR
-    PR[Pull request]
-    PUSH[Push main/develop]
-    BCI[Backend pr-checks.yml]
-    FCI[Frontend CI.yml]
-    SMOKE[Frontend smoke-tests.yml]
-    CD[Frontend CD.yml]
-    GHCR[(GitHub Container Registry)]
-    ART[(GitHub artifact\nVercel prebuilt)]
-    MAN[manual-deploy.yml]
-    VERCEL[Vercel production]
-
-    PR --> BCI
-    PR --> FCI
-    PR --> SMOKE
-    PUSH --> FCI
-    PUSH --> CD
-    BCI -->|Maven verify, Surefire, Gitleaks, Trivy| BCI
-    FCI -->|lint, coverage, build, Sonar, Gitleaks, Trivy| FCI
-    CD --> GHCR
-    CD --> ART
-    ART --> MAN
-    MAN --> VERCEL
-```
-
-El frontend sí define publicación y despliegue Vercel. El backend solo tiene validación de PR/push en un único workflow y no publica ni despliega una imagen. `smoke-tests.yml` pertenece al frontend y verifica únicamente HTML servido por Nginx.
-
-## Vista 4+1 resumida
-
-- Lógica: capas controller/service/repository/config, más adaptadores LDAP, riesgo y eventos.
-- Desarrollo: monorepo backend con dos servicios; frontend Feature-Driven en repositorio separado.
-- Procesos: login síncrono; publicación de evento síncrona al logger; refresh transaccional en SQL.
-- Física: cinco servicios Compose del backend y un contenedor frontend separado.
-- Escenarios: login, refresh/logout, client credentials y CRUD LDAP administrativo; vea [interacciones](04-sequence-login.md).
+El alcance es un único sistema de software. Todos los elementos externos son personas o sistemas directamente conectados al sistema de interés; la infraestructura se representa exclusivamente en los diagramas de despliegue.
