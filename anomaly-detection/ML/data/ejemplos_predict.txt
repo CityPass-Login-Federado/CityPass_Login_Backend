@@ -1,0 +1,2 @@
+python predict.py --hour 11 --new-ip 0 --new-device 0 --failures 0 --history 35 --> expected: normal
+python predict.py --hour 2 --new-ip 1 --new-device 1 --failures 4 --history 50 --> expected: anomalo

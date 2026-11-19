@@ -1,17 +1,5 @@
 package citypass.loginfederado.service;
 
-import citypass.loginfederado.config.CitypassProperties;
-import citypass.loginfederado.config.JwtProperties;
-import citypass.loginfederado.identity.ClientRegistry;
-import citypass.loginfederado.identity.LdapDirectory;
-import citypass.loginfederado.identity.LdapDirectoryPerson;
-import citypass.loginfederado.model.RefreshToken;
-import citypass.loginfederado.repository.RefreshTokenRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.security.authentication.BadCredentialsException;
-
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
@@ -20,12 +8,26 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.springframework.security.authentication.BadCredentialsException;
+
+import citypass.loginfederado.config.CitypassProperties;
+import citypass.loginfederado.config.JwtProperties;
+import citypass.loginfederado.identity.ClientRegistry;
+import citypass.loginfederado.identity.LdapDirectory;
+import citypass.loginfederado.identity.LdapDirectoryPerson;
+import citypass.loginfederado.model.RefreshToken;
+import citypass.loginfederado.repository.RefreshTokenRepository;
+import citypass.loginfederado.service.EventOutboxService;
 
 /**
  * Las tres reglas innegociables del refresh (D9 / spec §4.2):
@@ -75,9 +77,42 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    void concurrentExchangeLosesAtomicRevocationAndKillsChain() {
+        RefreshToken stored = storedToken(false);
+        when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(stored));
+        // El UPDATE condicional devuelve 0: otro request con el MISMO token
+        // canjeó primero (TOCTOU). El perdedor no toca filas → reuso.
+        when(repository.revokeIfActive(eq(TOKEN_HASH), any(Instant.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> service.continueChain(RAW_TOKEN))
+                .isInstanceOf(BadCredentialsException.class);
+
+        verify(repository).revokeChain(eq(CHAIN_ID), any(Instant.class));
+        verify(ldapDirectory, never()).reloadBySub(any());
+    }
+
+    @Test
+    void personMovedToAnotherModuleBetweenExchangesKillsSession() {
+        RefreshToken stored = storedToken(false);
+        when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(stored));
+        when(repository.revokeIfActive(eq(TOKEN_HASH), any(Instant.class))).thenReturn(1);
+        // Persona releída desde LDAP: ahora vive en Movilidad, el cliente del
+        // login emite solo para reclamos (misma regla de módulo que el login).
+        var movedPerson = new LdapDirectoryPerson(
+                "uid=jperez,ou=People,ou=Movilidad,dc=citypass,dc=local",
+                "U000042", "jperez", "Juan Perez", null, "Movilidad", List.of("delegados"));
+        when(ldapDirectory.reloadBySub("U000042")).thenReturn(Optional.of(movedPerson));
+
+        assertThatThrownBy(() -> service.continueChain(RAW_TOKEN))
+                .isInstanceOf(BadCredentialsException.class)
+                .hasMessage(ClientRegistry.GENERIC_ERROR_MESSAGE);
+    }
+
+    @Test
     void validExchangeRevokesOldLinkAndReloadsPersonFromLdap() {
         RefreshToken stored = storedToken(false);
         when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(stored));
+        when(repository.revokeIfActive(eq(TOKEN_HASH), any(Instant.class))).thenReturn(1);
         when(ldapDirectory.reloadBySub("U000042")).thenReturn(Optional.of(person));
 
         RefreshTokenService.ChainContinuation continuation = service.continueChain(RAW_TOKEN);
@@ -99,6 +134,7 @@ class RefreshTokenServiceTest {
     void personDeletedOrDisabledBetweenExchangesKillsSession() {
         RefreshToken stored = storedToken(false);
         when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(stored));
+        when(repository.revokeIfActive(eq(TOKEN_HASH), any(Instant.class))).thenReturn(1);
         when(ldapDirectory.reloadBySub("U000042")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.continueChain(RAW_TOKEN))
@@ -133,7 +169,6 @@ class RefreshTokenServiceTest {
 
     @Test
     void logoutActuallyPersistsTheRevocation() {
-        // Regresión del bug del main anterior: revokeAllFor sin save() = logout fantasma
         RefreshToken alive = storedToken(false);
         when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(alive));
 
@@ -145,11 +180,58 @@ class RefreshTokenServiceTest {
     }
 
     @Test
+    void revokeAllForSubPublishesLogoutEventWhenRowsAreRevoked() {
+        when(repository.revokeAllForSub(eq("U000042"), any(Instant.class))).thenReturn(2);
+
+        int revoked = service.revokeAllForSub("U000042", "reclamos");
+
+        assertThat(revoked).isEqualTo(2);
+        verify(repository).revokeAllForSub(eq("U000042"), any(Instant.class));
+    }
+
+    @Test
+    void logoutSucceedsWhenOutboxInsertFails() {
+        EventOutboxService failing = mock(EventOutboxService.class);
+        doThrow(new IllegalStateException("outbox caido")).when(failing).enqueue(any());
+        var jwtProps = new JwtProperties("https://idp.citypass.local", 15, 8, 60, "k", "k");
+        var withEvents = new RefreshTokenService(
+                repository, ldapDirectory, clientRegistry, jwtProps, failing);
+        when(repository.findByTokenHash(TOKEN_HASH)).thenReturn(Optional.of(storedToken(false)));
+
+        withEvents.revokeSingle(RAW_TOKEN, "1.2.3.4", "JUnit");
+
+        ArgumentCaptor<RefreshToken> saved = ArgumentCaptor.forClass(RefreshToken.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getRevokedAt()).isNotNull();
+    }
+
+    @Test
+    void revokeAllSucceedsWhenOutboxInsertFails() {
+        EventOutboxService failing = mock(EventOutboxService.class);
+        doThrow(new IllegalStateException("outbox caido")).when(failing).enqueue(any());
+        var jwtProps = new JwtProperties("https://idp.citypass.local", 15, 8, 60, "k", "k");
+        var withEvents = new RefreshTokenService(
+                repository, ldapDirectory, clientRegistry, jwtProps, failing);
+        when(repository.revokeAllForSub(eq("U000042"), any(Instant.class))).thenReturn(2);
+
+        assertThat(withEvents.revokeAllForSub("U000042", "reclamos")).isEqualTo(2);
+    }
+
+    @Test
     void logoutOfUnknownTokenIsSilent204Behavior() {
         when(repository.findByTokenHash(any())).thenReturn(Optional.empty());
 
         service.revokeSingle(RAW_TOKEN);
 
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void blankInputDoesNothingOnSingleLogout() {
+        service.revokeSingle("   ");
+        service.revokeSingle(null);
+
+        verify(repository, never()).findByTokenHash(any());
         verify(repository, never()).save(any());
     }
 

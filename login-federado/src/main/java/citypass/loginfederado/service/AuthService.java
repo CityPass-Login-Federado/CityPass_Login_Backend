@@ -5,12 +5,12 @@ import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.dto.LoginRequest;
 import citypass.loginfederado.dto.LoginResponse;
 import citypass.loginfederado.dto.RefreshRequest;
-import citypass.loginfederado.event.EventPublisher;
-import citypass.loginfederado.event.UsuarioAutenticadoEvent;
 import citypass.loginfederado.exception.AccountLockedException;
+import citypass.loginfederado.exception.AnomalyBlockedException;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
+import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import citypass.loginfederado.security.AnomalyRiskClient;
 import citypass.loginfederado.token.AccessTokenIssuer;
 import org.slf4j.Logger;
@@ -35,8 +35,9 @@ import javax.naming.NamingException;
  *   5) bind con el DN encontrado, en conexión nueva que se cierra
  *   6) emitir access token (15 min) + refresh token (8 h, rotativo)
  *
- * TODOS los caminos de falla devuelven el mismo error, byte por byte:
- * nadie puede mapear qué usuarios existen ni quién pertenece a qué módulo.
+ * Las fallas de credenciales, pertenencia y lockout son indistinguibles para
+ * impedir enumeración. Solo anomalías comunica categorías explícitas 403/503,
+ * sin exponer la razón interna ni datos de la cuenta.
  */
 @Service
 public class AuthService {
@@ -49,29 +50,41 @@ public class AuthService {
     private final AccessTokenIssuer accessTokenIssuer;
     private final RefreshTokenService refreshTokenService;
     private final JwtProperties jwtProperties;
-    private final EventPublisher eventPublisher;
+    private final EventOutboxService eventOutbox;
     private final LoginAttemptService loginAttemptService;
     private final AnomalyRiskClient anomalyRiskClient;
+    private final AnomalyBlockedEventService anomalyBlockedEventService;
+    private final LoginRateLimiter loginRateLimiter;
+    private final TokenRevocationService tokenRevocationService;
 
     public AuthService(LdapDirectory ldapDirectory,
                        ClientRegistry clientRegistry,
                        AccessTokenIssuer accessTokenIssuer,
                        RefreshTokenService refreshTokenService,
                        JwtProperties jwtProperties,
-                       EventPublisher eventPublisher,
+                       EventOutboxService eventOutbox,
                        LoginAttemptService loginAttemptService,
-                       AnomalyRiskClient anomalyRiskClient) {
+                       AnomalyRiskClient anomalyRiskClient,
+                       AnomalyBlockedEventService anomalyBlockedEventService,
+                       LoginRateLimiter loginRateLimiter,
+                       TokenRevocationService tokenRevocationService) {
         this.ldapDirectory = ldapDirectory;
         this.clientRegistry = clientRegistry;
         this.accessTokenIssuer = accessTokenIssuer;
         this.refreshTokenService = refreshTokenService;
         this.jwtProperties = jwtProperties;
-        this.eventPublisher = eventPublisher;
+        this.eventOutbox = eventOutbox;
         this.loginAttemptService = loginAttemptService;
         this.anomalyRiskClient = anomalyRiskClient;
+        this.anomalyBlockedEventService = anomalyBlockedEventService;
+        this.loginRateLimiter = loginRateLimiter;
+        this.tokenRevocationService = tokenRevocationService;
     }
 
     public LoginResponse login(LoginRequest request, String ipAddress, String userAgent) {
+        // Capa 0: tope por IP ANTES de tocar LDAP (frena credential stuffing
+        // distribuido, que el lockout por usuario no cubre).
+        loginRateLimiter.assertWithinLimit(ipAddress);
         try {
             return doLogin(request, ipAddress, userAgent);
         } catch (AccountLockedException ex) {
@@ -142,11 +155,28 @@ public class AuthService {
                 request.username(), ipAddress, userAgent
         );
         if ("BLOCK".equals(riskAssessment.decision())) {
-            // La razón del bloqueo NO sale en la respuesta (mismo error que todo).
-            securityLog.warn("Login rechazado por anomalías: usuario={} razones={}",
-                    request.username(), riskAssessment.reasons());
-            loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, false);
-            throw new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE);
+            if (anomalyBlockedEventService.consumeApprovedOverride(
+                    request.username(), client.clientId(), ipAddress, userAgent)) {
+                securityLog.warn(
+                        "Login anómalo autorizado por aprobación administrativa de un solo uso: usuario={}",
+                        request.username());
+            } else {
+                var eventId = anomalyBlockedEventService.recordBlockedEvent(
+                        person,
+                        client.clientId(),
+                        ipAddress,
+                        userAgent,
+                        riskAssessment
+                );
+                securityLog.warn(
+                        "Login rechazado por anomalías: evento={} usuario={} score={} razones={}",
+                        eventId,
+                        request.username(),
+                        riskAssessment.riskScore(),
+                        riskAssessment.reasons());
+                loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, false);
+                throw new AnomalyBlockedException("Acceso bloqueado por actividad inusual");
+            }
         }
         // TODO: si decision == "REVIEW", marcar el LoginAttempt para auditoría
         // (requiere agregar una columna tipo `flagged_for_review` a login_attempts).
@@ -156,10 +186,9 @@ public class AuthService {
         String accessToken = accessTokenIssuer.issueHuman(person, client);
         String refreshToken = refreshTokenService.issueInitial(person, client);
 
-        eventPublisher.publish(
-                "usuario.autenticado",
-                UsuarioAutenticadoEvent.of(person.sub(), person.uid(), person.module(), person.groups())
-        );
+        enqueueSafely(RawAuthenticationEvent.login(
+                person.sub(), person.uid(), person.module(), client.clientId(),
+                ipAddress, userAgent));
 
         return response(accessToken, refreshToken);
     }
@@ -171,7 +200,8 @@ public class AuthService {
      * se copiaran, alguien deshabilitado o degradado seguiría recibiendo
      * tokens frescos con permisos viejos durante horas, sin que nada falle.
      */
-    public LoginResponse refresh(RefreshRequest request) {
+    public LoginResponse refresh(RefreshRequest request, String ipAddress, String userAgent) {
+        loginRateLimiter.assertWithinRefreshLimit(ipAddress);
         RefreshTokenService.ChainContinuation continuation =
                 refreshTokenService.continueChain(request.refreshToken());
 
@@ -179,12 +209,46 @@ public class AuthService {
         String newRefreshToken = refreshTokenService.issueNext(
                 continuation.person(), continuation.chainId(), continuation.client());
 
+        enqueueSafely(RawAuthenticationEvent.refresh(
+                continuation.person().sub(), continuation.person().uid(),
+                continuation.person().module(), continuation.client().clientId(),
+                continuation.chainId(), ipAddress, userAgent));
+
         return response(accessToken, newRefreshToken);
     }
 
-    /** Logout por refresh_token (contrato público): persiste la revocación. */
+    public LoginResponse refresh(RefreshRequest request) {
+        return refresh(request, null, null);
+    }
+
+    /**
+     * Logout por refresh_token (contrato público): persiste la revocación y,
+     * si el cliente presentó su access token (header Authorization), lo
+     * denylista por jti para que no siga sirviendo hasta expirar.
+     */
+    public void logout(String refreshToken, String accessToken, String ipAddress, String userAgent) {
+        refreshTokenService.revokeSingle(refreshToken, ipAddress, userAgent);
+        tokenRevocationService.revokeRawAccessToken(accessToken);
+    }
+
+    public void logout(String refreshToken, String ipAddress, String userAgent) {
+        logout(refreshToken, null, ipAddress, userAgent);
+    }
+
     public void logout(String refreshToken) {
-        refreshTokenService.revokeSingle(refreshToken);
+        logout(refreshToken, null, null, null);
+    }
+
+    /**
+     * El insert del outbox es best-effort. Si la base rechaza la fila, el
+     * token ya está emitido y el cliente igual tiene que entrar.
+     */
+    private void enqueueSafely(RawAuthenticationEvent event) {
+        try {
+            eventOutbox.enqueue(event);
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo encolar el evento {}: {}", event.eventType(), ex.toString(), ex);
+        }
     }
 
     private LoginResponse response(String accessToken, String refreshToken) {

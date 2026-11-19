@@ -89,6 +89,49 @@ dn: ou=Groups,ou=Analitica,dc=citypass,dc=local
 objectClass: organizationalUnit
 ou: Groups
 
+dn: ou=Eda,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Eda
+
+dn: ou=People,ou=Eda,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+dn: ou=Groups,ou=Eda,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Groups
+
+# ou=Login — módulo del propio IdP. A diferencia de los módulos de negocio NO
+# tiene ou=Groups ni grupo delegados: está FUERA de los 7 módulos que administra
+# el panel (PanelDirectoryRules.MODULES), así que nadie lo gestiona vía /panel/**.
+# Vive acá la ficha de admin-global (spec §2.8: la cuenta administrativa no puede
+# vivir dentro del alcance que administra).
+dn: ou=Login,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: Login
+
+dn: ou=People,ou=Login,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: People
+
+# -----------------------------------------------------------------------------
+# ou=admin — rol reservado "admin-global". A nivel raíz (NO dentro de un módulo):
+# opera los 6 módulos vía ?module= en el panel. El grupo no lo administra el
+# panel: solo puede darse de alta por seed, así el rol no se puede borrar ni
+# vaciar desde la API (autoprotección del rol). El IdP lo lleva en el claim
+# `groups` del token igual que cualquier otro grupo memberOf.
+# -----------------------------------------------------------------------------
+
+dn: ou=admin,dc=citypass,dc=local
+objectClass: organizationalUnit
+ou: admin
+
+# OJO: el grupo cn=admin-global NO se define aquí, sino en la sección "Grupos"
+# al final del archivo. El overlay memberof calcula la referencia inversa
+# (memberOf en la persona) recién cuando el DN del miembro ya existe: si el
+# grupo se cargara antes que la persona, el login funcionaría PERFECTO y el
+# token saldría sin groups, silenciosamente (spec §2.7).
+
 # -----------------------------------------------------------------------------
 # ou=ServiceAccounts — fuera del alcance de búsqueda de personas y fuera de
 # lo que el panel administra (spec §2.8: una cuenta administrativa no puede
@@ -127,22 +170,9 @@ description: Miembro tecnico para que ningun grupo quede vacio - ignorar
 userPassword: {SSHA}mfAwIET/pDulJ/sD/5aDquTVP4stOEKk8HxlAw==
 
 # -----------------------------------------------------------------------------
-# Política de contraseñas por defecto (overlay ppolicy).
-# Nota: Esta definición es para cn=config; en el DIT se gestiona diferente.
-# Por ahora se omite del seed.
-
-# dn: ou=Policies,dc=citypass,dc=local
-# objectClass: organizationalUnit
-# ou: Policies
-
-# dn: cn=default,ou=Policies,dc=citypass,dc=local
-# objectClass: organizationalRole
-# objectClass: pwdPolicy
-# cn: default
-# pwdAttribute: userPassword
-# pwdLockout: FALSE
-# pwdMinLength: 8
-
+# Política de contraseñas por defecto (overlay ppolicy) — NO se seedea aquí.
+# Vive en 02-ppolicy-policy.ldif y apply-config.sh la aplica recién cuando el
+# esquema pwdPolicy quedó disponible en cn=config (ver apply-config.sh §1).
 # -----------------------------------------------------------------------------
 # Personas de prueba. employeeNumber = identificador estable (U + 6 dígitos),
 # único global, secuencial. Solo existen vía panel en producción; estos son
@@ -209,6 +239,43 @@ mail: delegado-mov@citypass.local
 employeeNumber: U000006
 userPassword: {SSHA}xoI/iMZorLQuqTB17j/8XEEnFfUhRlpbMEcJQg==
 
+# Admin global de prueba (rol reservado): pertenece a cn=admin-global,ou=admin.
+# Su módulo de origen (Login) solo importa para el claim `module` del token;
+# al operar el panel elige el módulo con ?module= (PanelController).
+# Vive en ou=Login (fuera de los 7 módulos del panel): el panel NO puede
+# administrar esta ficha — la gestiona el propio usuario vía self-service
+# (/me/change-password, /auth/forgot-password) o el seed.
+dn: uid=admin-global,ou=People,ou=Login,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: admin-global
+cn: Admin Global
+sn: Global
+givenName: Admin
+mail: admin-global@citypass.local
+employeeNumber: U000007
+userPassword: {SSHA}LiH1xCJrWzf7h09XEWHQntO6i+fc/bR04t21Yg==
+
+# Delegado del módulo Eda (siguiente employeeNumber libre: U000008).
+# Reusa el hash de delegado-rec = misma clave de desarrollo (changeit123).
+dn: uid=delegado-eda,ou=People,ou=Eda,dc=citypass,dc=local
+objectClass: inetOrgPerson
+uid: delegado-eda
+cn: Delegado Eda
+sn: Eda
+givenName: Delegado
+mail: delegado-eda@citypass.local
+employeeNumber: U000008
+userPassword: {SSHA}LiH1xCJrWzf7h09XEWHQntO6i+fc/bR04t21Yg==
+
+# Grupo del rol admin-global. Se define DESPUÉS de la persona (ver nota en la
+# sección ou=admin): el overlay memberof necesita el miembro existente para
+# calcular memberOf, y el panel exige ese grupo en el claim `groups` del token.
+dn: cn=admin-global,ou=admin,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: admin-global
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=admin-global,ou=People,ou=Login,dc=citypass,dc=local
+
 # -----------------------------------------------------------------------------
 # Grupos. Listas con nombre; NO definen permisos. El grupo reservado
 # `delegados` existe en cada módulo desde el día cero (spec §5.1).
@@ -265,3 +332,9 @@ dn: cn=delegados,ou=Groups,ou=Analitica,dc=citypass,dc=local
 objectClass: groupOfNames
 cn: delegados
 member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+
+dn: cn=delegados,ou=Groups,ou=Eda,dc=citypass,dc=local
+objectClass: groupOfNames
+cn: delegados
+member: cn=empty-group-placeholder,ou=ServiceAccounts,dc=citypass,dc=local
+member: uid=delegado-eda,ou=People,ou=Eda,dc=citypass,dc=local

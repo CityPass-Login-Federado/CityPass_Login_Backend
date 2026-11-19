@@ -24,9 +24,20 @@ import java.util.List;
 public class PanelAuthorization {
 
     public static final String DELEGADOS_GROUP = "delegados";
+    /** Grupo reservado del rol "admin global": puede operar los 6 módulos. */
+    public static final String ADMIN_GLOBAL_GROUP = "admin-global";
 
-    /** Quién está operando el panel y sobre qué módulo. */
-    public record Delegate(String sub, String uid, String module) {
+    /**
+     * Quién está operando el panel y sobre qué módulo.
+     * `module` es el módulo de ORIGEN del token. Para un delegado normal es
+     * también el único módulo operable; para un admin global (global=true) se
+     * ignora y el módulo operable llega por query param en cada request.
+     */
+    public record Delegate(String sub, String uid, String module, boolean global) {
+        /** Delegado normal (no global), por compatibilidad con llamadas simples. */
+        public Delegate(String sub, String uid, String module) {
+            this(sub, uid, module, false);
+        }
     }
 
     public Delegate requireDelegate(Jwt jwt) {
@@ -49,17 +60,27 @@ public class PanelAuthorization {
         }
 
         List<String> groups = jwt.getClaimAsStringList("groups");
-        if (groups == null || !groups.contains(DELEGADOS_GROUP)) {
-            throw new AccessDeniedException("Se requiere el grupo " + DELEGADOS_GROUP);
+        if (groups == null || groups.isEmpty()) {
+            throw new AccessDeniedException("Token sin grupos");
+        }
+        boolean global = groups.contains(ADMIN_GLOBAL_GROUP);
+        boolean isDelegate = groups.contains(DELEGADOS_GROUP);
+        if (!global && !isDelegate) {
+            throw new AccessDeniedException(
+                    "Se requiere el grupo " + DELEGADOS_GROUP + " o " + ADMIN_GLOBAL_GROUP);
         }
 
         String module = jwt.getClaimAsString("module");
-        if (module == null || module.isBlank()) {
+        if (!global && (module == null || module.isBlank())) {
             // Sin module no hay scope: el aislamiento entre módulos vive acá.
+            // El admin global NO requiere module de origen: opera vía query param.
             throw new AccessDeniedException("Token sin claim module");
         }
 
-        return new Delegate(jwt.getSubject(), jwt.getClaimAsString("preferred_username"), module.toLowerCase());
+        return new Delegate(jwt.getSubject(),
+                jwt.getClaimAsString("preferred_username"),
+                global ? "" : module.toLowerCase(),
+                global);
     }
 
     /** Constantes espejadas del emisor para evitar dependencia circular. */

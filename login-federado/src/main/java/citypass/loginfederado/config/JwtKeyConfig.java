@@ -3,14 +3,23 @@ package citypass.loginfederado.config;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
+import citypass.loginfederado.identity.ClientRegistry;
+import citypass.loginfederado.repository.RevokedAccessTokenRepository;
+import citypass.loginfederado.repository.RevokedSubjectCutoffRepository;
+import citypass.loginfederado.token.AudienceValidator;
+import citypass.loginfederado.token.RevokedJwtValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 
@@ -27,6 +36,8 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.KeyUse;
 
 /**
  * Carga el par de claves RSA usadas para firmar (JwtEncoder) y validar
@@ -54,10 +65,13 @@ public class JwtKeyConfig {
 
     private final ResourceLoader resourceLoader;
     private final JwtProperties jwtProperties;
+    private final boolean autoGenerateKeys;
 
-    public JwtKeyConfig(ResourceLoader resourceLoader, JwtProperties jwtProperties) {
+    public JwtKeyConfig(ResourceLoader resourceLoader, JwtProperties jwtProperties,
+                        @org.springframework.beans.factory.annotation.Value("${jwt.auto-generate-keys:true}") boolean autoGenerateKeys) {
         this.resourceLoader = resourceLoader;
         this.jwtProperties = jwtProperties;
+        this.autoGenerateKeys = autoGenerateKeys;
     }
 
     @Bean
@@ -81,15 +95,17 @@ public class JwtKeyConfig {
      * RFC 7638. Lo consumen el encoder, el decoder y el endpoint JWKS,
      * garantizando que los tres SIEMPRE anuncien el mismo kid.
      */
+
     @Bean
     public RSAKey rsaKey(RSAPublicKey publicKey, RSAPrivateKey privateKey) {
-        // computeThumbprint() implementa exactamente RFC 7638: hash SHA-256
-        // del JSON canónico {"e","kty","n"} en base64url.
         return new RSAKey.Builder(publicKey)
                 .privateKey(privateKey)
+                .keyUse(KeyUse.SIGNATURE)
+                .algorithm(JWSAlgorithm.RS256)
                 .keyID(computeThumbprint(publicKey))
                 .build();
     }
+
 
     @Bean
     public JwtEncoder jwtEncoder(RSAKey rsaKey) {
@@ -97,8 +113,24 @@ public class JwtKeyConfig {
     }
 
     @Bean
-    public JwtDecoder jwtDecoder(RSAPublicKey publicKey) {
-        return NimbusJwtDecoder.withPublicKey(publicKey).build();
+    public JwtDecoder jwtDecoder(RSAPublicKey publicKey, ClientRegistry clientRegistry,
+                                 RevokedAccessTokenRepository revokedAccessTokenRepository,
+                                 RevokedSubjectCutoffRepository revokedSubjectCutoffRepository) {
+        NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey(publicKey).build();
+        // withPublicKey() solo valida firma y expiración: un token firmado con
+        // un iss ajeno se aceptaría igual. Se fija la validación estándar de
+        // issuer (y claims genéricos) del IdP y, ADEMÁS, la de audience (el
+        // token debe estar destinado a un cliente conocido) y la de revocación
+        // (jti en denylist tras el logout o corte de sub por reset/baja).
+        OAuth2TokenValidator<Jwt> issuerValidator =
+                JwtValidators.createDefaultWithIssuer(jwtProperties.issuer());
+        OAuth2TokenValidator<Jwt> audienceValidator =
+                new AudienceValidator(clientRegistry.knownAudiences());
+        OAuth2TokenValidator<Jwt> revokedValidator =
+                new RevokedJwtValidator(revokedAccessTokenRepository, revokedSubjectCutoffRepository);
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                issuerValidator, audienceValidator, revokedValidator));
+        return decoder;
     }
 
     static String computeThumbprint(RSAPublicKey publicKey) {
@@ -123,6 +155,15 @@ public class JwtKeyConfig {
 
         if (privateResource.exists() && publicResource.exists()) {
             return;
+        }
+
+        if (!autoGenerateKeys) {
+            // Modo estricto (jwt.auto-generate-keys=false): nunca fabricar
+            // claves en el filesystem de un ambiente real. Fail-fast claro.
+            throw new IllegalStateException(
+                    "Faltan las claves RSA en " + jwtProperties.privateKeyPath() + " / "
+                            + jwtProperties.publicKeyPath()
+                            + " y jwt.auto-generate-keys=false: provéalas como secrets antes de arrancar.");
         }
 
         log.warn("No se encontraron las claves RSA en {} / {} -- generando un par nuevo automáticamente. " +

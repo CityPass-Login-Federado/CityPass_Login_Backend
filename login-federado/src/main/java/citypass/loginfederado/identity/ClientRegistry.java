@@ -8,8 +8,11 @@ import org.springframework.stereotype.Component;
 
 import java.security.MessageDigest;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Registro en memoria de los clientes autorizados a pedir tokens.
@@ -30,13 +33,29 @@ public class ClientRegistry {
     private static final Logger log = LoggerFactory.getLogger(ClientRegistry.class);
 
     private final Map<String, CitypassProperties.Client> clientsByClientId;
+    private final Set<String> knownAudiences;
 
     public ClientRegistry(CitypassProperties properties) {
         this.clientsByClientId = properties.clients().stream()
                 .collect(Collectors.toMap(CitypassProperties.Client::clientId, Function.identity()));
+        this.knownAudiences = Stream.concat(
+                        clientsByClientId.values().stream().map(CitypassProperties.Client::audience),
+                        Stream.of(ADMIN_AUDIENCE))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toUnmodifiableSet());
         log.info("Registro de clientes inicializado: {} clientes ({})",
                 clientsByClientId.size(),
                 clientsByClientId.values().stream().filter(CitypassProperties.Client::isService).count() + " de servicio");
+    }
+
+    /**
+     * Audiences que este IdP puede emitir (las de cada cliente declarado, más
+     * la reservada del panel). El decoder las usa para rechazar tokens cuyo
+     * `aud` no sea de ningún emisor conocido: un token firmado con la clave
+     * del IdP pero destinado a otro sistema no debe servir acá.
+     */
+    public Set<String> knownAudiences() {
+        return knownAudiences;
     }
 
     /** Cliente humano por client_id. Falla genérica si no existe o es de servicio. */

@@ -1,6 +1,7 @@
 package citypass.loginfederado.event;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -15,19 +16,25 @@ import org.springframework.stereotype.Component;
  * cambiar: solo esta clase.
  */
 @Component
+@ConditionalOnProperty(prefix = "eda", name = "publisher", havingValue = "logging", matchIfMissing = true)
 public class LoggingEventPublisher implements EventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingEventPublisher.class);
     private final ObjectMapper objectMapper;
+    private final EdaEventEnvelopeFactory envelopeFactory;
 
-    public LoggingEventPublisher(ObjectMapper objectMapper) {
+    public LoggingEventPublisher(ObjectMapper objectMapper, EdaEventEnvelopeFactory envelopeFactory) {
         this.objectMapper = objectMapper;
+        this.envelopeFactory = envelopeFactory;
     }
 
     @Override
     public void publish(String eventType, Object payload) {
         try {
-            log.info("[EVENTO PUBLICADO] tipo={} payload={}", eventType, objectMapper.writeValueAsString(payload));
+                EdaEventEnvelope envelope = envelopeFactory.create(
+                    eventType, payload, "grupo2", "com.citypass.auth", null);
+                log.info("[EVENTO PUBLICADO] tipo={} payload={}", eventType,
+                    objectMapper.writeValueAsString(envelope));
         } catch (Exception e) {
             log.error("No se pudo serializar el evento {}", eventType, e);
         }

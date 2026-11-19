@@ -1,0 +1,122 @@
+services:
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: citypass-ldap
+    environment:
+      LDAP_ORGANISATION: "CityPass"
+      LDAP_DOMAIN: "citypass.local"
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD}"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ldapwhoami", "-x", "-H", "ldap://localhost:389", "-D", "cn=admin,dc=citypass,dc=local", "-w", "${LDAP_ADMIN_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    mem_limit: 128m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  ldap-config:
+    image: osixia/openldap:1.5.0
+    container_name: citypass-ldap-config
+    entrypoint: ["/bin/bash", "/config/apply-config.sh"]
+    environment:
+      LDAP_HOST: openldap
+      LDAP_ADMIN_PASSWORD: "${LDAP_ADMIN_PASSWORD}"
+      LDAP_CONFIG_PASSWORD: "${LDAP_CONFIG_PASSWORD}"
+    volumes:
+      - ./ldap/config:/config:ro
+    depends_on:
+      openldap:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: ghcr.io/citypass-login-federado/citypass-login-backend:${LOGIN_IMAGE_TAG:-latest}
+    container_name: citypass-login
+    ports:
+      - "8081:8081"
+    environment:
+      DB_USERNAME: "postgres.${SUPABASE_PROJECT_REF}"
+      DB_PASSWORD: "${SUPABASE_DB_PASSWORD}"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://aws-0-sa-east-1.pooler.supabase.com:5432/postgres?sslmode=require"
+      SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "3"
+      # schema.sql es seguro-idempotente (solo CREATE IF NOT EXISTS, sin DROP):
+      # corre en cada arranque en todos los ambientes (dev, CI, prod) y en una
+      # base existente es un no-op. Ver docs/runbooks/schema-prod.md.
+      SPRING_LDAP_URLS: "ldap://openldap:389"
+      SPRING_LDAP_USERNAME: "cn=readonly,ou=ServiceAccounts,dc=citypass,dc=local"
+      SPRING_LDAP_PASSWORD: "${LDAP_READONLY_PASSWORD}"
+      PANEL_LDAP_USERNAME: "cn=panel-writer,ou=ServiceAccounts,dc=citypass,dc=local"
+      PANEL_LDAP_PASSWORD: "${LDAP_PANEL_WRITER_PASSWORD}"
+      # Legacy service clients - Temporary compatibility
+      SVC_GROUP1_SECRET: "${SVC_GROUP1_SECRET}"
+      SVC_GROUP5_SECRET: "${SVC_GROUP5_SECRET}"
+
+      # Official EDA service clients
+      SVC_GRUPO1_SECRET: "${SVC_GRUPO1_SECRET:?Falta SVC_GRUPO1_SECRET}"
+      SVC_GRUPO2_SECRET: "${SVC_GRUPO2_SECRET:?Falta SVC_GRUPO2_SECRET}"
+      SVC_GRUPO3_SECRET: "${SVC_GRUPO3_SECRET:?Falta SVC_GRUPO3_SECRET}"
+      SVC_GRUPO4_SECRET: "${SVC_GRUPO4_SECRET:?Falta SVC_GRUPO4_SECRET}"
+      SVC_GRUPO5_SECRET: "${SVC_GRUPO5_SECRET:?Falta SVC_GRUPO5_SECRET}"
+      SVC_GRUPO6_SECRET: "${SVC_GRUPO6_SECRET:?Falta SVC_GRUPO6_SECRET}"
+      SVC_GRUPO7_SECRET: "${SVC_GRUPO7_SECRET:?Falta SVC_GRUPO7_SECRET}"
+      SVC_GRUPO8_SECRET: "${SVC_GRUPO8_SECRET:?Falta SVC_GRUPO8_SECRET}"
+
+      # EDA - Event Gateway integration
+      EDA_PUBLISHER: "${EDA_PUBLISHER:-logging}"
+      EDA_GATEWAY_URL: "${EDA_GATEWAY_URL:-}"
+      EDA_TOKEN_URL: "${EDA_TOKEN_URL:-http://localhost:8081}"
+      EDA_TOKEN_PATH: "${EDA_TOKEN_PATH:-/oauth/token}"
+      EDA_CLIENT_ID: "${EDA_CLIENT_ID:-grupo2}"
+      EDA_CLIENT_SECRET: "${SVC_GRUPO2_SECRET:?Falta SVC_GRUPO2_SECRET}"
+      ANOMALY_SERVICE_URL: "${ANOMALY_SERVICE_URL}"
+      ANOMALY_APPROVAL_TTL_MINUTES: "${ANOMALY_APPROVAL_TTL_MINUTES:-15}"
+      ANALYTICS_BASE_URL: "${ANALYTICS_BASE_URL:-https://citypass-backend-prod-becqetepcjbqa8c7.brazilsouth-01.azurewebsites.net}"
+      ANALYTICS_EMBED_PATH: "${ANALYTICS_EMBED_PATH:-/embed/identidad}"
+      ANALYTICS_CONNECT_TIMEOUT: "${ANALYTICS_CONNECT_TIMEOUT:-3s}"
+      ANALYTICS_READ_TIMEOUT: "${ANALYTICS_READ_TIMEOUT:-15s}"
+      # --- SMTP (recupero de contraseña). Valores en el .env del deploy.
+      # Gmail: SPRING_MAIL_HOST=smtp.gmail.com SPRING_MAIL_PORT=587
+      #   SPRING_MAIL_USERNAME=<cuenta> SPRING_MAIL_PASSWORD=<app password>
+      #   (cuenta con 2FA: https://myaccount.google.com/apppasswords).
+      SPRING_MAIL_HOST: "${SPRING_MAIL_HOST}"
+      SPRING_MAIL_PORT: "${SPRING_MAIL_PORT:-587}"
+      SPRING_MAIL_USERNAME: "${SPRING_MAIL_USERNAME}"
+      SPRING_MAIL_PASSWORD: "${SPRING_MAIL_PASSWORD}"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "${SPRING_MAIL_SMTP_AUTH:-true}"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: "${SPRING_MAIL_SMTP_STARTTLS:-true}"
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED: "${SPRING_MAIL_SMTP_STARTTLS:-true}"
+      PASSWORD_RESET_FROM: "${PASSWORD_RESET_FROM}"
+      PASSWORD_RESET_LINK_BASE: "${PASSWORD_RESET_LINK_BASE}"
+      PASSWORD_RESET_DEBUG_LOG: "false"
+      # Orígenes CORS (frontend). El default ya incluye el frontend
+      # productivo; pisar con CORS_ALLOWED_ORIGINS si cambia de dominio.
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173,https://citypass-login.pp.ua,https://espacios-publicos-frontend.vercel.app,https://reclamos-frontend-g5.vercel.app,https://daii-grupo-8-frontend.vercel.app,https://citypass-residuos-frontend.onrender.com,https://citypass-frontend-prod-eha0gebyesbvhdg2.brazilsouth-01.azurewebsites.net,https://citypass-frontend-test-eagbdnh6afdqakac.brazilsouth-01.azurewebsites.net,https://test.citypass.mrfranco.net.ar,https://frontend-krds.onrender.com}"
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=60.0 -XX:+UseSerialGC -Xss256k"
+      SPRINGDOC_API_DOCS_ENABLED: "false"
+      SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+    volumes:
+      # Claves JWT persistentes: el primer arranque las genera una sola vez
+      # (auto-generate) y de ahí en más sobreviven redeploys. Sin esto, cada
+      # deploy cambia el kid e invalida TODOS los tokens (7 grupos con 401).
+      # OJO: `down -v` borra el volumen y recrea el incidente: respaldar o
+      # pasar a secrets provisionados (ver docs/runbooks/schema-prod.md).
+      - keysdata:/app/keys
+    depends_on:
+      openldap:
+        condition: service_healthy
+      ldap-config:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: 500m
+    memswap_limit: 1.5g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  keysdata:

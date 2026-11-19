@@ -1,0 +1,33 @@
+# =============================================================================
+# CityPass+ — Política de contraseñas por defecto (overlay ppolicy, spec D7)
+#
+# Lo aplica apply-config.sh SOLO si el esquema ppolicy (pwdPolicy) está
+# disponible en cn=schema. El overlay referencia esta entrada vía
+# olcPPolicyDefault, así que `pwdAccountLockedTime` dejado por el panel
+# (000001010000Z = bloqueo permanente) hace que LDAP rechace el bind de la
+# cuenta baja aunque el código de la app se olvide de chequearlo.
+#
+# pwdLockout queda en FALSE a propósito: el bloqueo por intentos fallidos lo
+# administra la app (LoginAttemptService, ventana deslizante de 5/15min) y no
+# se quiere un segundo candado a nivel LDAP que derive en lockouts asimétricos.
+# =============================================================================
+
+dn: ou=Policies,dc=citypass,dc=local
+changetype: add
+objectClass: organizationalUnit
+ou: Policies
+
+dn: cn=default,ou=Policies,dc=citypass,dc=local
+changetype: add
+objectClass: organizationalRole
+objectClass: pwdPolicy
+cn: default
+description: Politica de passwords por defecto de CityPass+
+pwdAttribute: userPassword
+pwdLockout: FALSE
+pwdMaxFailure: 5
+pwdFailureCountInterval: 900
+pwdLockoutDuration: 900
+pwdMinLength: 8
+pwdMustChange: FALSE
+pwdAllowUserChange: TRUE

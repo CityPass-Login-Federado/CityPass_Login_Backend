@@ -5,10 +5,12 @@ import citypass.loginfederado.config.JwtProperties;
 import citypass.loginfederado.identity.ClientRegistry;
 import citypass.loginfederado.identity.LdapDirectory;
 import citypass.loginfederado.identity.LdapDirectoryPerson;
+import citypass.loginfederado.metrics.RawAuthenticationEvent;
 import citypass.loginfederado.model.RefreshToken;
 import citypass.loginfederado.repository.RefreshTokenRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,15 +47,26 @@ public class RefreshTokenService {
     private final LdapDirectory ldapDirectory;
     private final ClientRegistry clientRegistry;
     private final JwtProperties jwtProperties;
+    private final EventOutboxService eventOutbox;
+
+    @Autowired
+    public RefreshTokenService(RefreshTokenRepository repository,
+                               LdapDirectory ldapDirectory,
+                               ClientRegistry clientRegistry,
+                               JwtProperties jwtProperties,
+                               EventOutboxService eventOutbox) {
+        this.repository = repository;
+        this.ldapDirectory = ldapDirectory;
+        this.clientRegistry = clientRegistry;
+        this.jwtProperties = jwtProperties;
+        this.eventOutbox = eventOutbox;
+    }
 
     public RefreshTokenService(RefreshTokenRepository repository,
                                LdapDirectory ldapDirectory,
                                ClientRegistry clientRegistry,
                                JwtProperties jwtProperties) {
-        this.repository = repository;
-        this.ldapDirectory = ldapDirectory;
-        this.clientRegistry = clientRegistry;
-        this.jwtProperties = jwtProperties;
+        this(repository, ldapDirectory, clientRegistry, jwtProperties, null);
     }
 
     /** El resultado de un canje exitoso: persona REVALIDADA + cadena viva. */
@@ -85,9 +98,11 @@ public class RefreshTokenService {
         var stored = repository.findByTokenHash(hash(rawToken))
                 .orElseThrow(() -> new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE));
 
+        Instant now = Instant.now();
+
         // --- Regla innegociable #3: reuso = robo ---
         if (stored.isRevoked()) {
-            int revoked = repository.revokeChain(stored.getChainId(), Instant.now());
+            int revoked = repository.revokeChain(stored.getChainId(), now);
             securityLog.warn("REUSO DE REFRESH TOKEN detectado: cadena completa revocada " +
                     "(chain={} tokens_revocados={})", stored.getChainId(), revoked);
             throw new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE);
@@ -96,8 +111,20 @@ public class RefreshTokenService {
             throw new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE);
         }
 
-        // Rotación: el canjeado muere AHORA, con persistencia real.
-        stored.revoke(Instant.now());
+        // Rotación con persistencia real. Un SOLO UPDATE condicional en lugar
+        // de read(revocado?) + save: dos solicitudes con el mismo token podrían
+        // pasar la validación a la vez (TOCTOU). El UPDATE solo revoca eslabones
+        // activos; el perdedor no toca filas → se lo trata como reuso → se
+        // tumba toda la cadena.
+        if (repository.revokeIfActive(stored.getTokenHash(), now) != 1) {
+            int revoked = repository.revokeChain(stored.getChainId(), now);
+            securityLog.warn("REUSO DE REFRESH TOKEN (canje concurrente): cadena completa revocada " +
+                    "(chain={} tokens_revocados={})", stored.getChainId(), revoked);
+            throw new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE);
+        }
+        // Snapshot coherente en memoria para el resto del método; el UPDATE de
+        // arriba ya dejó el eslabón revocado en la base.
+        stored.revoke(now);
         repository.save(stored);
 
         // --- Regla innegociable #1: revalidar contra LDAP en cada canje ---
@@ -114,6 +141,15 @@ public class RefreshTokenService {
             throw new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE);
         }
 
+        // --- Regla de módulo (la misma del login, faltaba aquí) ---
+        // La persona cambió de módulo entre el login y este canje: el cliente
+        // emisor ya no puede renovarla. Falla genérica, igual que en login.
+        if (!clientRegistry.acceptsModule(client, person.module())) {
+            securityLog.warn("Rechazo de refresh: {} ya no pertenece al módulo del cliente {} ({})",
+                    person.sub(), client.clientId(), person.module());
+            throw new BadCredentialsException(ClientRegistry.GENERIC_ERROR_MESSAGE);
+        }
+
         return new ChainContinuation(person, stored.getChainId(), client);
     }
 
@@ -124,20 +160,48 @@ public class RefreshTokenService {
      * silencioso (no se revela si alguna vez existió).
      */
     @Transactional
-    public void revokeSingle(String rawToken) {
+    public void revokeSingle(String rawToken, String ipAddress, String userAgent) {
         if (rawToken == null || rawToken.isBlank()) {
             return;
         }
         repository.findByTokenHash(hash(rawToken)).ifPresent(stored -> {
             stored.revoke(Instant.now());
             repository.save(stored);
+            CitypassProperties.Client client = clientRegistry.requireHuman(stored.getClientId());
+            enqueueSafely(RawAuthenticationEvent.logout(
+                    stored.getSub(), client.module(), stored.getClientId(),
+                    stored.getChainId(), ipAddress, userAgent));
         });
+    }
+
+    public void revokeSingle(String rawToken) {
+        revokeSingle(rawToken, null, null);
     }
 
     /** Logout masivo / deshabilitación: mata todas las sesiones de una persona. */
     @Transactional
-    public int revokeAllForSub(String sub) {
-        return repository.revokeAllForSub(sub, Instant.now());
+    public int revokeAllForSub(String sub, String department) {
+        int revoked = repository.revokeAllForSub(sub, Instant.now());
+        if (revoked > 0) {
+            enqueueSafely(RawAuthenticationEvent.logout(sub, department, null, null, null, null));
+        }
+        return revoked;
+    }
+
+    /**
+     * Igual que en el login: si no se puede anotar el evento, la revocación
+     * ya quedó persistida y el logout no puede fallar por el outbox.
+     * eventOutbox es null solo en tests que no ejercitan esta parte.
+     */
+    private void enqueueSafely(RawAuthenticationEvent event) {
+        if (eventOutbox == null) {
+            return;
+        }
+        try {
+            eventOutbox.enqueue(event);
+        } catch (RuntimeException ex) {
+            securityLog.warn("No se pudo encolar el evento {}: {}", event.eventType(), ex.toString(), ex);
+        }
     }
 
     private String persist(LdapDirectoryPerson person, CitypassProperties.Client client, UUID chainId) {

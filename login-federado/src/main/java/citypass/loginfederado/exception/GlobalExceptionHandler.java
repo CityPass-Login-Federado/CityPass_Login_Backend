@@ -4,12 +4,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import citypass.loginfederado.event.EdaOAuthException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -17,11 +19,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Regla de oro del login: TODOS los caminos de falla devuelven EXACTAMENTE
- * el mismo cuerpo (byte por byte) — usuario inexistente, contraseña mala,
- * módulo equivocado, cuenta deshabilitada, cuenta bloqueada por fuerza
- * bruta, login anómalo o LDAP caído son indistinguibles para el cliente.
- * Las causas reales van a los logs (SECURITY), nunca a la respuesta.
+ * Las fallas de credenciales, pertenencia y lockout mantienen una respuesta
+ * genérica para evitar enumeración. Los rechazos del detector de anomalías
+ * son la excepción deliberada: exponen únicamente una categoría segura para
+ * que el frontend distinga un bloqueo (403) de una indisponibilidad (503).
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -42,14 +43,58 @@ public class GlobalExceptionHandler {
         return genericAuthFailure();
     }
 
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<Map<String, Object>> handleTooManyRequests(TooManyRequestsException ex) {
+        // Tope por IP: no revela nada de la cuenta, solo del origen.
+        return securityFailure(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "Demasiadas solicitudes",
+                "Demasiadas solicitudes. Intente nuevamente más tarde."
+        );
+    }
+
     @ExceptionHandler(AnomalyBlockedException.class)
-    public ResponseEntity<Map<String, Object>> handleAnomalyBlocked(AnomalyBlockedException ex) {
-        return genericAuthFailure();
+    public ResponseEntity<Map<String, Object>> handleAnomalyBlocked(
+            AnomalyBlockedException ex
+    ) {
+        return securityFailure(
+                HttpStatus.FORBIDDEN,
+                "Acceso bloqueado",
+                "Acceso bloqueado por actividad inusual"
+        );
     }
 
     @ExceptionHandler(AnomalyServiceUnavailableException.class)
-    public ResponseEntity<Map<String, Object>> handleAnomalyServiceUnavailable(AnomalyServiceUnavailableException ex) {
-        return genericAuthFailure();
+    public ResponseEntity<Map<String, Object>> handleAnomalyServiceUnavailable(
+            AnomalyServiceUnavailableException ex
+    ) {
+        return securityFailure(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Servicio no disponible",
+                "Servicio de validación temporalmente no disponible"
+        );
+    }
+
+    @ExceptionHandler(AnalyticsServiceUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> handleAnalyticsUnavailable(
+            AnalyticsServiceUnavailableException ex
+    ) {
+        return securityFailure(
+                HttpStatus.SERVICE_UNAVAILABLE,
+                "Servicio no disponible",
+                "El tablero de Analítica no está disponible temporalmente"
+        );
+    }
+
+    @ExceptionHandler(AnalyticsInvalidResponseException.class)
+    public ResponseEntity<Map<String, Object>> handleAnalyticsInvalidResponse(
+            AnalyticsInvalidResponseException ex
+    ) {
+        return securityFailure(
+                HttpStatus.BAD_GATEWAY,
+                "Respuesta inválida",
+                "El tablero de Analítica devolvió una respuesta inválida"
+        );
     }
 
     private ResponseEntity<Map<String, Object>> genericAuthFailure() {
@@ -59,6 +104,27 @@ public class GlobalExceptionHandler {
         body.put("error", GENERIC_ERROR);
         body.put("message", GENERIC_MESSAGE);
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+    }
+
+    private ResponseEntity<Map<String, Object>> securityFailure(
+            HttpStatus status,
+            String error,
+            String message
+    ) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", status.value());
+        body.put("error", error);
+        body.put("message", message);
+        return ResponseEntity.status(status).body(body);
+    }
+
+    @ExceptionHandler(EdaOAuthException.class)
+    public ResponseEntity<Map<String, String>> handleEdaOAuth(EdaOAuthException ex) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("error", ex.error());
+        body.put("error_description", ex.getMessage());
+        return ResponseEntity.status(ex.status()).body(body);
     }
 
     /** El panel negó el acceso por claims (audience/grupo/module). */
@@ -127,6 +193,16 @@ public class GlobalExceptionHandler {
         body.put("error", "Método no permitido");
         body.put("message", "Verbo HTTP no soportado para esta ruta");
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(body);
+    }
+
+    /** Spring MVC representa una ruta sin recurso estático como esta excepción. */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(NoResourceFoundException ex) {
+        return securityFailure(
+                HttpStatus.NOT_FOUND,
+                "Recurso no encontrado",
+                "Recurso no encontrado"
+        );
     }
 
     @ExceptionHandler(Exception.class)

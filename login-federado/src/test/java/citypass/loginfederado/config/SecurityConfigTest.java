@@ -1,0 +1,266 @@
+package citypass.loginfederado.config;
+
+import java.util.List;
+import java.util.Objects;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.access.ExceptionTranslationFilter;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.nimbusds.jose.jwk.RSAKey;
+
+import citypass.loginfederado.identity.ClientRegistry;
+import citypass.loginfederado.panel.PanelAccountService;
+import citypass.loginfederado.panel.PanelAuditService;
+import citypass.loginfederado.panel.PanelAuthorization;
+import citypass.loginfederado.panel.PanelGroupService;
+import citypass.loginfederado.panel.PanelPersonService;
+import citypass.loginfederado.service.AuthService;
+import citypass.loginfederado.service.RefreshTokenService;
+import citypass.loginfederado.token.AccessTokenIssuer;
+
+@WebMvcTest(controllers = SecurityConfigTest.ProbeController.class)
+@Import({SecurityConfig.class, SecurityConfigTest.MethodSecurityConfig.class})
+@EnableMethodSecurity
+@SuppressWarnings("unused")
+class SecurityConfigTest {
+
+    @Autowired MockMvc mockMvc;
+    @Autowired SecurityConfig securityConfig;
+    @Autowired FilterChainProxy filterChainProxy;
+        @MockBean @SuppressWarnings("unused") JwtDecoder jwtDecoder;
+    @MockBean AuthService authService;
+    @MockBean RSAKey rsaKey;
+    @MockBean ClientRegistry clientRegistry;
+    @MockBean AccessTokenIssuer accessTokenIssuer;
+    @MockBean JwtProperties jwtProperties;
+    @MockBean PanelPersonService panelPersonService;
+    @MockBean PanelGroupService panelGroupService;
+    @MockBean PanelAccountService panelAccountService;
+    @MockBean PanelAuthorization panelAuthorization;
+    @MockBean PanelAuditService panelAuditService;
+    @MockBean RefreshTokenService refreshTokenService;
+
+    @Test
+    void permitsDocumentationMatcherWithoutAuthentication() throws Exception {
+        mockMvc.perform(get("/docs/unknown"))
+            .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401));
+    }
+
+    @Test
+    void permitsConfiguredPublicApiMatcherWithoutAuthentication() throws Exception {
+        mockMvc.perform(get("/auth/unknown"))
+            .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401));
+    }
+
+    @Test
+    void permitsHealthEndpointWithoutAuthentication() throws Exception {
+        mockMvc.perform(get("/health"))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401));
+    }
+
+    @Test
+    void appliesSecurityHeadersOnApiResponses() throws Exception {
+        mockMvc.perform(get("/auth/unknown"))
+                .andExpect(header().string("Content-Security-Policy",
+                        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"))
+                .andExpect(header().string("X-Frame-Options", "DENY"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Referrer-Policy", "no-referrer"));
+    }
+
+    @Test
+    void analyticsRouteCanBeFramedAndDoesNotReplaceUpstreamCsp() throws Exception {
+        mockMvc.perform(get("/admin/analitica").with(jwt()))
+                .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401))
+                .andExpect(header().doesNotExist("X-Frame-Options"))
+                .andExpect(header().doesNotExist("Content-Security-Policy"))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"));
+    }
+
+    @Test
+    void rejectsUnmatchedApiRouteWithoutAuthentication() throws Exception {
+        mockMvc.perform(get("/private/unknown"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void acceptsAuthenticatedJwtOnUnmatchedApiRoute() throws Exception {
+        mockMvc.perform(get("/private/unknown").with(jwt()))
+            .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(401));
+    }
+
+    @Test
+    void returnsForbiddenWhenAuthenticatedUserLacksRequiredAuthority() throws Exception {
+        var exceptionTranslationFilter = filterChainProxy.getFilters("/private/unknown").stream()
+            .filter(ExceptionTranslationFilter.class::isInstance)
+            .map(ExceptionTranslationFilter.class::cast)
+            .findFirst()
+            .orElseThrow();
+        var accessDeniedHandler = ReflectionTestUtils.getField(
+            exceptionTranslationFilter, "accessDeniedHandler");
+        var request = new MockHttpServletRequest("GET", "/private/unknown");
+        var response = new MockHttpServletResponse();
+
+        var handler = (org.springframework.security.web.access.AccessDeniedHandler)
+            Objects.requireNonNull(accessDeniedHandler);
+        handler
+            .handle(request, response, new AccessDeniedException("denied"));
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getErrorMessage()).isEqualTo("No tiene permisos para acceder a este recurso");
+    }
+
+    @Test
+    void preflightFromAllowedOriginSucceedsWithCorsHeaders() throws Exception {
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", "https://citypass-login.pp.ua")
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://citypass-login.pp.ua"));
+    }
+
+    @Test
+    void preflightFromReclamosOriginsSucceedsWithCorsHeaders() throws Exception {
+        for (String origin : List.of(
+                "https://reclamos-frontend-g5.vercel.app",
+                "http://localhost:5173")) {
+            mockMvc.perform(options("/auth/login")
+                    .header("Origin", origin)
+                    .header("Access-Control-Request-Method", "POST"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string("Access-Control-Allow-Origin", origin));
+        }
+    }
+
+    @Test
+    void preflightFromMovilidadFrontendSucceedsWithCorsHeaders() throws Exception {
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", "https://daii-grupo-8-frontend.vercel.app")
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://daii-grupo-8-frontend.vercel.app"));
+    }
+
+    @Test
+    void preflightFromResiduosFrontendSucceedsWithCorsHeaders() throws Exception {
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", "https://citypass-residuos-frontend.onrender.com")
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://citypass-residuos-frontend.onrender.com"));
+    }
+
+    @Test
+    void preflightFromAzureFrontendSucceedsWithCorsHeaders() throws Exception {
+        String origin = "https://citypass-frontend-prod-eha0gebyesbvhdg2.brazilsouth-01.azurewebsites.net";
+
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", origin));
+    }
+
+    @Test
+    void preflightFromAzureTestFrontendSucceedsWithCorsHeaders() throws Exception {
+        String origin = "https://citypass-frontend-test-eagbdnh6afdqakac.brazilsouth-01.azurewebsites.net";
+
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", origin));
+    }
+
+    @Test
+    void preflightFromEdaFrontendSucceedsWithCorsHeaders() throws Exception {
+        String origin = "https://test.citypass.mrfranco.net.ar";
+
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(
+                        "Access-Control-Allow-Origin", origin));
+    }
+
+    @Test
+    void preflightFromEmergenciasFrontendSucceedsWithCorsHeaders() throws Exception {
+        // Emergencias frontend (Render) must be allowed by the default CORS config
+        String origin = "https://frontend-krds.onrender.com";
+
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", origin)
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", origin));
+    }
+
+    @Test
+    void preflightFromUnknownOriginIsRejected() throws Exception {
+        mockMvc.perform(options("/auth/login")
+                .header("Origin", "https://evil.example.com")
+                .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void convertsGroupsToUnprefixedAuthoritiesAndHandlesMissingClaim() {
+        var converter = securityConfig.jwtAuthenticationConverter();
+        Jwt withGroups = Jwt.withTokenValue("token")
+                .header("alg", "RS256")
+                .claim("groups", List.of("delegados", "soporte-n2"))
+                .build();
+        Jwt withoutGroups = Jwt.withTokenValue("token")
+                .header("alg", "RS256")
+            .subject("test-user")
+                .build();
+
+        assertThat(converter.convert(withGroups).getAuthorities())
+                .extracting(authority -> authority.getAuthority())
+                .containsExactly("delegados", "soporte-n2");
+        assertThat(converter.convert(withoutGroups).getAuthorities()).isEmpty();
+    }
+
+    @RestController
+    public static class ProbeController {
+        @GetMapping({"/docs/unknown", "/auth/unknown", "/private/unknown", "/admin/analitica", "/health"})
+        String probe() {
+            return "ok";
+        }
+
+        @GetMapping("/private/forbidden")
+        @PreAuthorize("hasAuthority('required')")
+        String forbidden() {
+            return "forbidden";
+        }
+    }
+
+    @Configuration
+    @EnableMethodSecurity
+    static class MethodSecurityConfig {
+    }
+}

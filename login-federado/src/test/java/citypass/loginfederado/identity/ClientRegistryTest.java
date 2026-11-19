@@ -71,6 +71,15 @@ class ClientRegistryTest {
         assertThat(registry.acceptsModule(adminWeb, "")).isTrue();
     }
 
+    // ---- knownAudiences (validación de aud en el decoder) ----
+
+    @Test
+    void knownAudiencesIncludesEveryClientPlusThePanel() {
+        assertThat(registry.knownAudiences())
+                .containsExactlyInAnyOrder(
+                        "citypass-reclamos-api", ClientRegistry.ADMIN_AUDIENCE, "citypass-bus");
+    }
+
     // ---- authenticateService (client_credentials) ----
 
     @Test

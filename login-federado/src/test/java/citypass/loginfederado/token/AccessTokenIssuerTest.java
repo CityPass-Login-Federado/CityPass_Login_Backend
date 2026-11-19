@@ -68,6 +68,8 @@ class AccessTokenIssuerTest {
         assertThat(claims.getStringClaim("preferred_username")).isEqualTo("jperez");
         // module en minúsculas tal como vino del árbol
         assertThat(claims.getStringClaim("module")).isEqualTo("reclamos");
+        assertThat(claims.getStringClaim("namespace"))
+            .isEqualTo("com.citypass.reclamos");
         // grupos pelados, sin mapeo a roles ni filtrado (D1/D2/D8)
         assertThat(claims.getStringListClaim("groups"))
                 .containsExactlyInAnyOrder("soporte-n2", "delegados");
@@ -93,7 +95,7 @@ class AccessTokenIssuerTest {
         var claims = SignedJWT.parse(issuer.issueService(serviceClient)).getJWTClaimsSet();
 
         assertThat(claims.getSubject()).isEqualTo("svc-grupo1");
-        assertThat(claims.getAudience()).containsExactly("citypass-bus");
+        assertThat(claims.getAudience()).containsExactly("citypass");
         assertThat(claims.getStringClaim("token_use")).isEqualTo("service");
         assertThat(claims.getLongClaim("ver")).isEqualTo(1L);
         assertThat(claims.getStringClaim("namespace")).isEqualTo("grupo1");

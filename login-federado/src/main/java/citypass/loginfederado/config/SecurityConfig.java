@@ -1,94 +1,250 @@
 package citypass.loginfederado.config;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import java.util.ArrayList;
-import java.util.List;
-
-/**
- * Cadena de seguridad HTTP del módulo. Dos mundos conviven acá:
- *
- *  1) Endpoints públicos de autenticación (/auth/login, /auth/refresh,
- *     /auth/logout, /oauth/token) y /.well-known/jwks.json: NO pasan por
- *     validación de JWT, porque son el punto de entrada donde todavía no
- *     existe un token (o exponen la clave pública). La autenticación se
- *     resuelve dentro de cada endpoint (LDAP / Basic).
- *
- *  2) Cualquier otro endpoint (incluido /panel/**): requiere un JWT válido,
- *     firmado con RS256 y validado acá con la clave pública vía JwtDecoder.
- *     Qué más exige cada endpoint (audience, grupo delegados, module) lo
- *     aplica PanelAuthorization — el filtro solo garantiza firma y vigencia.
- *
- * La API es completamente STATELESS: no hay sesión de servidor ni cookies,
- * todo el estado de autenticación viaja en el token en cada request.
- */
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
     private static final String[] PUBLIC_ENDPOINTS = {
-            "/auth/login",
-            "/auth/refresh",
-            "/auth/logout",
-            "/oauth/token",
-            "/.well-known/jwks.json",
-            "/docs/**",
-            "/v3/api-docs/**",
+            "/auth/**",
+            "/oauth/**",
+            "/.well-known/**",
+            "/jwks/**",
+            "/health",
             "/actuator/health"
     };
 
+    // API: respuestas JSON, no debe cargar NINGÚN recurso. CSP mínima.
+    private static final String API_CSP =
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
+    // Swagger UI necesita sus propios assets (scripts/estilos) desde 'self'.
+    private static final String DOCS_CSP =
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+                    + "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+                    + "frame-ancestors 'none'; base-uri 'none'";
+
+    private static final String ANALYTICS_ENDPOINT = "/admin/analitica";
+
+    /**
+     * Cabeceras de seguridad comunes a las dos cadenas: sin MIME sniffing,
+     * sin framing, sin referrer, HSTS y CSP. Spring ya agrega algunas por
+     * default; acá se fijan explícitas para que no dependan del default de
+     * la versión y queden auditables.
+     */
+    private static void applySecurityHeaders(HeadersConfigurer<HttpSecurity> headers, String csp) {
+        headers
+                .contentTypeOptions(Customizer.withDefaults())
+                .frameOptions(frame -> frame.deny())
+                .referrerPolicy(referrer -> referrer
+                        .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .httpStrictTransportSecurity(hsts -> hsts
+                        .includeSubDomains(true)
+                        .maxAgeInSeconds(31536000))
+                .contentSecurityPolicy(policy -> policy.policyDirectives(csp));
+    }
+
+    /**
+     * El HTML de Analítica trae su propia CSP. No se agrega X-Frame-Options
+     * porque DENY impediría embeber esta única respuesta en el iframe del panel.
+     */
+    private static void applyAnalyticsSecurityHeaders(HeadersConfigurer<HttpSecurity> headers) {
+        headers
+                .contentTypeOptions(Customizer.withDefaults())
+                .frameOptions(HeadersConfigurer.FrameOptionsConfig::disable)
+                .referrerPolicy(referrer -> referrer
+                        .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                .httpStrictTransportSecurity(hsts -> hsts
+                        .includeSubDomains(true)
+                        .maxAgeInSeconds(31536000));
+    }
+
+    /**
+     * Swagger UI y OpenAPI JSON: SIN filtro JWT.
+     * Se evalúa PRIMERO por @Order(1).
+     */
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    @Order(1)
+    public SecurityFilterChain docsFilterChain(HttpSecurity http) throws Exception {
         http
-                // Sin sesión: cada request se autentica de forma independiente vía JWT.
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                // No hay formularios ni cookies de sesión que proteger con CSRF en una API stateless.
+                .securityMatcher(
+                        "/docs/**",
+                        "/v3/api-docs/**",
+                        "/swagger-ui/**",
+                        "/swagger-ui.html",
+                        "/webjars/**"
+                )
                 .csrf(csrf -> csrf.disable())
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
-                        .anyRequest().authenticated()
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
-                .oauth2ResourceServer(oauth2 -> oauth2
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
-                )
-                .exceptionHandling(handling -> handling
-                        .authenticationEntryPoint((request, response, ex) ->
-                                response.sendError(401, "Token invalido, expirado o ausente"))
-                        .accessDeniedHandler((request, response, ex) ->
-                                response.sendError(403, "No tiene permisos para acceder a este recurso"))
+                .headers(headers -> applySecurityHeaders(headers, DOCS_CSP))
+                .authorizeHttpRequests(auth ->
+                        auth.anyRequest().permitAll()
                 );
 
         return http.build();
     }
 
     /**
-     * Los GRUPOS crudos del token (claim "groups") pasan como authorities SIN
-     * prefijo ni mayúsculas: son nombres pelados comparables letra por letra
-     * por los consumidores (D1/D2/D6). Nada de ROLE_ ni uppercase: eso
-     * invitaría a tratar membresías como roles ya decididos.
+     * Cadena principal: endpoints de API.
+     * Requiere JWT válido firmado con RS256 vía JwtDecoder.
+     */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain analyticsFilterChain(
+            HttpSecurity http,
+            CorsConfigurationSource corsConfigurationSource) throws Exception {
+        http
+                .securityMatcher(ANALYTICS_ENDPOINT)
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
+                .headers(SecurityConfig::applyAnalyticsSecurityHeaders)
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
+                )
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint((request, response, ex) ->
+                                response.sendError(401, "Token invalido, expirado o ausente")
+                        )
+                        .accessDeniedHandler((request, response, ex) ->
+                                response.sendError(403, "No tiene permisos para acceder a este recurso")
+                        )
+                );
+
+        return http.build();
+    }
+
+    @Bean
+    @Order(3)
+    public SecurityFilterChain apiFilterChain(HttpSecurity http,
+                                               CorsConfigurationSource corsConfigurationSource) throws Exception {
+
+        http
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                )
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
+                .headers(headers -> applySecurityHeaders(headers, API_CSP))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        .anyRequest().authenticated()
+                )
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt ->
+                                jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())
+                        )
+                )
+                .exceptionHandling(handling -> handling
+                        .authenticationEntryPoint((request, response, ex) ->
+                                response.sendError(
+                                        401,
+                                        "Token invalido, expirado o ausente"
+                                )
+                        )
+                        .accessDeniedHandler((request, response, ex) ->
+                                response.sendError(
+                                        403,
+                                        "No tiene permisos para acceder a este recurso"
+                                )
+                        )
+                );
+
+        return http.build();
+    }
+
+    /**
+     * CORS para el frontend browser-based (el backend y el front viven en
+     * orígenes distintos). Sin esto el navegador bloquea todo request.
+     *
+     * - Orígenes permitidos por configuración (`app.cors.allowed-origins`,
+     *   lista separada por comas): dev + frontend productivo, nada más.
+     * - Sin credenciales: los tokens viajan en header Authorization, no en
+     *   cookies, así que no se necesita `allowCredentials` (más seguro).
+     * - El preflight OPTIONS lo resuelve este filtro sin auth.
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource(
+            @Value("${app.cors.allowed-origins:http://localhost:3000,http://localhost:5173,"
+                    + "https://citypass-login.pp.ua,https://espacios-publicos-frontend.vercel.app,"
+                    + "https://reclamos-frontend-g5.vercel.app,"
+                    + "https://daii-grupo-8-frontend.vercel.app,"
+                    + "https://citypass-residuos-frontend.onrender.com,"
+                    + "https://citypass-frontend-prod-eha0gebyesbvhdg2.brazilsouth-01.azurewebsites.net,"
+                    + "https://citypass-frontend-test-eagbdnh6afdqakac.brazilsouth-01.azurewebsites.net,"
+                    + "https://test.citypass.mrfranco.net.ar,"
+                    + "https://frontend-krds.onrender.com}") String allowedOrigins) {
+        List<String> origins = Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(origins);
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        configuration.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
+    /**
+     * Los grupos crudos del token (claim "groups") pasan como authorities
+     * sin prefijo ni mayúsculas.
      */
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+
+        JwtAuthenticationConverter converter =
+                new JwtAuthenticationConverter();
+
         converter.setJwtGrantedAuthoritiesConverter(jwt -> {
-            List<String> groups = jwt.getClaimAsStringList("groups");
-            List<GrantedAuthority> authorities = new ArrayList<>();
+
+            List<String> groups =
+                    jwt.getClaimAsStringList("groups");
+
+            List<GrantedAuthority> authorities =
+                    new ArrayList<>();
+
             if (groups != null) {
                 for (String group : groups) {
-                    authorities.add(new SimpleGrantedAuthority(group));
+                    authorities.add(
+                            new SimpleGrantedAuthority(group)
+                    );
                 }
             }
+
             return authorities;
         });
+
         return converter;
     }
 }
