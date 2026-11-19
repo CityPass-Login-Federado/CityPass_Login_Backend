@@ -16,7 +16,8 @@ Este índice reúne la documentación entregable del módulo de Login Federado. 
 7. [EDA](eda/README.md): contratos, Outbox, publicación y operación.
 8. [Evidencia de testing](testing-evidence.md): estrategia, inventario, comandos y límites conocidos.
 9. [Guion de demo de Hito 2](demo-hito-2.md): recorrido unificado y verificaciones.
-10. [Runbooks](runbooks/): despliegue del tablero de Analítica y esquema productivo.
+10. [Integración del dashboard de Analítica](integrations/analytics-dashboard-integration.md): cambios del backend, seguridad, cronología y dependencias externas.
+11. [Runbooks](runbooks/): despliegue del tablero de Analítica y esquema productivo.
 
 ## Artefactos consumibles
 
