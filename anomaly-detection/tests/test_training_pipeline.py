@@ -9,7 +9,7 @@ import pandas as pd
 from app import model as runtime_model
 from app.feature_contract import FEATURE_ORDER
 from export_real_events import EXPORT_COLUMNS, export_real_events
-from ML.config import MODEL_PATH
+from app.model import MODEL_PATH
 from ML.preprocess import build_offline_features, preprocess_file
 from ML.train import load_training_data, train_from_file
 

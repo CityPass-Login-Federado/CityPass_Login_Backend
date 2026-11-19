@@ -1,6 +1,8 @@
-from datetime import datetime
-from sqlalchemy import create_engine, text
 import os
+
+from datetime import datetime, timezone
+
+from sqlalchemy import create_engine, text
 
 from app.feature_contract import (
     FAILURE_WINDOW_SECONDS,
@@ -8,36 +10,80 @@ from app.feature_contract import (
     normalize_signal,
 )
 
-engine = create_engine(os.environ["ANOMALY_DB_URL"])  # misma Postgres, usuario solo-lectura
 
-def build_features(username: str, ip: str, user_agent: str, ts: datetime) -> dict:
-    # Postgres guarda attempted_at sin timezone (naive). Si ts viene con
-    # timezone (por ejemplo desde Instant.now() de Java, que trae "Z"),
-    # lo normalizamos a naive para poder comparar ambos datetimes.
-    if ts.tzinfo is not None:
-        ts = ts.replace(tzinfo=None)
+engine = create_engine(
+    os.environ["ANOMALY_DB_URL"]
+)
+
+
+def to_utc_naive(timestamp: datetime) -> datetime:
+
+    if timestamp.tzinfo is not None:
+
+        return timestamp.astimezone(
+            timezone.utc
+        ).replace(tzinfo=None)
+
+    return timestamp
+
+
+def build_features(
+    username: str,
+    ip: str,
+    user_agent: str,
+    ts: datetime,
+) -> dict:
+
+    ts = to_utc_naive(ts)
 
     ip = normalize_signal(ip)
     user_agent = normalize_signal(user_agent)
 
     with engine.connect() as conn:
+
+        conn.execute(
+            text("SET LOCAL TIME ZONE 'UTC'")
+        )
+
         history = conn.execute(
             text("""
-                SELECT ip_address, user_agent, attempted_at, successful
+                SELECT
+                    ip_address,
+                    user_agent,
+                    attempted_at,
+                    successful
                 FROM login_attempts
                 WHERE username = :u
-                ORDER BY attempted_at DESC
+                  AND attempted_at < :ts
+                ORDER BY attempted_at DESC, id DESC
                 LIMIT :history_limit
             """),
-            {"u": username, "history_limit": MAX_HISTORY}
+            {
+                "u": username,
+                "ts": ts,
+                "history_limit": MAX_HISTORY,
+            },
         ).fetchall()
 
-    known_ips = {row.ip_address for row in history}
-    known_agents = {row.user_agent for row in history}
+    known_ips = {
+        normalize_signal(row.ip_address)
+        for row in history
+        if row.successful
+    }
+
+    known_agents = {
+        normalize_signal(row.user_agent)
+        for row in history
+        if row.successful
+    }
+
     recent_failures = sum(
-        1 for row in history
+        1
+        for row in history
         if not row.successful
-        and 0 <= (ts - row.attempted_at).total_seconds() < FAILURE_WINDOW_SECONDS
+        and 0 <= (
+            ts - to_utc_naive(row.attempted_at)
+        ).total_seconds() < FAILURE_WINDOW_SECONDS
     )
 
     return {

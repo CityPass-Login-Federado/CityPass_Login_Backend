@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.schemas import LoginAttemptFeatures, RiskScoreResponse
 from app.features import build_features
-from app.model import model_status, score
+from app.model import model_status, score_details
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +15,18 @@ def health():
 
 @app.post("/score", response_model=RiskScoreResponse)
 def score_login(attempt: LoginAttemptFeatures):
-    ts = datetime.fromisoformat(attempt.timestamp)
-    features = build_features(attempt.username, attempt.ip, attempt.user_agent, ts)
-    risk_score, reasons, decision = score(features)
-    return RiskScoreResponse(risk_score=risk_score, decision=decision, reasons=reasons)
+
+    ts = datetime.fromisoformat(
+        attempt.timestamp
+    )
+
+    features = build_features(
+        attempt.username,
+        attempt.ip,
+        attempt.user_agent,
+        ts,
+    )
+
+    result = score_details(features)
+
+    return RiskScoreResponse(**result)

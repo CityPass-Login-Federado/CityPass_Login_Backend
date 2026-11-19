@@ -5,3 +5,14 @@ ML/models/*.metadata.json
 __pycache__/
 *.pyc
 .venv/
+
+# Datasets y resultados generados durante experimentos
+/ML/data/evaluation_results_v[234].csv
+/ML/data/processed_features_v[234]*.csv
+/ML/data/synthetic_events_v[234]*.csv
+/ML/data/train_v[234].csv
+/ML/data/validation_v[234].csv
+/ML/data/test_v[234].csv
+
+# Modelos candidatos intermedios
+/ML/models/*_candidate.pkl
