@@ -1,4 +1,4 @@
-﻿# ADR-005: API stateless sin sesiones de servidor
+# ADR-005: API stateless sin sesiones de servidor
 
 ## Quiénes
 

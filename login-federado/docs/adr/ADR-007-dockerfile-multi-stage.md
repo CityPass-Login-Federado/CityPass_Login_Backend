@@ -1,4 +1,4 @@
-﻿# ADR-007: Dockerfile multi-stage para la aplicación
+# ADR-007: Dockerfile multi-stage para la aplicación
 
 ## Quiénes
 

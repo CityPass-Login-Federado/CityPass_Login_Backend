@@ -1,5 +1,12 @@
 # Módulo ML — Detección de anomalías con Isolation Forest
 
+> **Compatibilidad del artefacto (19/11/2026):** el archivo versionado
+> `ML/models/isolation_forest.pkl` declara scikit-learn 1.9.1, mientras
+> `anomaly-detection/requirements.txt` fija 1.5.2 y
+> `ML/requirements.txt` no fija versión. Esta diferencia es una limitación
+> conocida: el modelo no debe presentarse como artefacto reproducible de
+> producción hasta alinear dependencias o reentrenarlo y registrar metadata.
+
 ## 1. Objetivo
 
 El módulo `ML` de `anomaly-detection` es una prueba de concepto orientada a demostrar la posibilidad de utilizar Machine Learning para detectar comportamientos anómalos asociados a intentos de autenticación en CityPass.

@@ -1,4 +1,4 @@
-﻿# ADR-006: Event bus — placeholder con abstracción para Kafka/RabbitMQ
+# ADR-006: Event bus — placeholder con abstracción para Kafka/RabbitMQ
 
 La entrega directa de eventos descrita en este ADR fue reemplazada por el [ADR-010](ADR-010-outbox-eventos-eda.md).
 
@@ -52,7 +52,10 @@ Definir una **interfaz `EventPublisher`** desacoplada del transporte, con dos im
 1. **`LoggingEventPublisher` (placeholder, default)**: serializa los eventos a JSON y los registra en logs. Es el modo activo por defecto (`eda.publisher: logging`).
 2. **`EdaHttpEventPublisher` (HTTP, opt-in)**: publica por POST al event-gateway del Grupo 1 cuando `eda.publisher: http` y `EDA_GATEWAY_URL` está configurada. Obtiene un token de servicio vía `client_credentials` contra `/oauth/token` (con caché en memoria hasta 30 s antes de expirar) y envía el envelope `EdaEventEnvelope` con `Authorization: Bearer`.
 
-La "migración futura" ya no es solo Kafka/RabbitMQ: es el **event-gateway HTTP** del Grupo 1. El path de publicación sigue configurable (`eda.event-path`, default `/api/v1/events`) porque el contrato definitivo del Grupo 1 aún no cierra (ver `Guia_EDA.md` y `Contrato_Eda.md`).
+La evolución posterior adoptó el **event-gateway HTTP** del Grupo 1 y el patrón
+Outbox descrito en ADR-010. El contrato y la guía vigentes están en
+`docs/eda/Contrato_Eda.md` y `docs/eda/Guia_EDA.md`. Este ADR se conserva como
+registro histórico y no debe utilizarse para describir la entrega actual.
 
 Razones principales:
 1. **Independencia**: Desarrollamos y testeamos sin esperar al Grupo 1 (y seguimos pudiendo hacerlo con el default de logging)

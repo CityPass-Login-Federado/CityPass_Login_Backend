@@ -1,8 +1,8 @@
 # Actualización de Historias de Usuario — Módulo Login Federado
 
-**Equipo:** Grupo 2  
-**Módulo:** Login Federado e Identidad  
-**Fecha de revisión:** 23 de septiembre de 2026
+**Equipo:** Grupo 2
+**Módulo:** Login Federado e Identidad
+**Fecha de revisión:** 19 de noviembre de 2026
 
 **Estado del documento:** alineado con el comportamiento verificable del repositorio
 
@@ -45,7 +45,7 @@ Fuentes de contraste:
 | --- | --- | --- |
 | US-1.1 — Inicio de sesión | HU-AUT-01 | Se conserva y se agregan cliente, módulo, bloqueo, anomalías, claims y evento. |
 | US-1.2 — Renovación | HU-AUT-02 | Se conserva y se detallan hash, rotación, revalidación y reúso concurrente. |
-| US-1.3 — Cierre de sesión | HU-AUT-03 | Se conserva y se aclaran la respuesta idempotente y la vigencia del access token. |
+| US-1.3 — Cierre de sesión | HU-AUT-03 | Se conserva y se aclaran la respuesta idempotente y la denylist opcional del access token. |
 | US-1.4 — Client Credentials | HU-AUT-07 | Se conserva y se corrige la vigencia a 15 minutos y las formas de autenticación admitidas. |
 | US-2.1 — Alta de personas | HU-PER-02 | Se conserva y se precisan formato, unicidad y alcance por módulo. |
 | US-2.2 — Alta de grupos | HU-GRP-01 | Se conserva y se agregan reglas de reserva, longitud y aislamiento. |
@@ -67,8 +67,8 @@ Fuentes de contraste:
 - Una contraseña vacía se rechaza antes de intentar el bind contra LDAP.
 - Un inicio válido consulta el servicio de detección de anomalías y, si es aceptado, devuelve un access token JWT RS256 de 15 minutos y un refresh token opaco de 8 horas.
 - El JWT humano utiliza `employeeNumber` como `sub` e incluye `aud`, `iss`, `jti`, `token_use=human`, `ver=1`, `preferred_username`, `module` y `groups`.
-- Usuario inexistente, contraseña incorrecta, cliente inválido, módulo incompatible, cuenta bloqueada, riesgo bloqueado o indisponibilidad del evaluador de riesgo responden con el mismo error genérico `401`.
-- Un inicio exitoso publica el evento `identidad.login`.
+- Usuario inexistente, contraseña incorrecta, cliente inválido, módulo incompatible o cuenta bloqueada responden con el mismo error genérico `401`; anomalías usa `403` para `BLOCK` y `503` cuando no puede evaluar el riesgo.
+- Un inicio exitoso encola `identidad.login` en el Outbox.
 
 **Evidencia principal:** `AuthController`, `AuthService`, `AccessTokenIssuer`, `ClientRegistry`, `LoginAttemptService` y `AuthServiceTest`.
 
@@ -87,7 +87,7 @@ Fuentes de contraste:
 - También se valida que la audiencia persistida coincida con el registro actual del cliente.
 - Un token desconocido, vencido o revocado responde `401`.
 - El reúso, incluido el canje concurrente del mismo token, revoca la cadena completa.
-- Una renovación exitosa publica `identidad.refresh`.
+- Una renovación exitosa encola `identidad.refresh` en el Outbox.
 
 **Evidencia principal:** `RefreshTokenService`, `AuthService`, `RefreshTokenServiceTest` y `AuthServiceTest`.
 
@@ -101,9 +101,9 @@ Fuentes de contraste:
 
 - `POST /auth/logout` recibe el refresh token en el cuerpo y no exige un access token vigente.
 - El refresh token reconocido queda revocado de forma persistente.
-- Un token vacío o desconocido también devuelve `204`, sin revelar si existía.
-- Un logout válido publica `identidad.logout`.
-- El access token ya emitido no se revoca de forma inmediata y puede seguir siendo válido hasta completar sus 15 minutos.
+- Un token desconocido devuelve `204`, sin revelar si existía; un cuerpo vacío no supera la validación `@NotBlank` y devuelve `400`.
+- Un logout válido encola `identidad.logout` en el Outbox.
+- Si se envía el access token como Bearer, su `jti` queda denylistado hasta `exp`; si se omite, puede seguir siendo válido hasta completar sus 15 minutos.
 
 **Evidencia principal:** `AuthController`, `RefreshTokenService` y `RefreshTokenServiceTest`.
 
@@ -134,7 +134,7 @@ Fuentes de contraste:
 - `POST /me/change-password` requiere un JWT humano, la contraseña actual y una nueva contraseña de al menos ocho caracteres.
 - La contraseña actual se valida mediante bind LDAP antes de realizar el cambio.
 - Al cambiar la contraseña se revocan todos los refresh tokens activos de la persona.
-- La operación devuelve `204`; los access tokens previos conservan su vencimiento natural.
+- La operación devuelve `204` y avanza el corte de revocación del sujeto, por lo que este backend rechaza los access tokens emitidos previamente.
 
 **Evidencia principal:** `ProfileController`, `PasswordService`, `PanelAccountService` y `PasswordServiceTest`.
 
@@ -152,7 +152,7 @@ Fuentes de contraste:
 - El envío del enlace se realiza de manera asíncrona. Si la entrega falla, el token pendiente se libera y la contraseña vigente permanece sin cambios.
 - `POST /auth/reset-password` acepta un token de un solo uso y una contraseña nueva de al menos ocho caracteres.
 - Antes del canje se revalida la cuenta en LDAP; un token inexistente, usado, vencido o perteneciente a una cuenta deshabilitada devuelve el mismo `422`.
-- Un canje exitoso cambia la contraseña y revoca todos los refresh tokens de la cuenta.
+- Un canje exitoso cambia la contraseña, revoca todos los refresh tokens y avanza el corte para que este backend rechace access tokens anteriores.
 - La entrega real por correo requiere configuración SMTP; en desarrollo existe un modo de registro controlado por configuración.
 
 **Evidencia principal:** `AuthController`, `PasswordService`, `PasswordResetTokenStore`, `PasswordResetLimiter` y sus pruebas unitarias.
@@ -215,8 +215,9 @@ Fuentes de contraste:
 
 - La evaluación se ejecuta después de validar las credenciales LDAP y antes de emitir tokens.
 - La solicitud al evaluador incluye username, IP, agente de usuario, fecha y resultado de autenticación.
-- Una decisión `BLOCK` rechaza el login con el error genérico `401`.
+- Una decisión `BLOCK` rechaza el login con `403` y persiste el evento, su contexto, puntaje y razones.
 - Si el servicio no responde dentro de sus tiempos de conexión y lectura, el login falla de forma cerrada.
+- Delegados del mismo módulo o `admin-global` pueden aprobar el bloqueo por 15 minutos. La aprobación limpia el lockout y se consume una sola vez si coinciden username, cliente, IP y user-agent.
 
 **Criterio pendiente:**
 
@@ -436,48 +437,45 @@ Todas las operaciones de `/panel/**` requieren un JWT con audiencia `citypass-ad
 
 **Historia.** Como equipo consumidor, quiero recibir eventos de login, renovación y logout para integrar el módulo de identidad con la arquitectura orientada a eventos.
 
-**Estado:** Condicionada a integración.
+**Estado:** Implementada; requiere configuración externa para la salida HTTP.
 
 **Criterios de aceptación:**
 
-- Los flujos exitosos publican `identidad.login`, `identidad.refresh` e `identidad.logout`.
-- El evento utiliza un envelope versionado con `type`, `version`, `occurredAt`, `metadata` y `data`.
-- La identidad humana viaja como `data.actorSub`; el token humano no se reenvía al gateway.
-- El publicador HTTP obtiene un token propio de servicio y envía el evento al endpoint configurado.
-- El modo predeterminado registra el envelope en logs, lo que permite probar el módulo de manera aislada.
-- La entrega real depende de configurar `EDA_PUBLISHER=http`, la URL del gateway, credenciales y el path acordado con el equipo responsable.
+- Los flujos exitosos encolan `identidad.login`, `identidad.refresh` e `identidad.logout` con un `authEventId` estable.
+- El relay reclama filas `PENDING` con `SKIP LOCKED`, entrega en lotes y registra `SENT`, reintentos con *backoff* o `FAILED`.
+- La identidad humana viaja como `actorSub`; el token humano no se reenvía al gateway.
+- El publicador HTTP obtiene un token propio de servicio `grupo2` y envía datos de negocio al endpoint del tipo de evento; el Gateway completa la metadata.
+- El modo predeterminado entrega al adaptador de logging, lo que permite probar el módulo de manera aislada sin omitir el Outbox.
+- La salida real depende de `EDA_PUBLISHER=http`, la URL del Gateway del Grupo 1 y las credenciales correctas.
 
-**Dependencia externa:** el repositorio no contiene el broker ni define por sí solo las políticas finales de reintento, disponibilidad y confirmación del gateway.
+**Dependencia externa:** el Gateway y su broker pertenecen al Grupo 1. Este módulo sí define reintentos, lease, `Retry-After`, máximo de intentos y trazabilidad local del Outbox.
 
-**Evidencia principal:** `EventPublisher`, `LoggingEventPublisher`, `EdaHttpEventPublisher`, `EdaEventEnvelopeFactory`, `Guia_EDA.md` y sus pruebas.
+**Evidencia principal:** `EventOutboxService`, `EventOutboxRelay`, `EventPublisher`, `LoggingEventPublisher`, `EdaHttpEventPublisher`, ADR-010 y sus pruebas.
 
 ### HU-OPS-03 — Verificar disponibilidad del módulo
 
 **Historia.** Como responsable de operación, quiero consultar un endpoint de salud para verificar que el servicio de identidad está disponible.
 
-**Estado:** Parcial.
+**Estado:** Implementada.
 
-**Criterios de aceptación cubiertos:**
+**Criterios de aceptación:**
 
 - `GET /health` existe y devuelve un estado simple del servicio.
+- `GET /health` y `/actuator/health` son públicos en `SecurityConfig`.
 - La indisponibilidad de SMTP no marca la aplicación como no saludable, porque el envío de recuperación es asíncrono y dispone de manejo propio de fallas.
 - El contrato HTTP del módulo se expone mediante OpenAPI para facilitar pruebas e integración.
-
-**Criterio pendiente:**
-
-- La guía EDA presenta `GET /health` como público, pero `SecurityConfig` no incluye actualmente esa ruta entre los endpoints públicos. Sin JWT, la ruta protegida es `/health`; el endpoint público configurado es `/actuator/health`. Debe corregirse la configuración o unificarse el contrato documental.
 
 **Evidencia principal:** `HealthController`, `SecurityConfig`, `OpenApiConfig`, `HealthControllerTest` y `OpenApiConfigTest`.
 
 ## 10. Reglas transversales
 
 - LDAP es la fuente de verdad de identidades, contraseñas, estado de cuenta y membresías.
-- PostgreSQL conserva refresh tokens, intentos de autenticación, tokens de recuperación y auditoría administrativa.
+- PostgreSQL conserva las diez tablas de sesiones, lockout, anomalías, revocación, recuperación, auditoría y Outbox.
 - `sub` identifica de forma estable a una persona mediante `employeeNumber`; el username puede cambiar.
-- Los access tokens se validan sin sesión de servidor y expiran por tiempo. La revocación inmediata se aplica a credenciales renovables.
+- Este backend valida access tokens por firma y claims, y además contra la denylist por `jti` y el corte temporal por sujeto. Los módulos externos que solo usan JWKS no consultan esas tablas.
 - Los módulos vigentes son `movilidad`, `residuos`, `reclamos`, `emergencias`, `espacios`, `analitica` y `eda`.
 - Los clientes humanos reciben la audiencia de su API; los servicios utilizan audiencia `citypass` y un `namespace` propio.
-- Los errores de autenticación humana no revelan si existe un usuario, si está bloqueado, si pertenece a otro módulo o si fue rechazado por riesgo.
+- Los `401` no revelan si existe un usuario, si está bloqueado o si pertenece a otro módulo. Anomalías distingue `403` y `503`, pero no expone puntaje, razones ni datos de la cuenta.
 - Los datos y parámetros utilizados en filtros LDAP deben escaparse; las reglas de formato y aislamiento se validan antes de modificar el directorio.
 
 ## 11. Matriz resumida de verificación

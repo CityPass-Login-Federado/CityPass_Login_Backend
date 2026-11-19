@@ -26,6 +26,10 @@ el backend del panel administrativo (altas/bajas/grupos del directorio) que cons
 el mismo contrato de tokens, y los flujos self-service de recupero de contraseña por
 token de un solo uso.
 
+La integración EDA usa un Outbox en PostgreSQL y un relay programado con lotes,
+`SKIP LOCKED`, reintentos y *backoff*. El mismo backend expone además el proxy
+autenticado del tablero HTML de Analítica para administradores globales.
+
 Este proyecto forma parte de la asignatura **Desarrollo de Aplicaciones II (2c 2026)**, dictada por el profesor Andrés Sacco en la Universidad Argentina de la Empresa (UADE).
 
 ---
@@ -49,8 +53,8 @@ Nuestro desarrollo está diseñado para cumplir con los estándares técnicos ex
 
 - 📐 **Arquitectura y Modelado:** Documentación de decisiones (ADRs), diagramas C4 y modelo Entidad-Relación.
 - 🔐 **Seguridad Avanzada:** Autenticación LDAP, tokens JWT firmados asimétricamente (RS256), validación de claims, anti-enumeración, lockout anti fuerza bruta y contratos de seguridad documentados (diseño, token y anomalías).
-- 📨 **Event Driven Architecture (EDA):** Eventos de autenticación/auditoría publicados vía abstracción de publisher — default `logging`, con envío HTTP a la gateway de la plataforma implementado y a la espera del contrato del Grupo 1 (RabbitMQ/Kafka quedan como evolución, ver ADR-006).
-- 🧪 **Testing Integrado:** Pruebas unitarias e integrales con JUnit 5, Mockito y Testcontainers; jacoco exige >60% de cobertura en línea en `mvn verify`.
+- 📨 **Event Driven Architecture (EDA):** Eventos de login, refresh y logout persistidos en `event_outbox` y entregados al Event Gateway del Grupo 1 mediante un relay reintentable; ADR-010 documenta la decisión vigente.
+- 🧪 **Testing:** Pruebas unitarias con JUnit 5/Mockito, integración PostgreSQL con Testcontainers e integración LDAP con UnboundID. JaCoCo define un gate de 60 % en `verify`; la limitación actual de CI se detalla en la sección de tests.
 - 🚀 **DevOps & Cloud:** Entorno local 100% dockerizado (`docker-compose`), flujos CI/CD con GitHub Actions y despliegue cloud.
 - 🧠 **Innovación (IA/I+D):** Lógica de detección de anomalías en los intentos de inicio de sesión (microservicio `anomaly-detection` con IsolationForest, integrado fail-closed).
 - 📱 **UX/UI:** Interfaz Frontend desarrollada en React orientada a una experiencia de autenticación fluida.
@@ -66,21 +70,25 @@ Nuestro desarrollo está diseñado para cumplir con los estándares técnicos ex
 * **Firma Asimétrica:** JWT (Algoritmo RS256).
 * **IA:** FastAPI + IsolationForest (microservicio `anomaly-detection`).
 * **Frontend:** React 18, Vite, TypeScript, Tailwind CSS.
-* **Testing:** JUnit 5, Mockito, Testcontainers.
+* **Testing:** JUnit 5, Mockito, Testcontainers PostgreSQL y UnboundID LDAP SDK.
 * **Infraestructura:** Docker, Docker Compose, GitHub Actions.
 
 ---
 
 ## 📐 Arquitectura en 30 segundos
 
-```
-cliente ──POST /auth/login──▶ login-federado ──POST /score──▶ anomaly-detection (:8000)
-                                   │                        (fail-closed: si está
-                                   ▼                         caído, todo login da
-                              OpenLDAP (bind + memberOf)      503 específico)
-                                   │
-                              PostgreSQL (refresh tokens rotativos,
-                                          ventana deslizante anti fuerza bruta)
+```mermaid
+flowchart LR
+    WEB[Frontend React y módulos CityPass+] -->|REST / OAuth / JWKS| API[Login Federado<br/>Spring Boot]
+    API -->|bind, personas y grupos| LDAP[(OpenLDAP)]
+    API -->|sesiones, seguridad y Outbox| PG[(PostgreSQL)]
+    API -->|POST /score<br/>fail-closed| RISK[Anomaly Detection<br/>FastAPI]
+    RISK -->|login_attempts| PG
+    API -->|SMTP| MAIL[Proveedor de correo]
+    API -. incluye scheduler .-> RELAY[EventOutboxRelay]
+    RELAY -->|claimDue / SKIP LOCKED| PG
+    RELAY -->|OAuth 2.0 + HTTPS| EDA[Event Gateway - Grupo 1]
+    API -->|proxy /admin/analitica| ANALYTICS[Backend Analítica - Grupo 8]
 ```
 
 **Importante:** el microservicio `anomaly-detection` es obligatorio en desarrollo:
@@ -119,7 +127,7 @@ secrets del proveedor cloud y `auto-generate-keys` se apaga).
 ```bash
 cd login-federado
 docker compose up -d openldap postgres anomaly-detection
-./mvnw spring-boot:run
+mvn spring-boot:run
 ```
 
 Swagger UI: <http://localhost:8081/docs>
@@ -139,7 +147,7 @@ Usar el botón **Authorize** (arriba a la derecha) con un access token (`Bearer 
 
 - `/panel/**` exige token de **delegado** (audience `citypass-admin-api`, grupo `delegados`, claim `module`) o de **admin global** (grupo `admin-global`).
 - `/me` y `/me/change-password` exigen access token de persona (`token_use=human`).
-- `/auth/**`, `/oauth/token`, `/.well-known/jwks.json` y `/health` son públicos.
+- `/auth/**`, `/oauth/token`, `/.well-known/jwks.json`, `/health` y `/actuator/health` son públicos.
 
 Las rutas del servicio quedan auto-documentadas (5 de `/auth`, perfil, JWKS, token
 de servicio, health, el ABM del panel y el proxy de Analítica).
@@ -159,14 +167,14 @@ lockout y anomalías. Los scripts capturan los tokens automáticamente entre req
 |---|---|---|
 | POST | `/auth/login` | Autentica y emite access + refresh token |
 | POST | `/auth/refresh` | Canjea refresh por nuevo par (rotación; reuso ⇒ cadena revocada) |
-| POST | `/auth/logout` | Revoca la sesión (refresh token) — 204 siempre |
+| POST | `/auth/logout` | Revoca el refresh; denylista el access si se envía como Bearer. Token desconocido ⇒ 204 |
 | POST | `/auth/forgot-password` | Emite token de recupero de un solo uso y lo manda por mail (nunca escribe LDAP) |
 | POST | `/auth/reset-password` | Canjea el token y define la nueva contraseña en LDAP; revoca sesiones |
 | GET | `/me` | Perfil de la persona autenticada (uid, nombre, mail, módulo, grupos) |
 | POST | `/me/change-password` | Cambia la propia contraseña (actual + JWT); revoca todas las sesiones |
 | GET | `/.well-known/jwks.json` | Clave pública para validar firmas RS256 |
 | POST | `/oauth/token` | `client_credentials` para servicios (Basic auth, form-urlencoded) |
-| GET | `/health` | Healthcheck de la aplicación |
+| GET | `/health`, `/actuator/health` | Healthchecks públicos; Actuator es el usado por despliegues y contenedores |
 | GET | `/panel/anomaly-events` | Lista paginada de bloqueos anómalos con `riskScore` |
 | POST | `/panel/anomaly-events/{id}/approve` | Autoriza un reintento contextual, temporal y de un solo uso |
 | GET/POST/PUT/DELETE | `/panel/**` | Backend del panel (delegados + admin global; también `/modules` y `/admin/*`) |
@@ -244,8 +252,9 @@ curl -X POST http://localhost:8081/me/change-password \
 ```
 
 Al cambiar o restablecer la contraseña se revocan **todas** las sesiones (refresh
-tokens) de la persona; el access token vigente sigue vivo hasta su expiración (igual
-que en la baja del panel).
+tokens) y se avanza `revoked_subject_cutoffs`, por lo que este backend rechaza los
+access tokens anteriores. Las APIs externas que validan únicamente con JWKS no
+consultan ese corte. La baja del panel hoy revoca refresh tokens, pero no avanza el corte.
 
 **SMTP:** sin `spring.mail.host` el envío cae en modo dev: el enlace se imprime en
 consola (`app.password-reset.debug-log: true`, default). Para enviar de verdad, copiar
@@ -265,8 +274,9 @@ curl -u grupo2:grupo2-secret-dev -X POST http://localhost:8081/oauth/token \
   -d "grant_type=client_credentials"
 ```
 
-Los secretos de dev son `group1-secret-dev`, `group5-secret-dev` y `grupo2-secret-dev`
-(override con `SVC_*_SECRET`). El token emitido NO trae `groups` ni `module`: su
+Existen clientes oficiales `grupo1` a `grupo8` y los alias legacy `group1` y `group5`.
+Sus secretos de desarrollo siguen el patrón `<client-id>-secret-dev` y se reemplazan
+con variables `SVC_*_SECRET`. El token emitido NO trae `groups` ni `module`: su
 identidad es el namespace.
 
 ---
@@ -337,8 +347,9 @@ dc=citypass,dc=local
   secuencial global asignado por el panel).
 - **Grupo** (`groupOfNames`): `cn` + `member` (valores SIEMPRE DNs absolutos, ej.
   `uid=jperez,ou=People,ou=Reclamos,dc=citypass,dc=local`).
-- El grupo `delegados` existe **en cada módulo** y es reservado (no debe eliminarse;
-  el backend no lo protege explícitamente hoy).
+- El grupo `delegados` existe **en cada módulo** y es reservado. Un delegado normal
+  no puede eliminarlo ni dejarlo vacío; `admin-global` conserva actualmente una
+  excepción que permite ambas operaciones y debe tratarse como una decisión de seguridad.
 - `memberOf` es operacional: se calcula solo a partir de `member` (overlay) y hay que
   pedirlo explícitamente en cada búsqueda.
 
@@ -371,11 +382,12 @@ el árbol pero tampoco lee `userPassword`.
 ## ⚙️ Notas operativas
 
 - **Lockout**: 5 intentos fallidos en 15 minutos bloquean al usuario (respuesta
-  indistinguible de credenciales inválidas). Desbloquear:
+  indistinguible de credenciales inválidas). La vía normal es
+  `POST /panel/people/{uid}/unlock`. Como recuperación operativa directa:
 
   ```bash
   docker exec citypass-db psql -U citypass -d login_federado \
-    -c "DELETE FROM login_attempts WHERE username='soporte1';"
+    -c "DELETE FROM login_lockouts WHERE username='soporte1'; DELETE FROM login_attempts WHERE username='soporte1' AND successful=false;"
   ```
 
 - **Los datos NO se pierden al reiniciar**: `schema.sql` es idempotente (sin `DROP`);
@@ -386,10 +398,10 @@ el árbol pero tampoco lee `userPassword`.
   cd login-federado && docker compose down -v && docker compose up -d
   ```
 
-- **EDA**: los eventos de autenticación/auditoría salen por la abstracción
-  `EventPublisher`. Default `logging`; seteando `EDA_PUBLISHER=http` y
-  `EDA_GATEWAY_URL` se envían a la gateway de la plataforma (contrato del Grupo 1
-  pendiente de definir — ADR-006). El token de servicio del publisher usa `grupo2`.
+- **EDA**: login, refresh y logout se guardan primero en `event_outbox`.
+  `EventOutboxRelay` entrega pendientes por `EventPublisher`; el modo default es
+  `logging` y `EDA_PUBLISHER=http` usa el Gateway real del Grupo 1. La publicación
+  HTTP obtiene un token de servicio `grupo2`; ver ADR-010 y `docs/eda/`.
 - **Editar archivos bajo `login-federado/ldap/config/`**: deben tener fin de línea LF.
   El `.gitattributes` del repo lo fuerza — respetarlo o el bash del contenedor falla
   con `$'\r': command not found`.
@@ -408,8 +420,8 @@ identity/    LdapDirectory (búsqueda + bind) y ClientRegistry (clientes registr
 token/       Emisión de access tokens y claims (contrato §3)
 security/    Filtros JWT y AnomalyRiskClient (fail-closed)
 panel/       PanelController, autorización delegada, escritura al directorio, auditoría
-event/       Publicación de eventos (EventPublisher: logging / HTTP) y HealthController
-metrics/     Persistencia de intentos de login (ventana anti fuerza bruta)
+event/       Outbox relay, payload EDA, publishers logging/HTTP y HealthController
+metrics/     Modelo de eventos crudos de login, refresh y logout
 exception/   Manejo centralizado: fallas genéricas de auth y respuestas 403/503 de anomalías
 dto/ model/ repository/
 ```
@@ -420,12 +432,39 @@ dto/ model/ repository/
 
 ```bash
 cd login-federado
-mvn clean verify
+mvn test
+mvn verify
 ```
 
-- Unit tests (JUnit 5 + Mockito) sobre emisión de tokens, claims, reglas del panel,
-  rotación/reuso de refresh y registro de clientes.
-- Testcontainers para integración real con OpenLDAP y PostgreSQL.
-- El perfil `verify` aplica la regla **jacoco ≥ 60% cobertura en línea** (fail si baja).
-- Reporte de cobertura: `login-federado/target/site/jacoco/index.html`.
-- En CI, GitHub Actions corre la suite completa y publica la cobertura a SonarCloud.
+- Los `*Test.java` cubren emisión y revocación de tokens, autenticación, Outbox,
+  Analítica, reglas del panel y clientes registrados con JUnit 5 y Mockito.
+- Los siete `*IT.java` usan Testcontainers únicamente para PostgreSQL; las pruebas
+  LDAP usan UnboundID. El `pom.xml` todavía no configura Maven Failsafe, por lo que
+  esos `*IT` no se ejecutan automáticamente con `mvn test` ni `mvn verify`.
+- `mvn verify` genera el reporte y aplica **JaCoCo ≥ 60 % de cobertura de líneas**
+  sobre las clases no excluidas. Reporte: `target/site/jacoco/index.html`.
+- El CI actual ejecuta `mvn test jacoco:report`: publica resultados unitarios, pero
+  no corre los `*IT` ni aplica el gate ligado a la fase `verify`.
+
+---
+
+## 📚 Entrega documental — TASK-171
+
+La actualización **“Actualización de Documentación Técnica y Diagramas UML
+Finales”** se recorre desde
+[`login-federado/docs/README.md`](login-federado/docs/README.md).
+
+Incluye:
+
+- matriz de trazabilidad contra la rúbrica;
+- C4 niveles 1–3, vistas 4+1 y despliegues;
+- secuencias de los flujos críticos;
+- historias, casos de uso UML y entidad-relación;
+- contrato HTTP y decisiones arquitectónicas;
+- EDA, Outbox y contratos de eventos;
+- integración inter-squad y casos transversales;
+- estrategia de testing y limitaciones conocidas;
+- guion reproducible de demo con datos simulados y eventos reales.
+
+La documentación de Sprints, retrospectivas y sprint reviews queda expresamente
+fuera de esta tarea.

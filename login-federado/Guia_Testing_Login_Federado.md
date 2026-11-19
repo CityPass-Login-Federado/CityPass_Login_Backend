@@ -30,8 +30,12 @@ Clientes de servicio (`client_credentials`):
 
 | `client_id` | secret (dev) | namespace |
 |---|---|---|
-| `group1` | `group1-secret-dev` | `com.citypass.group1` (EDA) |
-| `group5` | `group5-secret-dev` | `com.citypass.analitica` |
+| `grupo1` | `grupo1-secret-dev` | `com.citypass.bus` |
+| `grupo2` | `grupo2-secret-dev` | `com.citypass.auth` (publisher de Login) |
+| `grupo8` | `grupo8-secret-dev` | `com.citypass.analitica` |
+
+Los clientes legacy `group1` y `group5` se conservan por compatibilidad, pero la
+integración vigente entre squads usa `grupo1` a `grupo8`.
 
 ---
 
@@ -70,14 +74,14 @@ Esperado: `401` (si en cambio devuelve un token nuevo, hay un bug de seguridad r
 
 ### 1.6 OAuth2 `client_credentials` (para el bus / otros grupos)
 ```
-curl -i -X POST http://localhost:8081/oauth/token -u "group1:group1-secret-dev" -d "grant_type=client_credentials"
+curl -i -X POST http://localhost:8081/oauth/token -u "grupo2:grupo2-secret-dev" -d "grant_type=client_credentials"
 ```
 Esperado: `200` con `access_token` (JWT de servicio, sin `groups`, con `namespace`).
 
 Casos de error (RFC 6749):
 ```
-curl -i -X POST http://localhost:8081/oauth/token -u "group1:secret-incorrecto" -d "grant_type=client_credentials"
-curl -i -X POST http://localhost:8081/oauth/token -u "group1:group1-secret-dev" -d "grant_type=password"
+curl -i -X POST http://localhost:8081/oauth/token -u "grupo2:secret-incorrecto" -d "grant_type=client_credentials"
+curl -i -X POST http://localhost:8081/oauth/token -u "grupo2:grupo2-secret-dev" -d "grant_type=password"
 ```
 Esperado en ambos: `401`.
 
@@ -179,8 +183,9 @@ INSERT INTO login_attempts (id, username, ip_address, user_agent, successful, at
 
 curl -i -X POST http://localhost:8081/auth/login -H "Content-Type: application/json" -H "X-Forwarded-For: 10.0.0.99" -A "test-block-device" -d "{\"username\": \"delegado-rec\", \"password\": \"changeit123\", \"clientId\": \"citypass-reclamos-web\"}"
 ```
-Esperado: `401` genérico (misma respuesta que credenciales malas — a propósito,
-no filtra el motivo real). La contraseña era correcta, pero la IA lo frenó.
+Esperado en la implementación actual: `403` con error de acceso bloqueado. La
+contraseña era correcta, pero la evaluación de riesgo lo frenó. Este código
+diferenciado debe considerarse al evaluar anti-enumeración.
 
 **Confirmar en los logs que fue la IA, no la contraseña:**
 ```
@@ -205,58 +210,76 @@ docker compose start anomaly-detection
 
 ---
 
-## 3. Eventos de métricas
+## 3. Outbox y eventos EDA
 
-No hay endpoints HTTP para Analítica ni un cálculo diario dentro de Login.
-El backend publica hechos crudos mediante `EventPublisher`; en desarrollo,
-`LoggingEventPublisher` los serializa y los escribe en los logs. En producción,
-este publisher debe conectarse al bus definido por el Grupo 1.
+Login, refresh y logout crean hechos `identidad.login`, `identidad.refresh` e
+`identidad.logout`. La solicitud no llama directamente al Gateway: inserta una
+fila `PENDING` en `event_outbox` y `EventOutboxRelay` la entrega después.
 
-Se publica un evento por cada operación exitosa:
+### 3.1 Probar en modo local
 
-- `identidad.login`: login LDAP exitoso.
-- `identidad.refresh`: refresh token validado y rotado.
-- `identidad.logout`: logout por refresh token o revocación masiva por baja.
+Con `EDA_PUBLISHER=logging`, observar relay y estado:
 
-El campo `occurredAt` está en GMT 0/UTC y debe terminar en `Z`. El payload
-incluye identificación estable (`userSub`), usuario cuando está disponible,
-departamento/módulo, `clientId`, `chainId`, IP y User-Agent. Nunca incluye el
-refresh token ni su hash.
-
-### 3.1 Probar los eventos
-
-Primero observa los logs en una terminal:
-```
-docker compose logs -f app | findstr /i "EVENTO PUBLICADO"
+```cmd
+docker compose logs -f app | findstr /i "outbox EVENTO PUBLICADO"
 ```
 
-En otra terminal, realiza un login y guarda el `refresh_token` de la respuesta:
-```
-curl -i -X POST http://localhost:8081/auth/login -H "Content-Type: application/json" -H "X-Forwarded-For: 181.30.10.20" -A "CMD-Metricas-Test/1.0" -d "{\"username\":\"jperez\",\"password\":\"changeit123\",\"clientId\":\"citypass-reclamos-web\"}"
-```
-Esperado: `200` y una línea con `tipo=identidad.login`.
+Ejecutar login, refresh y logout como en la sección 1. Luego consultar:
 
-Luego rota el refresh:
+```cmd
+docker exec -it citypass-db psql -U citypass -d login_federado -c "SELECT id, event_type, status, attempts, created_at, sent_at FROM event_outbox ORDER BY created_at DESC LIMIT 10;"
 ```
-curl -i -X POST http://localhost:8081/auth/refresh -H "Content-Type: application/json" -H "X-Forwarded-For: 181.30.10.21" -A "CMD-Metricas-Test/1.0" -d "{\"refreshToken\":\"TU_REFRESH_TOKEN\"}"
-```
-Esperado: `200`, un refresh nuevo y una línea con `tipo=identidad.refresh`.
 
-Finalmente revoca el refresh nuevo:
-```
-curl -i -X POST http://localhost:8081/auth/logout -H "Content-Type: application/json" -H "X-Forwarded-For: 181.30.10.22" -A "CMD-Metricas-Test/1.0" -d "{\"refreshToken\":\"NUEVO_REFRESH_TOKEN\"}"
-```
-Esperado: `204` y una línea con `tipo=identidad.logout`.
+Esperado: tres eventos con id estable y estado `SENT`. Un login rechazado, refresh
+inválido o logout de un token desconocido no genera un hecho exitoso.
 
-Verifica el formato UTC directamente:
-```
-docker compose logs app --since=10m | findstr /i "identidad.login identidad.refresh identidad.logout"
-```
-El valor de `occurredAt` debe terminar en `Z`, por ejemplo:
-`2026-09-15T13:56:51.853Z`.
+### 3.2 Probar el Gateway real
 
-Un login rechazado, un refresh inválido o un logout de un token desconocido no
-generan un evento.
+Configurar sin publicar valores sensibles:
+
+```text
+EDA_PUBLISHER=http
+EDA_GATEWAY_URL=https://...
+EDA_TOKEN_URL=https://...
+EDA_CLIENT_ID=grupo2
+EDA_CLIENT_SECRET=<secret>
+```
+
+El Gateway debe observar el mismo `authEventId` que la fila del Outbox. Ante una
+falla temporal, el login debe conservar su respuesta y la fila debe permanecer
+`PENDING` con `attempts` y `next_attempt_at` actualizados. Al superar el máximo
+pasa a `FAILED` y requiere intervención operativa.
+
+### 3.3 Verificar el contrato
+
+- `occurredAt` usa UTC.
+- `actorSub` identifica a la persona; el token humano nunca se reenvía al bus.
+- El envelope se autentica con el token de servicio de `grupo2`.
+- Nunca se publican access tokens, refresh tokens ni hashes.
+
+## 4. Panel de anomalías
+
+Con un token de delegado o admin:
+
+```cmd
+curl -i "http://localhost:8081/panel/anomaly-events?page=0&size=20" -H "Authorization: Bearer TOKEN"
+curl -i -X POST "http://localhost:8081/panel/anomaly-events/EVENT_ID/approve" -H "Authorization: Bearer TOKEN"
+```
+
+Esperado: listado aislado por módulo y aprobación contextual de un solo uso. Un
+delegado no puede seleccionar otro módulo.
+
+## 5. Proxy de Analítica
+
+Ingresar como `admin-global` y ejecutar:
+
+```cmd
+curl -i http://localhost:8081/admin/analitica -H "Authorization: Bearer TOKEN"
+```
+
+Esperado: `200`, `Content-Type: text/html` y cuerpo no vacío. Un delegado recibe
+`403`. Una falla de red hacia el Grupo 8 se mapea a `503`; una respuesta exitosa
+sin HTML válido se mapea a `502`.
 
 ---
 

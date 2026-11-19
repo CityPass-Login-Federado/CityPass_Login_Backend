@@ -1,9 +1,9 @@
 # Secuencias — Panel de administración
 
-**Fecha de revisión:** 24 de septiembre de 2026
+**Fecha de revisión:** 19 de noviembre de 2026
 **Base de rutas:** `/panel`
 
-El panel exige un JWT humano emitido para la audiencia `admin`. La autorización diferencia a los delegados de módulo de los administradores globales.
+El panel exige un JWT humano emitido para la audiencia `citypass-admin-api`. La autorización diferencia a los delegados de módulo de los administradores globales.
 
 ## Autorización y consultas
 
@@ -20,7 +20,7 @@ sequenceDiagram
 
     A->>UI: Abre el panel
     UI->>SC: Solicitud con Bearer JWT
-    SC->>SC: Verificar firma RS256, exp,<br/>token_use=access y aud=admin
+    SC->>SC: Verificar firma RS256, exp, revocación,<br/>token_use=human y aud=citypass-admin-api
     alt Token inválido
         SC-->>UI: 401 Unauthorized
     else Token válido
@@ -92,3 +92,5 @@ sequenceDiagram
 - Los módulos reconocidos son `movilidad`, `residuos`, `reclamos`, `emergencias`, `espacios`, `analitica` y `eda`.
 - La implementación contempla excepciones administrativas para que `admin-global` pueda vaciar o eliminar el grupo `delegados`; por lo tanto, no debe documentarse como un invariante universal.
 - La auditoría es de mejor esfuerzo y no conforma una transacción distribuida con LDAP.
+- El panel también lista y aprueba bloqueos de anomalía. La aprobación limpia el lockout, vence a los 15 minutos y se consume en un solo login con cliente, IP y user-agent coincidentes.
+- `GET /admin/analitica` es una ruta separada, exclusiva de `admin-global`, que actúa como proxy del tablero HTML del Grupo 8.

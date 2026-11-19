@@ -1,4 +1,4 @@
-﻿# ADR-001: LDAP como fuente de identidades
+# ADR-001: LDAP como fuente de identidades
 
 ## Quiénes
 

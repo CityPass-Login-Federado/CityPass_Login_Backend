@@ -1,8 +1,9 @@
 # Diagramas de arquitectura y funcionales
 
-**Última revisión integral:** 24 de septiembre de 2026
+**Última revisión integral:** 19 de noviembre de 2026
+**Entrega:** TASK-171 — Actualización de Documentación Técnica y Diagramas UML Finales
 
-Esta carpeta documenta el estado implementado del Módulo de Login Federado e Identidad de CityPass+. El módulo se representa como un sistema funcional aislado; los restantes módulos y el Event Gateway son dependencias externas hasta la fase de integración.
+Esta carpeta documenta el estado implementado del Módulo de Login Federado e Identidad de CityPass+. Los restantes módulos, el Event Gateway del Grupo 1 y el backend de Analítica son sistemas externos integrados por contratos HTTP.
 
 ## Índice
 
@@ -32,3 +33,9 @@ Esta carpeta documenta el estado implementado del Módulo de Login Federado e Id
 - Las secuencias describen comportamiento actual; los riesgos y mejoras pendientes están separados de los flujos implementados.
 - Los despliegues distinguen explícitamente desarrollo y producción.
 
+## Trazabilidad
+
+La correspondencia entre estos diagramas y la rúbrica se documenta en
+[`../trazabilidad-task-171.md`](../trazabilidad-task-171.md). Los diagramas del
+frontend se mantienen en su guía de arquitectura; este directorio es la fuente de
+verdad para las vistas integrales del sistema.

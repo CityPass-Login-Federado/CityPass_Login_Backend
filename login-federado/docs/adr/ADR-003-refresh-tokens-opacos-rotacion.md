@@ -1,4 +1,4 @@
-﻿# ADR-003: Refresh tokens opacos con rotación y hash SHA-256
+# ADR-003: Refresh tokens opacos con rotación y hash SHA-256
 
 ## Quiénes
 

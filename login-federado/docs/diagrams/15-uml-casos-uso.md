@@ -1,7 +1,7 @@
 # UML — Casos de uso del módulo Login Federado
 
-**Módulo:** Login Federado e Identidad — Grupo 2  
-**Fecha de revisión:** 24 de septiembre de 2026  
+**Módulo:** Login Federado e Identidad — Grupo 2
+**Fecha de revisión:** 19 de noviembre de 2026
 **Estado:** actualizado contra el backend y las historias de usuario vigentes
 
 Fuente original: [Diagramas UML (CU, ER) — Módulo 2](https://app.notion.com/p/drff/Diagramas-UML-CU-ER-Modulo-2-3c977c7e30048071b13dd90ecd96a45b?source=copy_link)
@@ -11,7 +11,7 @@ Fuente original: [Diagramas UML (CU, ER) — Módulo 2](https://app.notion.com/p
 Mermaid no ofrece una sintaxis UML de casos de uso compatible con todos los renderizadores. Por ese motivo, los diagramas utilizan `flowchart`, actores externos, un límite explícito del sistema y nodos ovalados para los casos de uso.
 
 - Las flechas continuas representan participación del actor.
-- Las flechas discontinuas representan una relación incluida o una consecuencia interna.
+- Las flechas discontinuas usan explícitamente los estereotipos UML `<<include>>` y `<<extend>>`. En `include` la flecha apunta al caso reutilizado; en `extend` apunta al caso base.
 - Los servicios externos quedan fuera del límite del módulo.
 - Los casos de uso describen comportamiento comprobable; no representan clases ni componentes internos.
 
@@ -26,7 +26,7 @@ flowchart LR
     OPERATOR["Responsable de operación"]
     ANOMALY["Servicio de anomalías"]
     MAIL["Servicio de correo"]
-    GATEWAY["Gateway de eventos"]
+    GATEWAY["Event Gateway - Grupo 1"]
 
     subgraph IDP["Módulo 2 - Login Federado"]
         direction TB
@@ -40,10 +40,12 @@ flowchart LR
         FORGOT_PASSWORD(["Solicitar recuperación"])
         RESET_PASSWORD(["Restablecer contraseña con token"])
         REVOKE_SESSIONS(["Revocar sesiones renovables"])
+        REVOKE_ACCESS(["Invalidar access previos en Login"])
         SERVICE_TOKEN(["Obtener token de servicio"])
         JWKS(["Consultar claves públicas"])
         HEALTH(["Consultar salud del servicio"])
-        PUBLISH_EVENT(["Publicar evento de identidad"])
+        ENQUEUE_EVENT(["Encolar evento de identidad"])
+        DELIVER_EVENT(["Entregar evento pendiente"])
     end
 
     PERSON --> WEB
@@ -58,16 +60,19 @@ flowchart LR
     API --> JWKS
     OPERATOR --> HEALTH
 
-    LOGIN -.->|incluye| LOCKOUT
-    LOGIN -.->|incluye| RISK
+    LOGIN -.->|"<<include>>"| LOCKOUT
+    LOGIN -.->|"<<include>>"| RISK
     RISK --> ANOMALY
     FORGOT_PASSWORD --> MAIL
-    CHANGE_PASSWORD -.->|incluye| REVOKE_SESSIONS
-    RESET_PASSWORD -.->|incluye| REVOKE_SESSIONS
-    LOGIN -.->|si es exitoso| PUBLISH_EVENT
-    REFRESH -.->|si es exitoso| PUBLISH_EVENT
-    LOGOUT -.->|si reconoce la sesión| PUBLISH_EVENT
-    PUBLISH_EVENT -.->|modo HTTP| GATEWAY
+    CHANGE_PASSWORD -.->|"<<include>>"| REVOKE_SESSIONS
+    RESET_PASSWORD -.->|"<<include>>"| REVOKE_SESSIONS
+    CHANGE_PASSWORD -.->|"<<include>>"| REVOKE_ACCESS
+    RESET_PASSWORD -.->|"<<include>>"| REVOKE_ACCESS
+    ENQUEUE_EVENT -.->|"<<extend>> [login exitoso]"| LOGIN
+    ENQUEUE_EVENT -.->|"<<extend>> [refresh exitoso]"| REFRESH
+    ENQUEUE_EVENT -.->|"<<extend>> [sesión reconocida]"| LOGOUT
+    DELIVER_EVENT -.->|"<<extend>> [evento PENDING]"| ENQUEUE_EVENT
+    GATEWAY --> DELIVER_EVENT
 ```
 
 ### Trazabilidad funcional
@@ -78,22 +83,22 @@ flowchart LR
 | Controlar intentos repetidos | Incluido en login | Cinco fallos dentro de 15 minutos activan el bloqueo temporal; el error externo continúa siendo genérico. |
 | Evaluar riesgo | `POST /score` del servicio externo | Se ejecuta después del bind LDAP; `BLOCK` rechaza y una falla del servicio aplica comportamiento cerrado. |
 | Renovar sesión | `POST /auth/refresh` | Rota el refresh token, relee LDAP y revoca la cadena completa ante reúso o canje concurrente. |
-| Cerrar sesión | `POST /auth/logout` | Revoca el refresh token presentado y responde `204` aunque sea desconocido; el access token expira naturalmente. |
+| Cerrar sesión | `POST /auth/logout` | Revoca el refresh token y responde `204` aunque sea desconocido; si recibe un Bearer token, también denylista su `jti`. |
 | Consultar perfil | `GET /me` | Solo acepta token humano y relee la identidad desde LDAP. |
-| Cambiar contraseña | `POST /me/change-password` | Verifica la contraseña actual y revoca todos los refresh tokens de la persona. |
+| Cambiar contraseña | `POST /me/change-password` | Verifica la contraseña actual, revoca refresh tokens y hace que este backend rechace access tokens anteriores del sujeto. |
 | Solicitar recuperación | `POST /auth/forgot-password` | Responde siempre `204`, aplica límites antiabuso y envía un enlace de un solo uso de manera asíncrona. |
 | Restablecer contraseña | `POST /auth/reset-password` | Consume atómicamente el token, cambia la contraseña y revoca las sesiones renovables. |
 | Obtener token de servicio | `POST /oauth/token` | Usa Client Credentials; admite Basic Auth o formulario; emite un JWT de servicio por 15 minutos, sin grupos ni refresh token. |
 | Consultar claves públicas | `GET /.well-known/jwks.json` | Publica la clave RSA y el `kid` necesarios para validar JWT RS256. |
-| Consultar salud | `GET /health` o `/actuator/health` | Existe una diferencia pendiente entre la ruta declarada por EDA y la ruta pública configurada. |
-| Publicar evento | Sin endpoint de usuario | Publica `identidad.login`, `identidad.refresh` o `identidad.logout`; el modo predeterminado escribe el envelope en logs. |
+| Consultar salud | `GET /health` o `/actuator/health` | Ambos endpoints están permitidos públicamente; Actuator es el usado por despliegues y contenedores. |
+| Encolar y entregar evento | Sin endpoint de usuario | Persiste `identidad.login`, `identidad.refresh` o `identidad.logout` en `event_outbox`; el relay entrega con reintentos al adaptador de logging o al Gateway. |
 
 ### Restricciones representadas
 
-- Todos los errores de autenticación humana utilizan una respuesta `401` genérica para evitar enumeración de cuentas y reglas internas.
+- Las fallas de credenciales, cliente, módulo y lockout utilizan una respuesta `401` genérica; el rechazo por anomalía usa `403` y su indisponibilidad `503`, sin exponer detalles de la cuenta.
 - El evaluador de anomalías es una dependencia sincrónica del login; no es un actor humano.
 - El correo se utiliza únicamente para entregar el enlace de recuperación. La solicitud no cambia la contraseña en LDAP.
-- El gateway de eventos es opcional en la ejecución aislada. La integración HTTP requiere configuración y disponibilidad externas.
+- El gateway es un sistema externo real del Grupo 1. En ejecución aislada puede usarse el adaptador de logging; en ambos modos la autenticación queda desacoplada mediante Outbox.
 - El JWT de servicio identifica al cliente por `sub` y `namespace`; nunca representa a una persona.
 
 ## 3. Panel de administración
@@ -102,6 +107,7 @@ flowchart LR
 flowchart LR
     DELEGATE["Delegado de módulo"]
     GLOBAL["Administrador global"]
+    ANALYTICS["Backend de Analítica - Grupo 8"]
 
     subgraph PANEL["Panel de administración de identidad"]
         direction TB
@@ -110,6 +116,7 @@ flowchart LR
         UPDATE_PERSON(["Actualizar persona"])
         DISABLE_PERSON(["Deshabilitar persona"])
         ENABLE_PERSON(["Rehabilitar persona"])
+        UNLOCK_PERSON(["Desbloquear intentos fallidos"])
         ADMIN_RESET(["Asignar contraseña temporal"])
         LIST_GROUP(["Listar grupos"])
         CREATE_GROUP(["Crear grupo"])
@@ -120,6 +127,9 @@ flowchart LR
         LIST_MODULES(["Listar módulos"])
         GLOBAL_PEOPLE(["Consultar personas de todos los módulos"])
         GLOBAL_GROUPS(["Consultar grupos de todos los módulos"])
+        LIST_ANOMALIES(["Consultar eventos de anomalía"])
+        APPROVE_ANOMALY(["Aprobar acceso anómalo por única vez"])
+        VIEW_ANALYTICS(["Consultar tablero de Analítica"])
         SELECT_MODULE(["Seleccionar módulo a operar"])
         REVOKE_ALL(["Revocar sesiones renovables"])
         AUDIT(["Registrar auditoría"])
@@ -130,6 +140,7 @@ flowchart LR
     DELEGATE --> UPDATE_PERSON
     DELEGATE --> DISABLE_PERSON
     DELEGATE --> ENABLE_PERSON
+    DELEGATE --> UNLOCK_PERSON
     DELEGATE --> ADMIN_RESET
     DELEGATE --> LIST_GROUP
     DELEGATE --> CREATE_GROUP
@@ -138,35 +149,45 @@ flowchart LR
     DELEGATE --> REMOVE_MEMBER
     DELEGATE --> BULK_MEMBER
     DELEGATE --> LIST_MODULES
+    DELEGATE --> LIST_ANOMALIES
+    DELEGATE --> APPROVE_ANOMALY
 
     GLOBAL --> GLOBAL_PEOPLE
     GLOBAL --> GLOBAL_GROUPS
     GLOBAL --> LIST_MODULES
     GLOBAL --> SELECT_MODULE
-    SELECT_MODULE -.->|habilita operación| LIST_PERSON
-    SELECT_MODULE -.->|habilita operación| CREATE_PERSON
-    SELECT_MODULE -.->|habilita operación| UPDATE_PERSON
-    SELECT_MODULE -.->|habilita operación| DISABLE_PERSON
-    SELECT_MODULE -.->|habilita operación| ENABLE_PERSON
-    SELECT_MODULE -.->|habilita operación| ADMIN_RESET
-    SELECT_MODULE -.->|habilita operación| LIST_GROUP
-    SELECT_MODULE -.->|habilita operación| CREATE_GROUP
-    SELECT_MODULE -.->|habilita operación| DELETE_GROUP
-    SELECT_MODULE -.->|habilita operación| ADD_MEMBER
-    SELECT_MODULE -.->|habilita operación| REMOVE_MEMBER
-    SELECT_MODULE -.->|habilita operación| BULK_MEMBER
+    GLOBAL --> LIST_PERSON
+    GLOBAL --> CREATE_PERSON
+    GLOBAL --> UPDATE_PERSON
+    GLOBAL --> DISABLE_PERSON
+    GLOBAL --> ENABLE_PERSON
+    GLOBAL --> UNLOCK_PERSON
+    GLOBAL --> ADMIN_RESET
+    GLOBAL --> LIST_GROUP
+    GLOBAL --> CREATE_GROUP
+    GLOBAL --> DELETE_GROUP
+    GLOBAL --> ADD_MEMBER
+    GLOBAL --> REMOVE_MEMBER
+    GLOBAL --> BULK_MEMBER
+    GLOBAL --> LIST_ANOMALIES
+    GLOBAL --> APPROVE_ANOMALY
+    GLOBAL --> VIEW_ANALYTICS
+    VIEW_ANALYTICS --> ANALYTICS
 
-    DISABLE_PERSON -.->|incluye| REVOKE_ALL
-    CREATE_PERSON -.->|intenta registrar| AUDIT
-    UPDATE_PERSON -.->|intenta registrar| AUDIT
-    DISABLE_PERSON -.->|intenta registrar| AUDIT
-    ENABLE_PERSON -.->|intenta registrar| AUDIT
-    ADMIN_RESET -.->|intenta registrar| AUDIT
-    CREATE_GROUP -.->|intenta registrar| AUDIT
-    DELETE_GROUP -.->|intenta registrar| AUDIT
-    ADD_MEMBER -.->|intenta registrar| AUDIT
-    REMOVE_MEMBER -.->|intenta registrar| AUDIT
-    BULK_MEMBER -.->|por cada alta| AUDIT
+    DISABLE_PERSON -.->|"<<include>>"| REVOKE_ALL
+    APPROVE_ANOMALY -.->|"<<include>>"| UNLOCK_PERSON
+    CREATE_PERSON -.->|"<<include>>"| AUDIT
+    UPDATE_PERSON -.->|"<<include>>"| AUDIT
+    DISABLE_PERSON -.->|"<<include>>"| AUDIT
+    ENABLE_PERSON -.->|"<<include>>"| AUDIT
+    UNLOCK_PERSON -.->|"<<include>>"| AUDIT
+    ADMIN_RESET -.->|"<<include>>"| AUDIT
+    CREATE_GROUP -.->|"<<include>>"| AUDIT
+    DELETE_GROUP -.->|"<<include>>"| AUDIT
+    ADD_MEMBER -.->|"<<include>>"| AUDIT
+    REMOVE_MEMBER -.->|"<<include>>"| AUDIT
+    BULK_MEMBER -.->|"<<include>>"| AUDIT
+    APPROVE_ANOMALY -.->|"<<include>>"| AUDIT
 ```
 
 ### Trazabilidad funcional
@@ -176,8 +197,9 @@ flowchart LR
 | Listar y consultar personas | `GET /panel/people`, `GET /panel/people/{uid}` | El delegado queda limitado al módulo del JWT; permite paginación y filtros. |
 | Crear persona | `POST /panel/people` | Genera `employeeNumber` global, secuencial e inmutable; username y correo son únicos globalmente. |
 | Actualizar persona | `PUT /panel/people/{uid}` | Puede renombrar el username y repara las referencias de membresía; no modifica `employeeNumber`. |
-| Deshabilitar persona | `POST /panel/people/{uid}/disable` | Bloquea la cuenta sin eliminarla y revoca todos sus refresh tokens. |
+| Deshabilitar persona | `POST /panel/people/{uid}/disable` | Bloquea la cuenta y revoca los refresh tokens sin eliminar la identidad; actualmente no avanza el corte de access tokens. |
 | Rehabilitar persona | `POST /panel/people/{uid}/enable` | Elimina el bloqueo conservando identidad y membresías. |
+| Desbloquear intentos fallidos | `POST /panel/people/{uid}/unlock` | Elimina el lockout temporal y los intentos fallidos; no aprueba por sí solo una anomalía. |
 | Asignar contraseña temporal | `POST /panel/people/{uid}/reset-password` | Cambia la contraseña en LDAP; todavía no revoca refresh tokens ni fuerza de forma verificable el cambio posterior. |
 | Listar y crear grupos | `GET /panel/groups`, `POST /panel/groups` | Los grupos pertenecen a un módulo; nombre de hasta 64 caracteres en minúsculas, números y guiones. |
 | Eliminar grupo | `DELETE /panel/groups/{name}` | El delegado no puede eliminar `delegados`; el código permite hacerlo a `admin-global`, decisión pendiente de validar. |
@@ -185,6 +207,8 @@ flowchart LR
 | Asignar membresías masivas | `POST /panel/group-memberships/bulk` | Producto cartesiano deduplicado, hasta 1.000 relaciones; informa resultado total y por relación. |
 | Listar módulos | `GET /panel/modules` | Devuelve los siete módulos habilitados actualmente. |
 | Consultas globales | `GET /panel/admin/people`, `GET /panel/admin/groups` | Exclusivas de `admin-global`; agregan, filtran y paginan datos de todos los módulos. |
+| Consultar y aprobar anomalías | `GET /panel/anomaly-events`, `POST /panel/anomaly-events/{id}/approve` | Respeta el módulo del delegado; la aprobación dura 15 minutos, coincide por contexto y se consume una sola vez. |
+| Consultar tablero de Analítica | `GET /admin/analitica` | Exclusivo de `admin-global`; actúa como proxy autenticado del HTML entregado por el Grupo 8. |
 
 ### Reglas de autorización y coherencia
 
@@ -214,5 +238,8 @@ flowchart LR
 - Se incorporaron actualización, rehabilitación, reset administrativo y consultas globales de personas.
 - Se incorporaron eliminación de grupos, remoción de miembros y asignación masiva.
 - Se representó la revocación de sesiones al deshabilitar una persona.
+- Se incorporaron el desbloqueo, la revisión/aprobación de anomalías y el proxy del tablero de Analítica.
+- Se reemplazó la publicación directa por el guardado y relay del Outbox.
+- Se normalizaron las relaciones con `<<include>>` y `<<extend>>`.
 - Se eliminó el caso ambiguo de “gestionar grupo” y se lo descompuso en operaciones verificables.
 - Se documentaron las excepciones reales de `admin-global`, la auditoría de mejor esfuerzo y la integración EDA condicionada.

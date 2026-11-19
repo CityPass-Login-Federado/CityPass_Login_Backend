@@ -1,4 +1,4 @@
-﻿# Architecture Decision Records (ADR) — Login Federado
+# Architecture Decision Records (ADR) — Login Federado
 
 Este directorio contiene las decisiones de arquitectura documentadas del módulo Login Federado.
 

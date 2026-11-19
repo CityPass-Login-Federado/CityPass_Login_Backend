@@ -1,6 +1,6 @@
 # Secuencia — Rotación del refresh token
 
-**Fecha de revisión:** 24 de septiembre de 2026
+**Fecha de revisión:** 19 de noviembre de 2026
 **Endpoint:** `POST /auth/refresh`
 
 Cada uso válido rota el refresh token. La reutilización, incluida una carrera concurrente, invalida la cadena completa de la sesión.
@@ -17,7 +17,7 @@ sequenceDiagram
     participant LDAP as LDAP corporativo
     participant CR as ClientRegistry
     participant JWT as AccessTokenIssuer
-    participant EP as EventPublisher
+    participant OB as EventOutboxService
 
     U->>C: Solicita renovar la sesión
     C->>AC: POST /auth/refresh<br/>{refreshToken}
@@ -52,7 +52,8 @@ sequenceDiagram
                 AS->>JWT: Emitir nuevo access token RS256, 15 min
                 AS->>RT: Crear sucesor en la misma cadena
                 RT->>DB: Guardar nuevo hash y vencimiento de 8 h
-                AS->>EP: Publicar identidad.refresh
+                AS->>OB: Encolar identidad.refresh
+                OB->>DB: INSERT event_outbox (PENDING)
                 AS-->>AC: Nuevo access token y refresh token
                 AC-->>C: 200 OK
             end
@@ -65,4 +66,5 @@ sequenceDiagram
 - La rotación condicional evita que dos solicitudes válidas consuman el mismo token simultáneamente.
 - La detección de reutilización revoca la cadena de refresh tokens, no sólo el token presentado.
 - Antes de renovar, se consulta nuevamente LDAP y se comprueba que la audiencia y el módulo continúen habilitados.
-- Un access token emitido previamente no se revoca en línea; conserva validez hasta su expiración de quince minutos.
+- El evento de renovación se entrega de forma asíncrona mediante el relay del Outbox.
+- En los endpoints protegidos por este backend, un access token puede invalidarse antes de expirar por denylist de `jti` o por un corte del sujeto. Las APIs externas que solo validan JWKS no consultan estas tablas.

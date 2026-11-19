@@ -1,4 +1,4 @@
-﻿# ADR-002: JWT RS256 como mecanismo de tokens de acceso
+# ADR-002: JWT RS256 como mecanismo de tokens de acceso
 
 ## Quiénes
 

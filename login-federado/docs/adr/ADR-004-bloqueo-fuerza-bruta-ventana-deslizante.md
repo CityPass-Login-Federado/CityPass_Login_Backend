@@ -1,4 +1,4 @@
-﻿# ADR-004: Bloqueo por fuerza bruta — ventana deslizante
+# ADR-004: Bloqueo por fuerza bruta — ventana deslizante
 
 ## Quiénes
 

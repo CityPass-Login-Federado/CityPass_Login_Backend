@@ -1,6 +1,6 @@
 # Secuencia — Validación de JWT mediante JWKS
 
-**Fecha de revisión:** 24 de septiembre de 2026
+**Fecha de revisión:** 19 de noviembre de 2026
 **Endpoint público:** `GET /.well-known/jwks.json`
 
 Los módulos consumidores pueden validar localmente los access tokens sin consultar al módulo de Login en cada solicitud.

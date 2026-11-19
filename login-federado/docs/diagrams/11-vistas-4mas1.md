@@ -1,7 +1,7 @@
 # Arquitectura 4+1 — Módulo de Login Federado
 
 **Estado documentado:** implementación actual (*as-is*)
-**Fecha de revisión:** 24 de septiembre de 2026
+**Fecha de revisión:** 19 de noviembre de 2026
 
 El modelo 4+1 organiza la arquitectura desde cinco perspectivas complementarias. El sistema de interés es exclusivamente el Módulo de Login Federado e Identidad; los demás módulos CityPass+ se consideran consumidores externos durante la etapa de desarrollo aislado.
 
@@ -26,6 +26,7 @@ flowchart TB
         AUTH[REST de autenticación y perfil]
         OAUTH[OAuth 2.0 Client Credentials]
         PANEL[REST del panel administrativo]
+        ANALYTICS[Proxy REST de Analítica]
         OPS[JWKS, Actuator y documentación]
     end
 
@@ -34,14 +35,17 @@ flowchart TB
         PS[Panel Services]
         TS[Token Services]
         RS[Risk Service]
+        OUTBOX[Outbox Service y Relay]
         ES[Event Publisher]
+        AP[Analytics Proxy]
         MS[Mail Service]
     end
 
     subgraph Dominio[Dominio y políticas]
         CLIENTS[Registro de clientes y audiencias]
         POLICY[Autorización por groups y module]
-        ROTATION[Rotación, cadenas y revocación]
+        ROTATION[Rotación y cadenas de refresh]
+        REVOCATION[Denylist por jti y corte por sujeto]
         LOCKOUT[Bloqueo por intentos]
     end
 
@@ -51,22 +55,25 @@ flowchart TB
         JWT[JWT RS256 y JWKS]
         RISK[Cliente HTTP de anomalías]
         EDA[Logging o cliente HTTP EDA]
+        ANALYTICS_EXT[Cliente HTTP de Analítica]
         SMTP[Correo SMTP]
     end
 
     AUTH --> AS
     OAUTH --> TS
     PANEL --> PS
+    ANALYTICS --> AP
     OPS --> JWT
     AS --> TS
     AS --> RS
-    AS --> ES
+    AS --> OUTBOX
     AS --> MS
     AS --> CLIENTS
     AS --> LOCKOUT
     PS --> POLICY
     PS --> TS
     TS --> ROTATION
+    TS --> REVOCATION
     AS --> LDAP
     PS --> LDAP
     AS --> DB
@@ -74,11 +81,15 @@ flowchart TB
     TS --> DB
     TS --> JWT
     RS --> RISK
+    OUTBOX --> DB
+    OUTBOX --> ES
     ES --> EDA
+    AP --> POLICY
+    AP --> ANALYTICS_EXT
     MS --> SMTP
 ```
 
-La identidad y los grupos viven en LDAP. PostgreSQL conserva tokens de renovación, intentos de acceso, solicitudes y tokens de restablecimiento, y auditoría del panel. La clave privada RSA queda restringida al emisor; la pública se expone mediante JWKS.
+La identidad y los grupos viven en LDAP. PostgreSQL conserva las diez tablas operativas de sesiones, seguridad, anomalías, auditoría, recuperación y Outbox. La clave privada RSA queda restringida al emisor; la pública se expone mediante JWKS. Analítica y el Event Gateway son sistemas externos accedidos a través de adaptadores explícitos.
 
 ## 2. Vista de desarrollo
 
@@ -89,10 +100,12 @@ flowchart LR
             CONTROLLERS[controller]
             SERVICES[service]
             SECURITY[security]
-            LDAPJAVA[ldap]
+            IDENTITY[identity]
             REPOSITORIES[repository]
             CONFIG[config]
-            EVENTS[events]
+            EVENTS[event]
+            ANALYTICSJAVA[analytics]
+            PANELJAVA[panel]
         end
         subgraph Python[Servicio FastAPI]
             RUNTIME[anomaly-detection<br/>runtime /score]
@@ -105,9 +118,12 @@ flowchart LR
 
     CONTROLLERS --> SERVICES
     SERVICES --> SECURITY
-    SERVICES --> LDAPJAVA
+    SERVICES --> IDENTITY
     SERVICES --> REPOSITORIES
     SERVICES --> EVENTS
+    CONTROLLERS --> PANELJAVA
+    CONTROLLERS --> ANALYTICSJAVA
+    ANALYTICSJAVA --> SECURITY
     CONFIG --> CONTROLLERS
     CONFIG --> SERVICES
     RUNTIME -. carga si existe .-> MODEL
@@ -129,16 +145,25 @@ flowchart TB
     SERVICE --> PG[(PostgreSQL)]
     SERVICE --> RISK[FastAPI /score]
     SERVICE --> TOKEN[Firma JWT local]
-    SERVICE --> EVENT{Publicador de eventos}
+    SERVICE --> OUTBOX[(event_outbox)]
+    SERVICE --> RESPONSE[Respuesta HTTP desacoplada del gateway]
+    SCHEDULER[EventOutboxRelay programado] -->|SKIP LOCKED| OUTBOX
+    SCHEDULER --> EVENT{Publicador configurado}
     EVENT -->|predeterminado| LOG[Registro local]
-    EVENT -->|modo HTTP sincrónico| GATEWAY[Event Gateway]
+    EVENT -->|modo HTTP| GATEWAY[Event Gateway - Grupo 1]
+    EVENT -->|éxito| SENT[Marcar SENT]
+    EVENT -->|error| RETRY[Reprogramar con backoff<br/>o marcar FAILED]
+    ANALYTICS_REQ[GET /admin/analitica] --> AUTHZ[Exigir admin-global]
+    AUTHZ --> ANALYTICS_EXT[Backend de Analítica - Grupo 8]
+    ANALYTICS_EXT --> ANALYTICS_REQ
     SERVICE --> MAIL[Envío de correo asíncrono]
 ```
 
-- La API es esencialmente sin estado para access tokens; el estado de sesión renovable reside en PostgreSQL.
+- Los access tokens son autosuficientes, pero su revocación inmediata agrega estado acotado en `revoked_access_tokens` y `revoked_subject_cutoffs`.
 - LDAP, PostgreSQL y la evaluación de riesgo forman parte sincrónica de los flujos de autenticación.
 - La rotación usa una actualización condicional para resolver concurrencia; el perdedor provoca la revocación de la cadena.
-- El correo de recuperación se delega a un ejecutor asíncrono. La publicación EDA por HTTP, cuando se habilita, permanece sincrónica.
+- El correo de recuperación se delega a un ejecutor asíncrono. Los requests de autenticación encolan eventos; el relay los entrega después con lotes, `SKIP LOCKED`, `Retry-After` y *backoff* exponencial.
+- El proxy de Analítica reenvía el token humano y valida que una respuesta exitosa sea HTML no vacío; mapea fallas de comunicación a `503` y respuestas exitosas inválidas a `502`.
 - No hay transacción distribuida entre LDAP, PostgreSQL, SMTP y el gateway; se documentan explícitamente los puntos de consistencia eventual o mejor esfuerzo.
 
 ## 4. Vista física
@@ -149,14 +174,15 @@ La topología local se detalla en [12-cloud-deployment-dev.md](12-cloud-deployme
 
 | Escenario | Recorrido arquitectónico | Resultado esperado |
 | --- | --- | --- |
-| Login humano | REST → registro de clientes → bloqueo → LDAP → riesgo → JWT/refresh → evento | Access token de 15 min y refresh token de 8 h |
-| Renovación | REST → hash en PostgreSQL → rotación atómica → LDAP → JWT → evento | Nuevos tokens; la reutilización revoca la cadena |
-| Logout | REST público → revocación de un refresh token → evento | `204` idempotente; el access token expira naturalmente |
-| Recuperación de contraseña | REST → límites en PostgreSQL → correo → cambio en LDAP → revocación masiva | Respuesta no enumerativa y cierre de sesiones renovables |
-| Administración delegada | JWT `aud=admin` → política groups/module → LDAP → auditoría | Operación limitada al módulo del delegado |
-| Administración global | JWT `aud=admin` → política admin-global → módulo explícito o ruta global | Operación transversal controlada |
+| Login humano | REST → rate limit/bloqueo → LDAP → riesgo → JWT/refresh → Outbox | Access token de 15 min, refresh de 8 h y evento pendiente |
+| Renovación | REST → rotación atómica → LDAP → JWT → Outbox | Nuevos tokens; la reutilización revoca la cadena |
+| Logout | REST público → revocación de refresh → denylist opcional del access → Outbox | `204` idempotente; este backend rechaza el access presentado |
+| Recuperación de contraseña | REST → límites → correo → cambio en LDAP → revocación por sujeto | Respuesta no enumerativa; refresh cerrados y access previos rechazados por este backend |
+| Administración delegada | JWT `aud=citypass-admin-api` → política groups/module → LDAP → auditoría | Operación limitada al módulo del delegado |
+| Administración global | JWT `aud=citypass-admin-api` → admin-global → módulo explícito o ruta global | Operación transversal controlada |
 | Integración M2M | Formulario OAuth → registro de clientes → JWT de servicio → JWKS | Token sin groups/module/refresh, válido por 15 min |
-| Publicación EDA | Evento crudo → logging o gateway HTTP autenticado | Evento disponible para consumidores; sin agregación local |
+| Publicación EDA | Evento crudo → `event_outbox` → relay → logging o Gateway autenticado | Entrega reintentable; filas `SENT` o `FAILED` trazables |
+| Consulta de Analítica | Frontend → proxy con JWT → backend Grupo 8 → HTML | Tablero visible solo para `admin-global` |
 
 ## Trazabilidad
 
