@@ -27,7 +27,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copiar código de la app y el artefacto versionado de ML.
 COPY app ./app
-COPY ML/models/isolation_forest.pkl ./models/isolation_forest.pkl
+COPY ML/models/isolation_forest_v4.pkl ./models/isolation_forest_v4.pkl
+COPY ML/models/risk_policy_v4.json ./models/risk_policy_v4.json
 COPY VERSION ./VERSION
 
 # El runtime no reentrena: solo necesita leer el artefacto offline versionado.

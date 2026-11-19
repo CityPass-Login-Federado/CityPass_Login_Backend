@@ -56,6 +56,7 @@ public class AuthService {
     private final AnomalyBlockedEventService anomalyBlockedEventService;
     private final LoginRateLimiter loginRateLimiter;
     private final TokenRevocationService tokenRevocationService;
+    private final AnomalyAssessmentService anomalyAssessmentService;
 
     public AuthService(LdapDirectory ldapDirectory,
                        ClientRegistry clientRegistry,
@@ -67,7 +68,8 @@ public class AuthService {
                        AnomalyRiskClient anomalyRiskClient,
                        AnomalyBlockedEventService anomalyBlockedEventService,
                        LoginRateLimiter loginRateLimiter,
-                       TokenRevocationService tokenRevocationService) {
+                       TokenRevocationService tokenRevocationService,
+                       AnomalyAssessmentService anomalyAssessmentService) {
         this.ldapDirectory = ldapDirectory;
         this.clientRegistry = clientRegistry;
         this.accessTokenIssuer = accessTokenIssuer;
@@ -79,6 +81,7 @@ public class AuthService {
         this.anomalyBlockedEventService = anomalyBlockedEventService;
         this.loginRateLimiter = loginRateLimiter;
         this.tokenRevocationService = tokenRevocationService;
+        this.anomalyAssessmentService = anomalyAssessmentService;
     }
 
     public LoginResponse login(LoginRequest request, String ipAddress, String userAgent) {
@@ -152,33 +155,78 @@ public class AuthService {
         // Capa 2: consulta al microservicio de detección de anomalías.
         // Corre DESPUÉS de la Capa 1 (bloqueo por umbral) y del login LDAP exitoso.
         var riskAssessment = anomalyRiskClient.score(
-                request.username(), ipAddress, userAgent
+        request.username(),
+        ipAddress,
+        userAgent
+);
+
+String accessDisposition = "PERMITTED_BY_ML";
+
+if ("BLOCK".equals(riskAssessment.decision())) {
+
+    if (anomalyBlockedEventService.consumeApprovedOverride(
+            request.username(),
+            client.clientId(),
+            ipAddress,
+            userAgent
+    )) {
+
+        accessDisposition = "APPROVED_OVERRIDE";
+
+        securityLog.warn(
+                "Login anómalo autorizado por aprobación "
+                        + "administrativa: usuario={}",
+                request.username()
         );
-        if ("BLOCK".equals(riskAssessment.decision())) {
-            if (anomalyBlockedEventService.consumeApprovedOverride(
-                    request.username(), client.clientId(), ipAddress, userAgent)) {
-                securityLog.warn(
-                        "Login anómalo autorizado por aprobación administrativa de un solo uso: usuario={}",
-                        request.username());
-            } else {
-                var eventId = anomalyBlockedEventService.recordBlockedEvent(
+
+    } else {
+
+        var eventId =
+                anomalyBlockedEventService.recordBlockedEvent(
                         person,
                         client.clientId(),
                         ipAddress,
                         userAgent,
                         riskAssessment
-                );
-                securityLog.warn(
-                        "Login rechazado por anomalías: evento={} usuario={} score={} razones={}",
-                        eventId,
-                        request.username(),
-                        riskAssessment.riskScore(),
-                        riskAssessment.reasons());
-                loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, false);
-                throw new AnomalyBlockedException("Acceso bloqueado por actividad inusual");
-            }
+                );  
+
+            anomalyAssessmentService.recordAssessment(
+                    person,
+                    client.clientId(),
+                    riskAssessment,
+                    "BLOCKED",
+                    eventId
+            );  
+
+            securityLog.warn(
+                    "Login rechazado por anomalías: "
+                            + "evento={} usuario={} score={} razones={}",
+                    eventId,
+                    request.username(),
+                    riskAssessment.riskScore(),
+                    riskAssessment.reasons()
+            );  
+
+            loginAttemptService.recordAttempt(
+                    request.username(),
+                    ipAddress,
+                    userAgent,
+                    false
+            );  
+
+            throw new AnomalyBlockedException(
+                    "Acceso bloqueado por actividad inusual"
+            );
         }
-        // TODO: si decision == "REVIEW", marcar el LoginAttempt para auditoría
+    }   
+
+    anomalyAssessmentService.recordAssessment(
+            person,
+            client.clientId(),
+            riskAssessment,
+            accessDisposition,
+            null
+    );
         // (requiere agregar una columna tipo `flagged_for_review` a login_attempts).
 
         loginAttemptService.recordAttempt(request.username(), ipAddress, userAgent, true);

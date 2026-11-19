@@ -171,3 +171,35 @@ CREATE TABLE IF NOT EXISTS revoked_subject_cutoffs (
 
 CREATE INDEX IF NOT EXISTS idx_revoked_subject_cutoffs_expires_at
     ON revoked_subject_cutoffs (expires_at);
+
+CREATE TABLE IF NOT EXISTS anomaly_assessments (
+    id UUID PRIMARY KEY,
+    user_sub VARCHAR(16) NOT NULL,
+    username VARCHAR(255) NOT NULL,
+    module VARCHAR(64) NOT NULL,
+    client_id VARCHAR(255) NOT NULL,
+    assessed_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    risk_score DOUBLE PRECISION NOT NULL,
+    proposed_decision VARCHAR(16),
+    effective_decision VARCHAR(16) NOT NULL,
+    access_disposition VARCHAR(32) NOT NULL,
+    model_version VARCHAR(64),
+    model_sha256 VARCHAR(64),
+    policy_sha256 VARCHAR(64),
+    mode VARCHAR(16),
+    assessment_json TEXT NOT NULL,
+    blocked_event_id UUID
+);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_username
+    ON anomaly_assessments (username);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_date
+    ON anomaly_assessments (assessed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_assessments_module_decision
+    ON anomaly_assessments (
+        module,
+        proposed_decision,
+        assessed_at DESC
+    );

@@ -120,6 +120,7 @@ services:
       - "8000:8000"
     environment:
       ANOMALY_DB_URL: "postgresql://citypass:citypass@postgres:5432/login_federado"
+      ANOMALY_MODE: "${ANOMALY_MODE:-SHADOW}"
     depends_on:
       - postgres
 

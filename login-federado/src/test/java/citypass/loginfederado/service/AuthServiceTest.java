@@ -43,6 +43,7 @@ class AuthServiceTest {
     private LoginRateLimiter rateLimiter;
     private TokenRevocationService tokenRevocationService;
     private AuthService service;
+    private AnomalyAssessmentService assessments;
 
     @BeforeEach
     void setUp() {
@@ -57,9 +58,10 @@ class AuthServiceTest {
         anomalyEvents = mock(AnomalyBlockedEventService.class);
         rateLimiter = mock(LoginRateLimiter.class);
         tokenRevocationService = mock(TokenRevocationService.class);
+        assessments = mock(AnomalyAssessmentService.class);
         service = new AuthService(
                 ldap, clients, issuer, refresh, jwtProperties, events, attempts, anomaly,
-                anomalyEvents, rateLimiter, tokenRevocationService);
+                anomalyEvents, rateLimiter, tokenRevocationService, assessments);
         when(clients.requireHuman(client.clientId())).thenReturn(client);
     }
 
@@ -93,7 +95,67 @@ class AuthServiceTest {
         verify(ldap).dummyBind("secret");
         verify(attempts).recordAttempt("jperez", "1.2.3.4", null, false);
     }
+    
+    @Test
+    void reviewDecisionIsPersistedAndAllowsLogin()
+            throws Exception {
 
+        when(ldap.findByUid("jperez"))
+                .thenReturn(java.util.Optional.of(person));
+
+        when(clients.acceptsModule(client, "reclamos"))
+                .thenReturn(true);
+
+        var assessment =
+                new citypass.loginfederado.dto.AnomalyScoreResponse(
+                        0.51,
+                        "REVIEW",
+                        List.of("Actividad sospechosa")
+                );
+
+        when(anomaly.score("jperez", "ip", "ua"))
+                .thenReturn(assessment);
+
+        when(issuer.issueHuman(person, client))
+                .thenReturn("access");
+
+        when(refresh.issueInitial(person, client))
+                .thenReturn("refresh");
+
+        service.login(
+                new LoginRequest(
+                        "jperez",
+                        "secret",
+                        client.clientId()
+                ),
+                "ip",
+                "ua"
+        );
+
+        verify(assessments).recordAssessment(
+                person,
+                client.clientId(),
+                assessment,
+                "PERMITTED_BY_ML",
+                null
+        );
+
+        verify(attempts).recordAttempt(
+                "jperez",
+                "ip",
+                "ua",
+                true
+        );
+
+        verify(anomalyEvents, never())
+                .recordBlockedEvent(
+                        any(),
+                        anyString(),
+                        any(),
+                        any(),
+                        any()
+                );
+    }
     @Test
     void rejectsWrongModuleWithSameGenericError() throws Exception {
         LdapDirectoryPerson mobility = 
@@ -131,14 +193,14 @@ class AuthServiceTest {
     void successfulLoginIssuesAccessRefreshAndEvent() throws Exception {
         when(ldap.findByUid("jperez")).thenReturn(java.util.Optional.of(person));
         when(clients.acceptsModule(client, "reclamos")).thenReturn(true);
-        when(anomaly.score("jperez", "ip", "ua"))
-            .thenReturn(
+        var assessment =
                 new citypass.loginfederado.dto.AnomalyScoreResponse(
-                    0.01,
-                    "ALLOW",
-                    List.of()
-                )
-            );
+                        0.01,
+                        "ALLOW",
+                        List.of()
+                );
+        when(anomaly.score("jperez", "ip", "ua"))
+            .thenReturn(assessment);
         
         when(issuer.issueHuman(person, client)).thenReturn("access");
         when(refresh.issueInitial(person, client)).thenReturn("refresh");
@@ -151,6 +213,13 @@ class AuthServiceTest {
         assertThat(response.expiresIn()).isEqualTo(900);
         verify(attempts).recordAttempt("jperez", "ip", "ua", true);
         verify(events).enqueue(any());
+        verify(assessments).recordAssessment(
+                person,
+                client.clientId(),
+                assessment,
+                "PERMITTED_BY_ML",
+                null
+        );
     }
 
     @Test
@@ -176,14 +245,22 @@ class AuthServiceTest {
     void anomalyBlockProducesGenericErrorAndFailedAttempt() throws Exception {
         when(ldap.findByUid("jperez")).thenReturn(java.util.Optional.of(person));
         when(clients.acceptsModule(client, "reclamos")).thenReturn(true);
-        when(anomaly.score(anyString(), anyString(), any()))
-            .thenReturn(
+        var assessment =
                 new citypass.loginfederado.dto.AnomalyScoreResponse(
-                    0.99,
-                    "BLOCK",
-                    List.of("risk")
-                )
-            );
+                        0.99,
+                        "BLOCK",
+                        List.of("risk")
+                );
+        UUID blockedEventId = UUID.randomUUID();
+        when(anomaly.score(anyString(), anyString(), any()))
+            .thenReturn(assessment);
+        when(anomalyEvents.recordBlockedEvent(
+                eq(person),
+                eq(client.clientId()),
+                eq("ip"),
+                eq("ua"),
+                eq(assessment)
+        )).thenReturn(blockedEventId);
 
         assertThatThrownBy(() -> 
             service.login(
@@ -200,7 +277,14 @@ class AuthServiceTest {
         
         verify(attempts).recordAttempt("jperez", "ip", "ua", false);
         verify(anomalyEvents).recordBlockedEvent(eq(person), eq(client.clientId()),
-                eq("ip"), eq("ua"), any());
+                eq("ip"), eq("ua"), eq(assessment));
+        verify(assessments).recordAssessment(
+                person,
+                client.clientId(),
+                assessment,
+                "BLOCKED",
+                blockedEventId
+        );
         verify(issuer, never()).issueHuman(any(), any());
     }
 
@@ -222,6 +306,17 @@ class AuthServiceTest {
         assertThat(response.accessToken()).isEqualTo("access");
         verify(attempts).recordAttempt("jperez", "ip", "ua", true);
         verify(anomalyEvents, never()).recordBlockedEvent(any(), any(), any(), any(), any());
+        verify(assessments).recordAssessment(
+                person,
+                client.clientId(),
+                new citypass.loginfederado.dto.AnomalyScoreResponse(
+                        0.99,
+                        "BLOCK",
+                        List.of("risk")
+                ),
+                "APPROVED_OVERRIDE",
+                null
+        );
     }
 
     @Test

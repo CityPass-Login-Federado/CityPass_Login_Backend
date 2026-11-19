@@ -52,31 +52,73 @@ def validate_raw_dataset(dataframe: pd.DataFrame) -> None:
 
 def build_offline_features(dataframe: pd.DataFrame) -> pd.DataFrame:
     """Build features using only events preceding the current row."""
+
     validate_raw_dataset(dataframe)
+
     dataframe = dataframe.copy()
+
     dataframe["occurredAt"] = pd.to_datetime(
-        dataframe["occurredAt"], errors="raise", utc=True
+        dataframe["occurredAt"],
+        errors="raise",
+        utc=True,
     )
-    dataframe["successful"] = dataframe["successful"].map(coerce_boolean)
+
+    dataframe["successful"] = dataframe["successful"].map(
+        coerce_boolean
+    )
 
     sort_columns = ["occurredAt"]
+
     if "eventId" in dataframe.columns:
         sort_columns.append("eventId")
-    dataframe = dataframe.sort_values(by=sort_columns).reset_index(drop=True)
 
-    histories = defaultdict(lambda: deque(maxlen=MAX_HISTORY))
+    dataframe = dataframe.sort_values(
+        by=sort_columns
+    ).reset_index(drop=True)
+
+    histories = defaultdict(
+        lambda: deque(maxlen=MAX_HISTORY)
+    )
+
     processed_rows = []
+    pending_events = []
+    previous_timestamp = None
 
     for _, row in dataframe.iterrows():
+
         username = row["username"]
-        identity = username if pd.notna(username) else row["userSub"]
+
+        identity = (
+            username
+            if pd.notna(username)
+            else row["userSub"]
+        )
+
         history = histories[str(identity)]
         timestamp = row["occurredAt"]
+        if timestamp != previous_timestamp:
+        
+            for pending_history, pending_event in pending_events:
+                pending_history.append(pending_event)
+
+            pending_events.clear()
+
+            previous_timestamp = timestamp
         ip_address = normalize_nullable(row["ipAddress"])
         user_agent = normalize_nullable(row["userAgent"])
 
-        known_ips = {event["ipAddress"] for event in history}
-        known_agents = {event["userAgent"] for event in history}
+        known_ips = {
+            event["ipAddress"]
+            for event in history
+            if event["successful"]
+        }
+
+        known_agents = {
+            event["userAgent"]
+            for event in history
+            if event["successful"]
+        }
+
         recent_failures = sum(
             1
             for event in history
@@ -95,19 +137,33 @@ def build_offline_features(dataframe: pd.DataFrame) -> pd.DataFrame:
             "successful": row["successful"],
             "occurred_at": timestamp.isoformat(),
         }
-        for optional_column in ("synthetic_label", "anomaly_type"):
+
+        # Conservar columnas auxiliares si existen.
+        for optional_column in (
+            "synthetic_label",
+            "anomaly_type",
+            "ml_eligible",
+            "evaluation_target",
+            "scenario"
+        ):
             if optional_column in dataframe.columns:
                 features[optional_column] = row[optional_column]
+        if "evaluation_target" in dataframe.columns:
+            features["username"] = username
+
         processed_rows.append(features)
 
-        history.append(
+        # Incorporar el evento actual al historial
+        # después de calcular sus features.
+        pending_events.append((
+            history,
             {
                 "occurredAt": timestamp,
                 "ipAddress": ip_address,
                 "userAgent": user_agent,
                 "successful": row["successful"],
-            }
-        )
+            },
+        ))
 
     return pd.DataFrame(processed_rows)
 
