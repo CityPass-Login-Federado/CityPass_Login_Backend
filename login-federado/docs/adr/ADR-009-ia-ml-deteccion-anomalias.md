@@ -1,4 +1,4 @@
-# ADR-009: Detección híbrida de anomalías con Isolation Forest y reglas deterministas
+# ADR-009: Detección híbrida de anomalías de login con Isolation Forest V4
 
 ## Quiénes
 
@@ -8,15 +8,15 @@
 
 ## Consideraciones
 
-El sistema debe identificar intentos de login potencialmente anómalos y devolver una decisión operativa para el flujo de autenticación.
+Después de que LDAP valida las credenciales y antes de emitir los tokens, el backend consulta `POST /score` para evaluar el riesgo del intento. Un usuario legítimo también puede cambiar de IP, estrenar un dispositivo o equivocarse varias veces de contraseña. Un bloqueo automático en esas condiciones tiene un costo directo para el usuario.
 
-Las señales disponibles incluyen:
+El servicio calcula cinco variables a partir de los últimos 200 intentos del usuario con fecha estrictamente anterior al intento evaluado. El entrenamiento y la inferencia usan la misma definición de historial (`successful_history_v1`). [Contrato de variables](../../../anomaly-detection/app/feature_contract.py) · [Consulta del historial](../../../anomaly-detection/app/features.py)
 
-- Hora del intento.
-- Dirección IP nueva para el usuario.
-- Dispositivo nuevo para el usuario.
-- Cantidad de fallos recientes en una ventana de 15 minutos.
-- Historial reciente de intentos del usuario.
+- `hour_of_day` es la hora UTC del intento.
+- `is_new_ip` indica si la IP carece de accesos exitosos en ese historial.
+- `is_new_device` aplica el mismo criterio al `user_agent`, usado como indicador de dispositivo.
+- `recent_failures_15min` cuenta los fallos previos con una antigüedad inferior a 15 minutos.
+- `history_size` cuenta los intentos previos consultados, incluidos éxitos y fallos.
 
 Restricciones y supuestos:
 
@@ -59,54 +59,38 @@ Restricciones y supuestos:
 | Pros | Contras |
 |------|---------|
 | Combina explicabilidad y detección estadística | Tiene mayor complejidad que usar solo reglas |
-| Mantiene una alternativa si el modelo no está disponible | Deben coordinarse los dos mecanismos |
-| Permite evolucionar gradualmente hacia ML | Los resultados pueden diferir entre ambos modos |
+| Exige señales de contexto antes de proponer un bloqueo | Requiere validar el modelo y su política como una unidad |
+| Permite observar bloqueos propuestos antes de aplicarlos | La evaluación con datos sintéticos deja abierta la validación con tráfico real |
 
 ## Por todo esto, definimos
 
-Adoptar un enfoque **híbrido**:
+Adoptamos **Isolation Forest V4 con una política de bloqueo contextual**. El modelo permite aprender de accesos legítimos con pocas etiquetas de fraude disponibles. La política exige que un score alto coincida con señales observables antes de proponer una medida que impida el acceso.
 
-1. Utilizar reglas deterministas como mecanismo de respaldo.
-2. Utilizar `IsolationForest` cuando exista un modelo entrenado y disponible.
-3. Construir las features a partir del historial de intentos del usuario.
-4. Normalizar el resultado a un score entre `0` y `1`.
-5. Traducir el score a tres decisiones:
-   - `ALLOW` si el score es menor que `0.4`.
-   - `REVIEW` si el score está entre `0.4` y `0.7`.
-   - `BLOCK` si el score es igual o superior a `0.7`.
-6. Devolver motivos asociados al resultado para permitir auditoría y diagnóstico.
-7. Entrenar el modelo offline y cargarlo como artefacto versionado durante el despliegue: el contrato de runtime es `models/isolation_forest.pkl` dentro de la imagen del servicio (si el archivo no existe, el servicio opera solo con reglas). El Dockerfile copia el artefacto versionado desde `ML/models/isolation_forest.pkl`.
-8. Permitir reentrenamiento offline con intentos reales persistidos en `login_attempts`, usando los fallos para construir contexto pero ajustando el modelo solo con logins exitosos por defecto.
+El servicio calcula `risk_score = clip(0.5 - decision_score, 0, 1)`. Un valor mayor indica mayor anomalía. La política versionada determina la decisión propuesta. [Umbrales y condiciones de V4](../../../anomaly-detection/ML/models/risk_policy_v4.json)
 
-El modelo se basará inicialmente en:
+| Riesgo | Decisión propuesta |
+| --- | --- |
+| Inferior a 0,479 | `ALLOW` |
+| Desde 0,479 hasta menos de 0,543 | `REVIEW` |
+| Desde 0,543 | `BLOCK` si coinciden una IP nueva, un agente nuevo, al menos cinco intentos previos y al menos dos fallos recientes. Si falta alguna condición, `REVIEW`. |
 
-```text
-hour_of_day
-is_new_ip
-is_new_device
-recent_failures_15min
-history_size
-```
+**Aplicación al login.** En `SHADOW`, un `BLOCK` propuesto se devuelve como `REVIEW` efectivo y el login puede continuar. En `ENFORCE`, la decisión efectiva coincide con la propuesta. Ante un bloqueo efectivo, el backend consume una aprobación administrativa válida o registra el evento de bloqueo y rechaza el intento. El Compose de producción del repositorio declara `ANOMALY_MODE=SHADOW`. [Compose](../../../anomaly-detection/docker-compose.prod.yml) · [Flujo de login](../../src/main/java/citypass/loginfederado/service/AuthService.java)
+
+**Auditoría.** El servicio devuelve el score, los motivos, las variables, el modo, la versión y las huellas SHA-256 del modelo y la política. Spring guarda en `anomaly_assessments` la evaluación completa, la decisión propuesta, la efectiva y el resultado del acceso (`PERMITTED_BY_ML`, `BLOCKED` o `APPROVED_OVERRIDE`). Esto permite identificar qué accesos se habrían bloqueado en `SHADOW`. [Registro de evaluaciones](../../src/main/java/citypass/loginfederado/service/AnomalyAssessmentService.java)
+
+**Entrenamiento y despliegue.** V4 se ajusta offline con 5.700 intentos sintéticos legítimos. Los umbrales se calibran en validación y se evalúan en un tercer conjunto con usuarios independientes. El reentrenamiento administrativo con `login_attempts` usa por defecto los accesos exitosos para el ajuste y conserva los fallos como contexto. Docker empaqueta `ML/models/isolation_forest_v4.pkl` y `ML/models/risk_policy_v4.json`. Al arrancar, el servicio valida el hash del modelo contra la política, la compatibilidad de las variables y las condiciones de decisión. [Guía de entrenamiento y evaluación](../../../anomaly-detection/ML/ML_README.md) · [Carga de los artefactos](../../../anomaly-detection/app/model.py)
 
 ## Consecuencias
 
 ### Positivas
 
-- El servicio continúa funcionando aunque el modelo no esté disponible.
-- Las reglas proporcionan un comportamiento inicial y auditable.
-- Isolation Forest permite detectar patrones anómalos sin disponer inicialmente de etiquetas.
-- Las decisiones se expresan mediante umbrales claros.
-- El modelo puede reentrenarse sin modificar el backend Java.
-- La respuesta incluye motivos útiles para operaciones y seguridad.
+- Un usuario con menos de cinco intentos previos puede recibir una revisión. El mínimo de historial evita proponer bloqueos durante sus primeros accesos.
+- Operaciones puede reconstruir qué versión y qué señales motivaron una decisión, incluso cuando una aprobación administrativa permitió el acceso.
 
 ### Negativas
 
-- El modelo puede producir falsos positivos o falsos negativos.
-- Los umbrales `0.4` y `0.7` requieren validación con datos reales.
-- El score normalizado es aproximado y no representa directamente una probabilidad.
-- La calidad depende de que las features de entrenamiento e inferencia sean idénticas.
-- Se necesita monitorear la distribución de los datos y el rendimiento del modelo.
-- El archivo del modelo debe gestionarse como artefacto de despliegue confiable.
+- En la prueba sintética independiente, la política propuso bloquear 24 de 1.900 accesos legítimos (1,26 %), por encima del objetivo del 1 %. Marcó para revisión o bloqueo 180 de esos 1.900 (9,47 %), dentro del objetivo del 10 %. De 100 anomalías, 29 recibieron `REVIEW` y 7 recibieron `BLOCK`. Queda pendiente medir estas tasas con tráfico real. [Resultados y reproducción](../../../anomaly-detection/ML/ML_README.md)
+- El login depende de la disponibilidad del detector en ambos modos. Un modelo o una política ausentes o incompatibles impiden que el detector arranque. Si falla la consulta al detector, el backend responde HTTP 503. [Cliente del detector](../../src/main/java/citypass/loginfederado/security/AnomalyRiskClient.java) · [Manejo de errores](../../src/main/java/citypass/loginfederado/exception/GlobalExceptionHandler.java)
 
 ## Referencias (benchmark)
 

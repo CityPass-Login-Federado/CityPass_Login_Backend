@@ -14,5 +14,8 @@ __pycache__/
 /ML/data/validation_v[234].csv
 /ML/data/test_v[234].csv
 
+# Evidencia de evaluación del modelo definitivo
+!/ML/data/evaluation_results_v4.csv
+
 # Modelos candidatos intermedios
 /ML/models/*_candidate.pkl

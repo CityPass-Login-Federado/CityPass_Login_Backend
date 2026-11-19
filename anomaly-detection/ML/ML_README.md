@@ -1,20 +1,11 @@
-# Módulo ML — Detección de anomalías con Isolation Forest
+# Módulo ML — Detección de anomalías con Isolation Forest V4
 
 ## 1. Objetivo
 
-El módulo `ML` de `anomaly-detection` es una prueba de concepto orientada a demostrar la posibilidad de utilizar Machine Learning para detectar comportamientos anómalos asociados a intentos de autenticación en CityPass.
+El módulo `ML` entrena y evalúa el modelo que CityPass consulta después de que LDAP valida las credenciales. Isolation Forest calcula un score a 
+partir del historial de autenticación del usuario. La política V4 combina ese score con el contexto del intento para proponer `ALLOW`, `REVIEW` o `BLOCK`.
 
-Esta primera versión utiliza **Isolation Forest**, un algoritmo de aprendizaje no supervisado diseñado para identificar observaciones que se alejan del comportamiento habitual.
-
-El servicio utiliza un enfoque híbrido: carga Isolation Forest cuando el artefacto está disponible y conserva las reglas determinísticas como respaldo. La decisión `BLOCK` resultante forma parte del flujo productivo de login.
-
-Su objetivo es disponer de:
-
-- un dataset sintético;
-- un proceso de feature engineering;
-- un modelo entrenado;
-- métricas de evaluación;
-- una herramienta simple para probar eventos manualmente.
+El modo `SHADOW` permite observar los bloqueos propuestos mientras el login continúa como `REVIEW`. En `ENFORCE`, el servicio devuelve la decisión propuesta. El backend registra ambas decisiones y el resultado del acceso.
 
 ---
 
@@ -25,50 +16,48 @@ La arquitectura combina entrenamiento offline e inferencia productiva.
 ### Flujo productivo
 
 ```text
-Intento de autenticación
+LDAP acepta las credenciales
         |
         v
-Historial real en PostgreSQL
+POST /score → historial del usuario en PostgreSQL → cinco variables
         |
         v
-Feature engineering
+Isolation Forest V4 + política de riesgo → decisión propuesta
         |
         v
-Isolation Forest (o reglas de respaldo)
-        |
-        v
-ALLOW / REVIEW / BLOCK
+SHADOW / ENFORCE → decisión efectiva → backend de login
 ```
 
 ### Flujo de entrenamiento
 
 ```text
-Dataset sintético o exportación real
+Eventos sintéticos por conjunto → cálculo del historial y las variables
         |
-        v
-Feature engineering
-        |
-        v
-Isolation Forest
-        |
-        v
-Predicción
-NORMAL / ANOMALY
+        +-- train      → ajustar Isolation Forest con accesos legítimos
+        +-- validation → calibrar los umbrales de la política híbrida
+        +-- test       → medir falsos positivos y detección con los umbrales fijados
 ```
 
-El entrenamiento se ejecuta offline; el runtime solo carga el artefacto generado.
+El entrenamiento se ejecuta offline. Al arrancar, el servicio carga el modelo y la política versionados.
 
 ---
 
 ## 3. Estructura de carpetas
 
-Cada archivo tiene una responsabilidad específica.
+```text
+anomaly-detection/
+├── app/         # Cálculo de variables, inferencia y API
+├── ML/          # Generación, entrenamiento, calibración y evaluación
+│   ├── data/    # Eventos, variables y resultados por conjunto
+│   └── models/  # Modelo y política V4 que empaqueta Docker
+└── models/      # Modelo candidato para los experimentos offline
+```
 
 ---
 
 ## 4. `features.py`
 
-El archivo `features.py`, ubicado fuera de `ML`, contiene las features utilizadas por la lógica actual de detección.
+`app/features.py` consulta `login_attempts`. El orden de las cinco variables, el límite de historial y la ventana de fallos se comparten con el preprocesamiento offline. [Contrato de variables](../app/feature_contract.py)
 
 Las features son:
 
@@ -82,7 +71,7 @@ history_size
 
 ### `hour_of_day`
 
-Representa la hora en la que ocurre el intento de autenticación.
+Representa la hora UTC del intento de autenticación, de 0 a 23.
 
 Ejemplo:
 
@@ -95,7 +84,7 @@ Permite que el modelo aprenda cuáles son los horarios más frecuentes y cuáles
 
 ### `is_new_ip`
 
-Indica si la dirección IP ya apareció previamente en el historial del usuario.
+Indica si la IP aparece en alguna autenticación exitosa del historial consultado.
 
 ```text
 0 = IP conocida
@@ -104,7 +93,7 @@ Indica si la dirección IP ya apareció previamente en el historial del usuario.
 
 ### `is_new_device`
 
-Indica si el `user_agent` ya fue observado previamente para ese usuario.
+Indica si el `user_agent` aparece en alguna autenticación exitosa previa del usuario. El agente se usa como indicador del dispositivo.
 
 ```text
 0 = dispositivo / agente conocido
@@ -113,55 +102,33 @@ Indica si el `user_agent` ya fue observado previamente para ese usuario.
 
 ### `recent_failures_15min`
 
-Representa la cantidad de intentos fallidos encontrados durante los últimos 15 minutos.
+Cuenta los intentos fallidos previos con una antigüedad menor que 15 minutos dentro del historial consultado.
 
 ### `history_size`
 
-Representa la cantidad de registros históricos disponibles para el usuario, con un máximo de 200 registros según la lógica utilizada actualmente.
+Cantidad de intentos del usuario con fecha estrictamente anterior al intento actual. Incluye éxitos y fallos, hasta un máximo de 200 registros.
 
 ---
 
 ## 5. Dataset sintético
 
-Debido a que el proyecto todavía no dispone de una cantidad suficiente de datos reales para entrenar y demostrar un modelo, se utiliza un dataset generado artificialmente.
+El generador V4 usa usuarios y semillas distintos para entrenamiento, validación y prueba. Las cifras de la tabla cuentan los intentos objetivo después de la preparación. El generador añade además eventos de historial y fallos previos para calcular las variables.
 
-El dataset contiene:
-
-```text
-10.000 eventos totales
-9.500 eventos normales
-500 anomalías
-```
-
-Por lo tanto:
-
-95% normal
-5% anomalías
-
-La proporción de anomalías es configurable mediante:
-
-```python
-ANOMALY_RATIO = 0.05
-```
+| Conjunto | Legítimos | Anomalías | Uso |
+| --- | ---: | ---: | --- |
+| Entrenamiento | 5.700 | 0 | Ajustar Isolation Forest |
+| Validación | 1.900 | 100 | Elegir los umbrales de revisión y bloqueo |
+| Prueba | 1.900 | 100 | Evaluar la política en usuarios independientes |
 
 ---
 
 ## 6. Tipos de anomalías
 
-En la primera versión se utilizan cuatro tipos de anomalías.
-
-Cada tipo contiene 125 registros, lo que da un total de 500 anomalías.
+V4 genera cinco tipos de anomalías. Validación y prueba incluyen cada una 20 casos de cada tipo. También hay escenarios legítimos con cambios de entorno o errores de contraseña para medir falsas alarmas.
 
 ### `multiple_changes`
 
-Combina varias señales anómalas en un mismo evento, por ejemplo:
-
-- horario poco habitual;
-- IP nueva;
-- dispositivo nuevo;
-- cambio de cliente.
-
-Es el tipo de anomalía más evidente para el modelo porque combina varias características alejadas del comportamiento habitual.
+Combina un horario atípico, una IP nueva y un agente nuevo. El generador varía la cantidad de fallos previos.
 
 ### `new_ip`
 
@@ -173,9 +140,9 @@ Está directamente relacionado con:
 is_new_ip
 ```
 
-### `unusual_client`
+### `new_device`
 
-Simula actividad desde un cliente o dispositivo diferente al habitual.
+Simula un intento con un `user_agent` diferente del habitual.
 
 La principal señal observable por el modelo es:
 
@@ -193,36 +160,22 @@ La señal utilizada es:
 hour_of_day
 ```
 
+### `recent_failures`
+
+Simula tres fallos de autenticación antes de un intento que llega al detector. La señal asociada es `recent_failures_15min`.
+
 ---
 
 
 ## 8. `config.py`
 
-`config.py` centraliza la configuración del módulo.
-
-Entre sus principales valores se encuentran:
-
-```python
-TOTAL_RECORDS = 10_000
-ANOMALY_RATIO = 0.05
-RANDOM_SEED = 42
-```
-
-También contiene las rutas utilizadas por los diferentes scripts:
-
-```text
-data/synthetic_events.csv
-data/processed_features.csv
-models/isolation_forest.pkl
-```
-
-El uso de una semilla fija permite obtener resultados reproducibles.
+`ML/config.py` define `DATA_DIR`, `MODELS_DIR` y la semilla de entrenamiento (`RANDOM_SEED = 42`). El generador V4 define sus propios conjuntos en `SPLITS`, con semillas 142, 143 y 144 para `train`, `validation` y `test`, respectivamente. Los umbrales de inferencia se leen de la [política V4](models/risk_policy_v4.json).
 
 ---
 
-## 9. `generate_dataset.py`
+## 9. `generate_dataset_v4.py`
 
-Este script genera el dataset sintético.
+El script genera los eventos de un conjunto indicado con `--split`.
 
 Sus responsabilidades principales son:
 
@@ -233,16 +186,7 @@ Sus responsabilidades principales son:
 5. Etiquetar los registros sintéticos.
 6. Guardar el resultado en CSV.
 
-Cada usuario posee un perfil habitual, por ejemplo:
-
-```text
-usuario: user042
-departamento: reclamos
-IP habitual: 10.x.x.x
-cliente habitual: citypass-admin-web
-user agent habitual: Chrome-Windows
-horario habitual: 08:00 - 18:00
-```
+Cada usuario tiene una IP y un agente habituales, alternativas conocidas y un turno diurno, vespertino o nocturno. El identificador incorpora el conjunto, por ejemplo `v4-test-042`.
 
 Los eventos normales siguen aproximadamente ese perfil.
 
@@ -255,7 +199,7 @@ Las anomalías modifican una o varias características.
 El archivo:
 
 ```text
-ML/data/synthetic_events.csv
+ML/data/synthetic_events_v4_<split>.csv
 ```
 
 contiene información similar a la estructura de los eventos de autenticación utilizados por CityPass.
@@ -266,26 +210,20 @@ Entre sus columnas se encuentran:
 eventId
 eventType
 occurredAt
-userSub
 username
-department
-clientId
-chainId
 ipAddress
 userAgent
 successful
 synthetic_label
 anomaly_type
+scenario
+ml_eligible
+evaluation_target
 ```
 
 ### Columnas experimentales
 
-Las siguientes columnas existen únicamente para construir y evaluar la PoC:
-
-```text
-synthetic_label
-anomaly_type
-```
+`scenario` identifica la situación simulada. `ml_eligible` señala los intentos que llegan al detector tras LDAP. `evaluation_target` distingue el intento objetivo de los eventos que aportan historial.
 
 `synthetic_label` indica:
 
@@ -301,7 +239,8 @@ Ejemplos:
 ```text
 normal
 new_ip
-unusual_client
+new_device
+recent_failures
 unusual_hour
 multiple_changes
 ```
@@ -317,7 +256,7 @@ Estas columnas **no se utilizan como entrada del modelo**.
 El archivo generado es:
 
 ```text
-ML/data/processed_features.csv
+ML/data/processed_features_v4_<split>.csv
 ```
 
 Las columnas utilizadas para entrenamiento son:
@@ -330,14 +269,7 @@ recent_failures_15min
 history_size
 ```
 
-Además se conservan:
-
-```text
-synthetic_label
-anomaly_type
-```
-
-exclusivamente para evaluar posteriormente el resultado.
+Se conservan las etiquetas y los datos de contexto. `ML.prepare_dataset_v4` selecciona los objetivos exitosos y elegibles, filtra los legítimos para entrenamiento y escribe `ML/data/<split>_v4.csv`.
 
 ---
 
@@ -345,15 +277,7 @@ exclusivamente para evaluar posteriormente el resultado.
 
 El preprocessing mantiene un historial independiente para cada usuario.
 
-Se utiliza conceptualmente un historial máximo de:
-
-```text
-200 eventos
-```
-
-para conservar coherencia con la lógica utilizada por `features.py`.
-
-Para cada evento se calcula primero su vector de features y recién después se incorpora el evento al historial.
+El preprocesamiento conserva los últimos 200 intentos de cada usuario. Calcula las variables de todos los eventos con el mismo instante UTC antes de agregarlos al historial. Así reproduce el filtro `attempted_at < :ts` de la consulta en PostgreSQL.
 
 Esto es importante para evitar **data leakage**.
 
@@ -386,15 +310,13 @@ is_new_device = 1
 
 aunque el comportamiento sea legítimo.
 
-Esto puede producir falsos positivos.
-
-Es una limitación esperable en sistemas de detección basados en comportamiento, ya que el modelo necesita cierto historial antes de poder conocer el patrón normal de un usuario.
+En V4, un usuario con menos de cinco intentos previos puede recibir `REVIEW`. La política exige al menos cinco para proponer `BLOCK`.
 
 ---
 
 ## 14. `train.py`
 
-`train.py` entrena el modelo utilizando `IsolationForest` de scikit-learn.
+`ML/train.py` entrena el modelo con `IsolationForest` de scikit-learn. En V4 recibe `ML/data/train_v4.csv`.
 
 Las features utilizadas son:
 
@@ -421,15 +343,7 @@ IsolationForest(
 
 ### `contamination`
 
-El valor:
-
-```text
-0.05
-```
-
-indica que se espera aproximadamente un 5% de observaciones anómalas.
-
-Esto coincide con la proporción definida en el dataset sintético.
+`contamination=0.05` fija el punto de corte interno de Isolation Forest a partir de los scores de entrenamiento. Los 5.700 ejemplos usados en `fit` son legítimos. Los umbrales que deciden `REVIEW` y `BLOCK` se calibran después con el conjunto de validación.
 
 ---
 
@@ -455,248 +369,140 @@ recent_failures_15min
 history_size
 ```
 
-Las etiquetas sintéticas se utilizan únicamente después del entrenamiento para medir qué tan bien las predicciones coinciden con las anomalías introducidas artificialmente.
+La preparación usa `synthetic_label` para seleccionar ejemplos legítimos antes de `fit`. En validación y prueba, la etiqueta permite comparar la decisión propuesta con el escenario generado.
 
 ---
 
 ## 16. Modelo generado
 
-Una vez entrenado, el modelo se almacena en:
+El entrenamiento offline escribe el candidato en `models/isolation_forest_v4_candidate.pkl` cuando se ejecutan los comandos de la sección 28. La pareja versionada que utiliza el servicio está en:
 
 ```text
-ML/models/isolation_forest.pkl
+ML/models/isolation_forest_v4.pkl
+ML/models/risk_policy_v4.json
 ```
 
-Se utiliza `joblib` para serializarlo.
-
-Esto permite reutilizar el modelo sin volver a entrenarlo cada vez que se quiere realizar una predicción.
+El modelo se serializa con `joblib`. Al arrancar, el servicio comprueba el SHA-256 del modelo contra el registrado en la política, el orden de las variables, la semántica `successful_history_v1`, los umbrales y las condiciones de bloqueo. Si falta un archivo o falla una comprobación, el arranque falla. [Carga del modelo](../app/model.py)
 
 ---
 
-## 17. `evaluate.py`
+## 17. `evaluate_hybrid_v4.py`
 
-`evaluate.py` carga:
-
-```text
-processed_features.csv
-isolation_forest.pkl
-```
-
-y compara las predicciones del modelo con las etiquetas sintéticas conocidas.
-
-Isolation Forest devuelve:
-
-```text
-1  = normal
--1 = anomalía
-```
-
-Para facilitar la evaluación se convierten a:
-
-```text
-0 = normal
-1 = anomalía
-```
+El evaluador carga `ML/data/test_v4.csv`, el modelo candidato y la política generada por `ML.calibrate_hybrid_v4`. Calcula la decisión propuesta para cada intento y compara dos criterios con `synthetic_label`: bloqueo (`BLOCK`) y marcado (`REVIEW` o `BLOCK`). También compara contra una regla que usa solo el contexto. La evaluación ocurre antes de aplicar `SHADOW` o `ENFORCE`.
 
 ---
 
 ## 18. Resultados obtenidos
 
-La evaluación actual fue realizada sobre:
+La prueba independiente contiene 2.000 intentos objetivo. La tabla muestra las decisiones propuestas por la política calibrada.
 
-```text
-10.000 registros
-500 anomalías sintéticas
-```
-
-El modelo produjo:
-
-```text
-Predicted anomalies: 494
-```
-
-La matriz de confusión obtenida fue:
-
-```text
-True negatives:  9397
-False positives: 103
-False negatives: 109
-True positives:  391
-```
+| Etiqueta sintética | `ALLOW` | `REVIEW` | `BLOCK` | Total |
+| --- | ---: | ---: | ---: | ---: |
+| Legítimo | 1.720 | 156 | 24 | 1.900 |
+| Anomalía | 64 | 29 | 7 | 100 |
 
 ### Interpretación
 
+Para el criterio de **marcado**, cuentan tanto las revisiones como los bloqueos propuestos.
+
 #### True Positive
 
-Evento generado como anomalía y correctamente identificado como anomalía.
-
-```text
-391
-```
+36 anomalías fueron marcadas (29 revisiones y 7 bloqueos).
 
 #### True Negative
 
-Evento normal correctamente reconocido como normal.
-
-```text
-9397
-```
+1.720 intentos legítimos recibieron `ALLOW`.
 
 #### False Positive
 
-Evento normal identificado incorrectamente como anomalía.
-
-```text
-103
-```
+180 intentos legítimos fueron marcados (156 revisiones y 24 bloqueos).
 
 #### False Negative
 
-Anomalía que el modelo no logró detectar.
-
-```text
-109
-```
+64 anomalías recibieron `ALLOW`.
 
 ---
 
 ## 19. Métricas
 
-Los resultados actuales son:
+| Criterio | Precision en prueba | Recall en prueba | F1 en prueba | Falsos positivos en validación | Falsos positivos en prueba | Objetivo |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Bloqueo propuesto | 22,58 % | 7,00 % | 10,69 % | 17/1.900 (0,89 %) | 24/1.900 (1,26 %) | ≤ 1 % |
+| Marcado (`REVIEW` o `BLOCK`) | 16,67 % | 36,00 % | 22,78 % | 188/1.900 (9,89 %) | 180/1.900 (9,47 %) | ≤ 10 % |
 
-```text
-Precision: 0.7915
-Recall:    0.7820
-F1-score:  0.7867
-```
+La tasa de falsos positivos se calcula sobre los intentos legítimos. En prueba, los bloqueos propuestos superaron el límite del 1 % y el marcado quedó dentro del objetivo del 10 %. La política versionada conserva las métricas de **validación**. [Política V4](models/risk_policy_v4.json)
 
 ### Precision
 
-```text
-79.15%
-```
-
-Indica qué proporción de los eventos marcados como anomalía eran efectivamente anomalías sintéticas.
+Proporción de anomalías entre los intentos que cumplen el criterio. Para bloqueo, 7 de los 31 bloqueos propuestos correspondieron a anomalías.
 
 ### Recall
 
-```text
-78.20%
-```
-
-Indica qué proporción de las 500 anomalías sintéticas consiguió detectar el modelo.
+Proporción de las 100 anomalías que cumplen el criterio. Se marcaron 36 y se propuso bloquear 7 de ellas.
 
 ### F1-score
 
-```text
-78.67%
-```
-
-Representa un balance entre Precision y Recall.
+Media armónica de precision y recall para el mismo criterio.
 
 ---
 
 ## 20. Detección por tipo de anomalía
 
-Los resultados obtenidos fueron:
+Cada fila corresponde a 20 anomalías del conjunto de prueba. Las columnas cuentan decisiones propuestas.
 
-```text
-multiple_changes : 100.0%
-new_ip           : 96.8%
-unusual_client   : 76.0%
-unusual_hour     : 40.0%
-```
+| Escenario | `ALLOW` | `REVIEW` | `BLOCK` |
+| --- | ---: | ---: | ---: |
+| `multiple_changes` | 1 | 12 | 7 |
+| `new_ip` | 18 | 2 | 0 |
+| `new_device` | 16 | 4 | 0 |
+| `unusual_hour` | 20 | 0 | 0 |
+| `recent_failures` | 9 | 11 | 0 |
 
 ### `multiple_changes`
 
-```text
-125 / 125
-100%
-```
-
-El modelo detecta muy bien eventos que combinan varias señales anómalas.
+Este escenario concentró los siete bloqueos propuestos entre las anomalías de prueba.
 
 ### `new_ip`
 
-```text
-121 / 125
-96.8%
-```
+Dos de los 20 cambios de IP recibieron `REVIEW`.
 
-La detección es alta debido a que existe una feature directamente relacionada:
+### `new_device`
 
-```text
-is_new_ip
-```
-
-### `unusual_client`
-
-```text
-95 / 125
-76%
-```
-
-La detección depende principalmente de:
-
-```text
-is_new_device
-```
-
-No todos los cambios de `clientId` quedan representados directamente en las features actuales.
+Cuatro de los 20 cambios de agente recibieron `REVIEW`.
 
 ### `unusual_hour`
 
-```text
-50 / 125
-40%
-```
+Los 20 intentos en horarios atípicos recibieron `ALLOW`.
 
-Esta es la anomalía más difícil para el modelo actual.
+### `recent_failures`
 
-El modelo recibe únicamente:
-
-```text
-hour_of_day
-```
-
-y debe aprender por distribución cuáles horarios aparecen con menor frecuencia.
-
-No existe actualmente una feature explícita como:
-
-```text
-is_unusual_hour
-```
-
-porque se busca permitir que Isolation Forest aprenda el patrón por sí mismo.
+Once de los 20 intentos precedidos por fallos recibieron `REVIEW`.
 
 ---
 
 ## 21. `decision_score`
 
-Además de la clasificación, Isolation Forest proporciona un `decision_score`.
+Isolation Forest calcula `decision_score` mediante `decision_function`. Un score más negativo indica un comportamiento más anómalo. El servicio lo transforma en un indicador de riesgo entre 0 y 1 con `risk_score = clip(0.5 - decision_score, 0, 1)`.
 
-La interpretación general utilizada es:
+| `risk_score` | Decisión propuesta |
+| --- | --- |
+| Inferior a 0,479 | `ALLOW` |
+| Desde 0,479 hasta menos de 0,543 | `REVIEW` |
+| Desde 0,543 | `BLOCK` si se cumplen las cuatro condiciones de contexto. En cualquier otro caso, `REVIEW`. |
 
-```text
-score más negativo -> comportamiento más anómalo
-score más positivo -> comportamiento más normal
-```
+Las cuatro condiciones deben coincidir en el mismo intento: al menos cinco intentos previos en el historial, IP nueva, agente nuevo y al menos dos fallos en los últimos 15 minutos. [Política de decisión](../app/risk_policy.py)
 
 ---
 
-## 22. `evaluation_results.csv`
+## 22. `evaluation_results_v4.csv`
 
-Después de ejecutar `evaluate.py`, se genera:
-
-```text
-ML/data/evaluation_results.csv
-```
-
-Este archivo incluye las features originales junto con:
+`ML.evaluate_hybrid_v4` genera `ML/data/evaluation_results_v4.csv`. Cada fila contiene las cinco variables, la etiqueta sintética, el escenario y el resultado de evaluar la política.
 
 ```text
-predicted_anomaly
 decision_score
+risk_score
+context_eligible
+decision
 ```
 
 Esto permite revisar manualmente:
@@ -711,24 +517,21 @@ Esto permite revisar manualmente:
 
 ## 23. `predict.py`
 
-`predict.py` permite probar manualmente un evento contra el modelo ya entrenado.
-
-El script recibe las features mediante parámetros de consola.
-
-Formato:
+`ML.predict` se conserva para reproducir la primera versión. Carga `ML/models/isolation_forest.pkl` y devuelve `NORMAL` o `ANOMALY`. Para probar manualmente V4 con las mismas cinco variables, abrí una consola interactiva desde `anomaly-detection/` con las dependencias de la sección 29.
 
 ```bash
-python predict.py   --hour <hora>   --new-ip <0|1>   --new-device <0|1>   --failures <cantidad>   --history <cantidad>
+python -i -c "from app.model import score_details; from app.feature_contract import FEATURE_ORDER"
 ```
 
-En Windows / PowerShell también puede escribirse en una sola línea.
+Los tres ejemplos siguientes se pueden pegar en esa consola. Usan el modelo y la política versionados, con `ANOMALY_MODE=SHADOW` (valor predeterminado).
 
 ---
 
 ## 24. Ejemplo de evento normal
 
-```bash
-python predict.py --hour 11 --new-ip 0 --new-device 0 --failures 0 --history 35
+```python
+r = score_details(dict(zip(FEATURE_ORDER, [11, 0, 0, 0, 35])))
+print(round(r['risk_score'], 4), r['proposed_decision'], r['decision'])
 ```
 
 Representa aproximadamente:
@@ -741,18 +544,15 @@ Sin fallos recientes
 Historial suficiente
 ```
 
-El resultado esperado es generalmente:
-
-```text
-Prediction: NORMAL
-```
+La salida V4 es `0.2863 ALLOW ALLOW`.
 
 ---
 
 ## 25. Ejemplo de evento intermedio
 
-```bash
-python predict.py --hour 18 --new-ip 1 --new-device 0 --failures 0 --history 20
+```python
+r = score_details(dict(zip(FEATURE_ORDER, [18, 1, 0, 0, 20])))
+print(round(r['risk_score'], 4), r['proposed_decision'], r['decision'])
 ```
 
 Representa:
@@ -765,14 +565,15 @@ Sin fallos recientes
 Historial existente
 ```
 
-El resultado dependerá de los patrones aprendidos por el modelo.
+La salida V4 es `0.372 ALLOW ALLOW`. La IP nueva por sí sola deja este ejemplo por debajo del umbral de revisión.
 
 ---
 
 ## 26. Ejemplo de evento claramente anómalo
 
-```bash
-python predict.py --hour 2 --new-ip 1 --new-device 1 --failures 4 --history 50
+```python
+r = score_details(dict(zip(FEATURE_ORDER, [2, 1, 1, 4, 50])))
+print(round(r['risk_score'], 4), r['proposed_decision'], r['decision'])
 ```
 
 Representa:
@@ -785,20 +586,16 @@ Varios fallos recientes
 Usuario con historial previo
 ```
 
-El resultado esperado es generalmente:
-
-```text
-Prediction: ANOMALY
-```
+La salida V4 es `0.5719 BLOCK REVIEW`. Se cumplen las condiciones de bloqueo y `SHADOW` convierte la propuesta en revisión. En `ENFORCE`, la decisión efectiva de este mismo ejemplo es `BLOCK`.
 
 ---
 
 ## 27. Ayuda de `predict.py`
 
-Se puede consultar la ayuda con:
+La ayuda del predictor histórico se consulta desde `anomaly-detection/`:
 
 ```bash
-python predict.py --help
+python -m ML.predict --help
 ```
 
 El script valida:
@@ -813,21 +610,21 @@ El script valida:
 
 ## 28. Flujo completo de ejecución
 
-Cuando se desea regenerar y volver a entrenar completamente el experimento se ejecuta:
+Desde `anomaly-detection/`, con las dependencias de la sección 29 instaladas, ejecutá en PowerShell:
 
-```bash
-cd anomaly-detection
-python -m ML.generate_dataset
-python -m ML.preprocess
-python -m ML.train
-python -m ML.evaluate
+```powershell
+foreach ($split in 'train', 'validation', 'test') {
+    python -m ML.generate_dataset_v4 --split $split
+    python -m ML.preprocess --input "ML/data/synthetic_events_v4_${split}.csv" --output "ML/data/processed_features_v4_${split}.csv"
+    python -m ML.prepare_dataset_v4 --split $split
+}
+python -m ML.train --input ML/data/train_v4.csv --output models/isolation_forest_v4_candidate.pkl --metadata-output ML/models/isolation_forest_v4_candidate.metadata.json
+python -m ML.calibrate_hybrid_v4
+python -m ML.evaluate_hybrid_v4
+python -m ML.stress_test_v4
 ```
 
-Luego pueden realizarse predicciones individuales con:
-
-```bash
-python -m ML.predict --hour 2 --new-ip 1 --new-device 1 --failures 4 --history 50
-```
+La calibración escribe `ML/models/risk_policy_v4_candidate.metadata.json`. La evaluación lee esa política y el modelo candidato. La prueba de estrés los aplica a casos concretos, incluidos cambios legítimos de entorno.
 
 ---
 
@@ -842,36 +639,26 @@ scikit-learn
 joblib
 ```
 
-Pueden instalarse mediante:
+Usá Python 3.12 y las versiones fijadas en `anomaly-detection/requirements.txt`, incluido scikit-learn 1.5.2. Desde `anomaly-detection/`:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ---
 
 ## 30. Relación con producción
 
-El servicio aplica un enfoque híbrido en producción.
-
-Actualmente:
+El Compose de producción del repositorio declara `ANOMALY_MODE=SHADOW`. La respuesta de `POST /score` incluye el riesgo y sus razones, `proposed_decision`, `decision`, el modo, las cinco variables, su semántica, la versión del modelo y los hashes SHA-256 del modelo y de la política. `GET /health` informa el modelo cargado, el modo y los umbrales. [Compose de producción](../docker-compose.prod.yml) · [Contrato de la API](../app/schemas.py)
 
 ```text
-Features del intento
-        |
-        v
-Isolation Forest disponible? -- no --> Reglas determinísticas
-        |
-       sí
-        v
-Score ML
-        |
-        v
-ALLOW / REVIEW / BLOCK
+Decisión propuesta      SHADOW       ENFORCE
+ALLOW                   ALLOW        ALLOW
+REVIEW                  REVIEW       REVIEW
+BLOCK                   REVIEW       BLOCK
 ```
 
-El modelo no revoca sesiones ni modifica identidades. Sí participa en la decisión
-de login; las reglas continúan disponibles cuando el artefacto no puede cargarse.
+Spring registra la evaluación en `anomaly_assessments`, junto con la decisión propuesta, la efectiva y el resultado del acceso (`PERMITTED_BY_ML`, `BLOCKED` o `APPROVED_OVERRIDE`). Ante un bloqueo efectivo, el backend consume una aprobación administrativa válida o registra el evento de bloqueo y rechaza el intento. Si falla la consulta al servicio de anomalías, el login responde HTTP 503 en ambos modos. [Flujo de login](../../login-federado/src/main/java/citypass/loginfederado/service/AuthService.java)
 
 ---
 
@@ -894,33 +681,28 @@ RawAuthenticationEvent -> Kafka
 
 De esta forma:
 
-- las reglas podrían seguir funcionando como actualmente;
-- el módulo de anomalías podría consumir los mismos eventos de forma independiente;
-- ambos sistemas podrían evolucionar sin quedar fuertemente acoplados.
+- los consumidores podrían analizar eventos ya emitidos;
+- la evaluación durante el login seguiría requiriendo una decisión antes de emitir los tokens.
 
-Actualmente Kafka todavía no forma parte de esta PoC.
+El flujo V4 implementado consulta el riesgo por HTTP después de validar las credenciales.
 
 ---
 
 ## 32. Limitaciones actuales
 
-La primera versión tiene varias limitaciones conocidas.
+La evaluación de V4 tiene las siguientes limitaciones.
 
 ### Dataset sintético
 
-Los datos utilizados para entrenar y evaluar no corresponden a tráfico real.
+El entrenamiento, la calibración y la prueba usan escenarios generados artificialmente. Las tasas observadas describen esos escenarios.
 
-El objetivo es demostrar viabilidad técnica, no afirmar rendimiento productivo.
+### Evaluación con conjuntos independientes
 
-### Entrenamiento y evaluación sobre el mismo conjunto
-
-La evaluación actual permite analizar el comportamiento de la PoC, pero no equivale a una validación productiva independiente.
-
-Una versión posterior debería utilizar separación temporal entre datos de entrenamiento y validación.
+Los usuarios y las semillas cambian entre entrenamiento, validación y prueba. En la prueba independiente, la tasa de bloqueos falsos aumentó del 0,89 % observado en validación al 1,26 %, por encima del objetivo del 1 %.
 
 ### Cold start
 
-Usuarios con poco o ningún historial pueden generar falsos positivos.
+Con poco historial, un intento legítimo puede merecer revisión. El mínimo de cinco intentos previos limita los bloqueos propuestos por la política.
 
 ### Horarios inusuales
 
@@ -928,11 +710,11 @@ La feature `hour_of_day` por sí sola no permite detectar todos los casos de hor
 
 ### `clientId`
 
-El `clientId` existe en los eventos sintéticos pero actualmente no se utiliza como feature directa.
+El backend asocia la evaluación al `clientId` del login para auditoría. El modelo calcula el score con las cinco variables de la sección 4.
 
 ### Datos reales
 
-Antes de utilizar un modelo de este tipo en producción sería necesario entrenarlo y validarlo con datos históricos reales, representativos y correctamente tratados.
+La validación con tráfico real queda pendiente. El modo `SHADOW` conserva los bloqueos propuestos para poder analizar qué accesos legítimos habrían resultado afectados.
 
 ---
 
@@ -947,11 +729,11 @@ La conexión debe usar una cuenta PostgreSQL de solo lectura:
 
 ```bash
 cd anomaly-detection
-set ANOMALY_DB_URL=postgresql://usuario_lectura:clave@host:5432/login_federado
+export ANOMALY_DB_URL='postgresql://usuario_lectura:clave@host:5432/login_federado'
 python train.py --from 2026-01-01T00:00:00Z --to 2026-11-01T00:00:00Z
 ```
 
-En PowerShell, la variable se define con:
+En PowerShell, desde `anomaly-detection/`, la variable se define con:
 
 ```powershell
 $env:ANOMALY_DB_URL = "postgresql://usuario_lectura:clave@host:5432/login_federado"
@@ -962,7 +744,7 @@ El proceso genera:
 
 - `ML/data/real_events.csv`: exportación cruda sensible;
 - `ML/data/real_processed_features.csv`: features calculadas;
-- `ML/models/isolation_forest.pkl`: modelo consumido por el Dockerfile;
+- `ML/models/isolation_forest.pkl`, salida predeterminada del reentrenamiento administrativo. El Dockerfile empaqueta la pareja V4 indicada en la sección 16.
 - `ML/models/isolation_forest.metadata.json`: trazabilidad del entrenamiento.
 
 Los dos CSV reales y el archivo de metadata están ignorados por Git. Los intentos
@@ -988,33 +770,6 @@ dataset sintético se conserva como benchmark separado.
 
 ## 34. Conclusión
 
-El módulo `ML` demuestra que los datos asociados a los intentos de autenticación de CityPass pueden transformarse en features comportamentales y ser utilizados por un modelo de detección de anomalías.
+Isolation Forest V4 combina cinco variables de comportamiento con una política de riesgo calibrada. En la prueba sintética independiente se marcaron 36 de 100 anomalías. Se propuso bloquear 24 de 1.900 accesos legítimos (1,26 %), por encima del objetivo del 1 %.
 
-La PoC utiliza cinco features:
-
-```text
-hour_of_day
-is_new_ip
-is_new_device
-recent_failures_15min
-history_size
-```
-
-sobre un dataset de:
-
-```text
-10.000 registros
-5% anomalías
-```
-
-El modelo Isolation Forest obtuvo:
-
-```text
-Precision: 79.15%
-Recall:    78.20%
-F1-score:  78.67%
-```
-
-Los mejores resultados se observaron en anomalías que afectan directamente las variables disponibles, especialmente cambios simultáneos y uso de nuevas direcciones IP.
-
-Esta implementación no reemplaza el sistema de reglas actual. Su función es demostrar una posible evolución futura hacia un esquema híbrido donde reglas determinísticas y modelos de detección de anomalías puedan coexistir.
+El modo `SHADOW` permite registrar esas propuestas y contrastarlas con los resultados del acceso antes de aplicar bloqueos automáticos en `ENFORCE`.
